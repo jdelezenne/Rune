@@ -1,0 +1,9 @@
+import Standard.*
+
+func main() -> Int {
+    let angle = Math.PI / 2.0
+    let value = Math.sin(angle)
+    Console.printLine("sin(pi/2) = ${value}")
+    Console.printLine("sqrt(144) = ${Math.sqrt(144.0)}")
+    return 0
+}

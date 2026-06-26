@@ -1,0 +1,93 @@
+@symbol("SDL_Cursor")
+public distinct Cursor
+
+public enum SystemCursor: Int32 {
+    default = 0 // SDL_SYSTEM_CURSOR_DEFAULT
+    text = 1 // SDL_SYSTEM_CURSOR_TEXT
+    wait = 2 // SDL_SYSTEM_CURSOR_WAIT
+    crosshair = 3 // SDL_SYSTEM_CURSOR_CROSSHAIR
+    progress = 4 // SDL_SYSTEM_CURSOR_PROGRESS
+    nwseResize = 5 // SDL_SYSTEM_CURSOR_NWSE_RESIZE
+    neswResize = 6 // SDL_SYSTEM_CURSOR_NESW_RESIZE
+    ewResize = 7 // SDL_SYSTEM_CURSOR_EW_RESIZE
+    nsResize = 8 // SDL_SYSTEM_CURSOR_NS_RESIZE
+    move = 9 // SDL_SYSTEM_CURSOR_MOVE
+    notAllowed = 10 // SDL_SYSTEM_CURSOR_NOT_ALLOWED
+    pointer = 11 // SDL_SYSTEM_CURSOR_POINTER
+    count = 21 // SDL_SYSTEM_CURSOR_COUNT
+}
+
+public enum MouseWheelDirection: Int32 {
+    normal = 0 // SDL_MOUSEWHEEL_NORMAL
+    flipped = 1 // SDL_MOUSEWHEEL_FLIPPED
+}
+
+public enum MouseButtonId: UInt8 {
+    left = 1 // SDL_BUTTON_LEFT
+    middle = 2 // SDL_BUTTON_MIDDLE
+    right = 3 // SDL_BUTTON_RIGHT
+    x1 = 4 // SDL_BUTTON_X1
+    x2 = 5 // SDL_BUTTON_X2
+}
+
+@flags
+
+public enum MouseButton: UInt32 {
+    leftMask = 1 // SDL_BUTTON_LMASK
+    middleMask = 2 // SDL_BUTTON_MMASK
+    rightMask = 4 // SDL_BUTTON_RMASK
+    x1Mask = 8 // SDL_BUTTON_X1MASK
+    x2Mask = 16 // SDL_BUTTON_X2MASK
+}
+
+@include("SDL3/SDL_mouse.h")
+@link("SDL3")
+{
+    @symbol("SDL_GetMouseState")
+    public func getMouseState(x: &Float32, y: &Float32) -> UInt32
+
+    @symbol("SDL_GetGlobalMouseState")
+    public func getGlobalMouseState(x: &Float32, y: &Float32) -> UInt32
+
+    @symbol("SDL_GetRelativeMouseState")
+    public func getRelativeMouseState(x: &Float32, y: &Float32) -> UInt32
+
+    @symbol("SDL_CreateSystemCursor")
+    public func createSystemCursor(id: SystemCursor) -> &Cursor?
+
+    @symbol("SDL_SetCursor")
+    public func setCursor(cursor: &Cursor?) -> Bool
+
+    @symbol("SDL_DestroyCursor")
+    public func destroyCursor(cursor: &Cursor?) -> Void
+
+    @symbol("SDL_GetDefaultCursor")
+    public func getDefaultCursor() -> &Cursor?
+
+    @symbol("SDL_GetCursor")
+    public func getCursor() -> &Cursor?
+
+    @symbol("SDL_ShowCursor")
+    public func showCursor() -> Bool
+
+    @symbol("SDL_HideCursor")
+    public func hideCursor() -> Bool
+
+    @symbol("SDL_CursorVisible")
+    public func cursorVisible() -> Bool
+
+    @symbol("SDL_WarpMouseInWindow")
+    public func warpMouseInWindow(window: &Window?, x: Float32, y: Float32) -> Void
+
+    @symbol("SDL_WarpMouseGlobal")
+    public func warpMouseGlobal(x: Float32, y: Float32) -> Bool
+
+    @symbol("SDL_CaptureMouse")
+    public func captureMouse(enabled: Bool) -> Bool
+
+    @symbol("SDL_SetWindowRelativeMouseMode")
+    public func setWindowRelativeMouseMode(window: &Window?, enabled: Bool) -> Bool
+
+    @symbol("SDL_GetWindowRelativeMouseMode")
+    public func getWindowRelativeMouseMode(window: &Window?) -> Bool
+}

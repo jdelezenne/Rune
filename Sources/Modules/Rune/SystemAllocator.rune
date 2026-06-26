@@ -1,0 +1,12 @@
+/// Built-in system heap allocator.
+public struct SystemAllocator implements Allocator {
+    /// Allocates a block of raw memory from the system heap.
+    public mutating func allocate(size: UInt, alignment: UInt) throws -> &Byte {
+        return Memory.systemAllocateAligned(size, alignment)
+    }
+
+    /// Deallocates a block previously returned by `allocate`.
+    public mutating func deallocate(address: *Byte) {
+        Memory.systemDeallocate(address)
+    }
+}

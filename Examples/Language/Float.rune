@@ -1,0 +1,8 @@
+func main() -> Int {
+    let width: Float = 6.5
+    let height: Float = 4.0
+    let area = width * height
+    let half = area / 2.0
+
+    return 0
+}

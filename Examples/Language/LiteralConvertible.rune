@@ -1,0 +1,68 @@
+// User-defined types opting into literal initialization protocols.
+
+// MARK: - IntegerLiteralConvertible
+
+struct Score implements IntegerLiteralConvertible {
+    var points: Int
+    public init(integerLiteral: Int) {
+        self.points = integerLiteral
+    }
+}
+
+// MARK: - StringLiteralConvertible
+
+struct Label implements StringLiteralConvertible {
+    var text: String
+    public init(stringLiteral: String) {
+        self.text = stringLiteral
+    }
+}
+
+// MARK: - ArrayLiteralConvertible
+
+struct Bag<T> {
+    var count: Int
+}
+
+extension Bag<T> implements ArrayLiteralConvertible {
+    public type Element = T
+    public init(elements: T...) {
+        self.count = elements.count
+    }
+}
+
+// MARK: - CustomStringConvertible
+
+struct Point implements CustomStringConvertible {
+    var x: Int
+    var y: Int
+
+    public func toString() -> String {
+        return "(${x}, ${y})"
+    }
+}
+
+func main() -> Int {
+    let score: Score = 100
+    if score.points != 100 {
+        return 1
+    }
+
+    let label: Label = "hello"
+    if label.text.length != 5 {
+        return 2
+    }
+
+    let bag: Bag<Int> = [10, 20, 30]
+    if bag.count != 3 {
+        return 3
+    }
+
+    let pt = Point(x: 3, y: 4)
+    let desc: String = "${pt}"
+    if desc != "(3, 4)" {
+        return 4
+    }
+
+    return 0
+}

@@ -1,0 +1,15 @@
+func sumSlice(values: Slice<Int>) -> Int {
+    var total = 0
+    for value in values {
+        total = total + value
+    }
+
+    return total
+}
+
+func main() -> Int {
+    let numbers: [Int, 4] = [10, 20, 30, 40]
+    let full: Slice<Int> = numbers.asSlice()
+    let middle: Slice<Int> = full[1..3]
+    return sumSlice(middle)
+}

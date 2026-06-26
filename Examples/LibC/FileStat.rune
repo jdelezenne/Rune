@@ -1,0 +1,14 @@
+// File metadata probe using C-foldable LibC signatures.
+
+import LibC
+import Standard.*
+
+func main() -> Int {
+    let path: CStringSlice = "Examples/LibC/sample.txt"
+
+    Console.printLine("--- ${path} ---")
+    Console.printLine("strlen=${LibC.strlen(path)}")
+    Console.printLine("access=${LibC.access(path, LibC.F_OK)}")
+    Console.printLine("strcmp=${LibC.strcmp(path, "Examples/LibC/sample.txt")}")
+    return 0
+}

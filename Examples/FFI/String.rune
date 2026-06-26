@@ -1,0 +1,31 @@
+import Standard.*
+
+@link("c")
+@include("string.h")
+static CStringLib {
+    @symbol("strlen")
+    func length(value: CStringSlice) -> UInt64
+
+    @symbol("strcmp")
+    func compare(left: CStringSlice, right: CStringSlice) -> Int32
+
+    @symbol("strchr")
+    func findChar(value: CStringSlice, codePoint: Int32) -> CStringSlice?
+}
+
+func main() {
+    let text: CStringSlice = "Rune"
+    let same: CStringSlice = "Rune"
+    let other: CStringSlice = "Sigil"
+
+    Console.printLine("strlen('Rune')=${CStringLib.length(text)}")
+    Console.printLine("strcmp('Rune','Rune')=${CStringLib.compare(text, same)}")
+    Console.printLine("strcmp('Rune','Sigil')=${CStringLib.compare(text, other)}")
+
+    let suffix = CStringLib.findChar(text, 117)
+    if suffix == nil {
+        Console.printLine("strchr('Rune','u') failed")
+    } else {
+        Console.printLine("strchr('Rune','u') found")
+    }
+}

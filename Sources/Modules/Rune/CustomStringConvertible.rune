@@ -1,0 +1,4 @@
+/// Types that can be represented as text.
+public interface CustomStringConvertible {
+    func toString() -> String
+}

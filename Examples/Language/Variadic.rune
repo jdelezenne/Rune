@@ -1,0 +1,46 @@
+func count(values: Int...) -> Int {
+    return values.count
+}
+
+func countWithPrefix(prefix: Int, values: Int...) -> Int {
+    return prefix + values.count
+}
+
+func main() -> Int {
+    let total1 = count(1, 2, 3, 4)
+    if total1 != 4 {
+        return 1
+    }
+
+    let total2 = count()
+    if total2 != 0 {
+        return 2
+    }
+
+    let total3 = countWithPrefix(10)
+    if total3 != 10 {
+        return 3
+    }
+
+    let total4 = countWithPrefix(10, 20, 30)
+    if total4 != 12 {
+        return 4
+    }
+
+    let implicitArrayNumbers = [5, 6, 7]
+    if count(...implicitArrayNumbers) != 3 {
+        return 5
+    }
+
+    let arrayNumbers: Array<Int> = [5, 6, 7]
+    if count(...arrayNumbers) != 3 {
+        return 5
+    }
+
+    let inlineNumbers: [Int, 3] = [8, 9, 10]
+    if count(...inlineNumbers) != 3 {
+        return 6
+    }
+
+    return 0
+}

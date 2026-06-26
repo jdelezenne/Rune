@@ -1,0 +1,14 @@
+func main() -> Int {
+    let name: String = "Rune"
+    let version: Int = 2
+    let message: String = "lang=${name}, v${version}"
+    if message != "lang=Rune, v2" {
+        return 1
+    }
+
+    if message.length != 13 {
+        return 2
+    }
+
+    return 0
+}

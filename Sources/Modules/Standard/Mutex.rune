@@ -1,0 +1,34 @@
+/// Opaque platform mutex handle.
+public distinct MutexHandle
+
+/// Mutual exclusion lock for cross-thread synchronization.
+///
+/// Use `nativeHandle` when passing the lock to native FFI callbacks.
+@builtin
+public struct Mutex {
+    /// Handle suitable for passing to native FFI callbacks.
+    public nativeHandle: *MutexHandle? {
+        @runtime("rune_mutex_native_handle")
+        get
+    }
+
+    /// Creates a new mutex.
+    @runtime("rune_mutex_create")
+    public init()
+
+    /// Releases the mutex when the value is destroyed.
+    @runtime("rune_mutex_destroy")
+    final()
+
+    /// Blocks until the mutex is acquired.
+    @runtime("rune_mutex_lock")
+    public mutating func lock()
+
+    /// Releases the mutex.
+    @runtime("rune_mutex_unlock")
+    public mutating func unlock()
+
+    /// Releases platform resources and clears the handle.
+    @runtime("rune_mutex_destroy")
+    public mutating func release()
+}

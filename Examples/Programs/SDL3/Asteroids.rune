@@ -1,0 +1,1435 @@
+// SDL3 Asteroids: procedural vector arcade with phosphor trails, particles, and sfx.
+//
+// Controls:
+//   Left/Right or A/D     - rotate ship
+//   Up / W                - thrust
+//   Space / gamepad South - fire
+//   Shift / gamepad East  - hyperspace (cooldown)
+//   P                     - pause
+//   Escape / close        - quit
+
+import Standard.*
+import SDL3
+
+const WIDTH: Int32 = 800
+const HEIGHT: Int32 = 600
+const WIDTH_F: Float32 = 800.0
+const HEIGHT_F: Float32 = 600.0
+
+const MAX_ASTEROIDS: Int = 48
+const MAX_BULLETS: Int = 12
+const MAX_PARTICLES: Int = 160
+const MAX_VERTICES: Int = 36
+const STAR_COUNT: Int = 120
+
+const SHIP_ROT_SPEED: Float32 = 4.2
+const SHIP_THRUST: Float32 = 340.0
+const SHIP_DRAG: Float32 = 0.992
+const SHIP_MAX_SPEED: Float32 = 460.0
+const BULLET_SPEED: Float32 = 560.0
+const BULLET_LIFE: Float32 = 1.1
+const FIRE_COOLDOWN: Float32 = 0.18
+const HYPERSPACE_COOLDOWN: Float32 = 2.5
+const INVULN_TIME: Float32 = 2.0
+const TRAILS_ENABLED: Bool = false
+const TRAIL_FADE_ALPHA: UInt8 = 22
+
+const DIGIT_COLS: Int = 5
+const DIGIT_ROWS: Int = 7
+const HUD_PIXEL: Float32 = 3.0
+const HUD_GAP: Float32 = 2.0
+
+const AUDIO_RATE: Int32 = 11025
+const AUDIO_FADE: Int = 180
+const AUDIO_AMP: Float32 = 9000.0
+const TAU_F: Float32 = 6.2831855
+
+const DIGIT_0: [UInt8, _] = [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E]
+const DIGIT_1: [UInt8, _] = [0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E]
+const DIGIT_2: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x10, 0x10, 0x0E]
+const DIGIT_3: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_4: [UInt8, _] = [0x11, 0x11, 0x11, 0x1F, 0x01, 0x01, 0x01]
+const DIGIT_5: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_6: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_7: [UInt8, _] = [0x0E, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01]
+const DIGIT_8: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_9: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x01, 0x01, 0x0E]
+
+struct Rng {
+    var state: UInt32
+}
+
+struct Star {
+    var x: Float32
+    var y: Float32
+    var speed: Float32
+    var brightness: UInt8
+}
+
+struct Ship {
+    var x: Float32
+    var y: Float32
+    var vx: Float32
+    var vy: Float32
+    var angle: Float32
+    var alive: Bool
+    var invuln: Float32
+    var fireTimer: Float32
+    var hyperspaceTimer: Float32
+    var thrusting: Bool
+}
+
+struct Bullet {
+    var x: Float32
+    var y: Float32
+    var vx: Float32
+    var vy: Float32
+    var life: Float32
+    var active: Bool
+}
+
+struct Asteroid {
+    var x: Float32
+    var y: Float32
+    var vx: Float32
+    var vy: Float32
+    var angle: Float32
+    var spin: Float32
+    var tier: Int32
+    var alive: Bool
+    var vertexCount: Int32
+    var radii: [Float32, 12]
+}
+
+struct Particle {
+    var x: Float32
+    var y: Float32
+    var vx: Float32
+    var vy: Float32
+    var life: Float32
+    var maxLife: Float32
+    var size: Float32
+    var red: UInt8
+    var green: UInt8
+    var blue: UInt8
+    var active: Bool
+}
+
+struct InputState {
+    var rotateLeft: Bool
+    var rotateRight: Bool
+    var thrust: Bool
+    var fire: Bool
+    var hyperspace: Bool
+    var pause: Bool
+    var quit: Bool
+}
+
+struct AudioPlayback {
+    var started: Bool
+}
+
+struct Game {
+    var ship: Ship
+    var bullets: [Bullet]
+    var asteroids: [Asteroid]
+    var particles: [Particle]
+    var stars: [Star]
+    var score: Int32
+    var lives: Int32
+    var wave: Int32
+    var pendingWave: Bool
+    var paused: Bool
+    var gameOver: Bool
+    var rng: Rng
+    var trailPrimed: Bool
+}
+
+let hello = "Hi, there!"
+
+func seedRng(rng: &Rng, seed: UInt32) {
+    if seed == 0 {
+        rng.state = 0xC0FFEE01
+    } else {
+        rng.state = seed
+    }
+}
+
+func randUnit(rng: &Rng) -> Float32 {
+    rng.state = rng.state * 1664525 + 1013904223
+    return Float32(rng.state) / 4294967295.0
+}
+
+func randRange(rng: &Rng, low: Float32, high: Float32) -> Float32 {
+    return low + randUnit(rng) * (high - low)
+}
+
+func randInt(rng: &Rng, upperExclusive: Int32) -> Int32 {
+    if upperExclusive <= 0 {
+        return 0
+    }
+
+    return Int32(randUnit(rng) * Float32(upperExclusive))
+}
+
+func wrapCoord(value: Float32, limit: Float32) -> Float32 {
+    var v = value
+    while v < 0.0 {
+        v = v + limit
+    }
+    while v >= limit {
+        v = v - limit
+    }
+
+    return v
+}
+
+func wrapShip(ship: &Ship) {
+    ship.x = wrapCoord(ship.x, WIDTH_F)
+    ship.y = wrapCoord(ship.y, HEIGHT_F)
+}
+
+func wrapBullet(bullet: &Bullet) {
+    bullet.x = wrapCoord(bullet.x, WIDTH_F)
+    bullet.y = wrapCoord(bullet.y, HEIGHT_F)
+}
+
+func wrapAsteroid(asteroid: &Asteroid) {
+    asteroid.x = wrapCoord(asteroid.x, WIDTH_F)
+    asteroid.y = wrapCoord(asteroid.y, HEIGHT_F)
+}
+
+func keyboardDown(state: *Bool?, scancode: SDL3.Scancode) -> Bool {
+    if state == nil {
+        return false
+    }
+    let slot = (Int(state!) + Int(scancode as Int32)) as *Bool
+    return slot^
+}
+
+func readKeyboard(input: &InputState, keyboard: *Bool?) {
+    input.rotateLeft = keyboardDown(keyboard, SDL3.Scancode.left) ||
+        keyboardDown(keyboard, SDL3.Scancode.a)
+    input.rotateRight = keyboardDown(keyboard, SDL3.Scancode.right) ||
+        keyboardDown(keyboard, SDL3.Scancode.d)
+    input.thrust = keyboardDown(keyboard, SDL3.Scancode.up) ||
+        keyboardDown(keyboard, SDL3.Scancode.w)
+    input.fire = keyboardDown(keyboard, SDL3.Scancode.space)
+    input.hyperspace = keyboardDown(keyboard, SDL3.Scancode.lshift) ||
+        keyboardDown(keyboard, SDL3.Scancode.rshift)
+}
+
+func applyGamepad(input: &InputState, gamepad: &SDL3.Gamepad?) {
+    if gamepad == nil {
+        return
+    }
+
+    let leftX = SDL3.getGamepadAxis(gamepad, SDL3.GamepadAxis.leftX)
+    let leftY = SDL3.getGamepadAxis(gamepad, SDL3.GamepadAxis.leftY)
+    let deadZone: Int32 = 8000
+
+    if leftX < -deadZone {
+        input.rotateLeft = true
+    }
+
+    if leftX > deadZone {
+        input.rotateRight = true
+    }
+
+    if leftY < -deadZone {
+        input.thrust = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.dpadLeft) {
+        input.rotateLeft = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.dpadRight) {
+        input.rotateRight = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.dpadUp) {
+        input.thrust = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.south) ||
+        SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.rightShoulder) {
+        input.fire = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.east) {
+        input.hyperspace = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.start) {
+        input.pause = true
+    }
+}
+
+func makeVertex(x: Float32, y: Float32, red: Float32, green: Float32, blue: Float32, alpha: Float32) -> SDL3.Vertex {
+    return SDL3.Vertex(
+        position: SDL3.FPoint(x: x, y: y),
+        color: SDL3.FColor(r: red, g: green, b: blue, a: alpha),
+        texCoord: SDL3.FPoint(x: 0.0, y: 0.0))
+}
+
+func tierRadius(tier: Int32) -> Float32 {
+    if tier == 1 {
+        return 52.0
+    }
+
+    if tier == 2 {
+        return 30.0
+    }
+
+    return 16.0
+}
+
+func tierScore(tier: Int32) -> Int32 {
+    if tier == 1 {
+        return 20
+    }
+
+    if tier == 2 {
+        return 50
+    }
+
+    return 100
+}
+
+func tierVertexCount(rng: &Rng) -> Int32 {
+    return 8 + randInt(rng, 5)
+}
+
+func configureAsteroidShape(asteroid: &Asteroid, rng: &Rng) {
+    asteroid.vertexCount = tierVertexCount(rng)
+    let base = tierRadius(asteroid.tier)
+    for vertexIndex in 0..asteroid.vertexCount {
+        let wobble = randRange(rng, 0.72, 1.18)
+        asteroid.radii[Int(vertexIndex)] = base * wobble
+    }
+}
+
+func spawnAsteroid(
+    game: &Game,
+    x: Float32,
+    y: Float32,
+    tier: Int32,
+    vx: Float32,
+    vy: Float32) {
+    var asteroid = Asteroid(
+        x: x,
+        y: y,
+        vx: vx,
+        vy: vy,
+        angle: randRange(&game.rng, 0.0, TAU_F),
+        spin: randRange(&game.rng, -1.4, 1.4),
+        tier: tier,
+        alive: true,
+        vertexCount: 0,
+        radii: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    configureAsteroidShape(&asteroid, &game.rng)
+    game.asteroids.append(asteroid)
+}
+
+func spawnWave(game: &Game) {
+    game.asteroids = []
+    let count = 3 + game.wave
+    for _ in 0..count {
+        let edge = randInt(&game.rng, 4)
+        var x: Float32 = 0.0
+        var y: Float32 = 0.0
+        if edge == 0 {
+            x = randRange(&game.rng, 0.0, WIDTH_F)
+            y = -40.0
+        } else if edge == 1 {
+            x = WIDTH_F + 40.0
+            y = randRange(&game.rng, 0.0, HEIGHT_F)
+        } else if edge == 2 {
+            x = randRange(&game.rng, 0.0, WIDTH_F)
+            y = HEIGHT_F + 40.0
+        } else {
+            x = -40.0
+            y = randRange(&game.rng, 0.0, HEIGHT_F)
+        }
+
+        let speed = randRange(&game.rng, 40.0, 90.0) + Float32(game.wave) * 6.0
+        let direction = randRange(&game.rng, 0.0, TAU_F)
+        spawnAsteroid(
+            game,
+            x,
+            y,
+            1,
+            Math.cos(direction) * speed,
+            Math.sin(direction) * speed)
+    }
+    game.pendingWave = false
+}
+
+func resetShip(game: &Game) {
+    game.ship.x = WIDTH_F * 0.5
+    game.ship.y = HEIGHT_F * 0.5
+    game.ship.vx = 0.0
+    game.ship.vy = 0.0
+    game.ship.angle = Float32(-Math.PI / 2.0)
+    game.ship.alive = true
+    game.ship.invuln = INVULN_TIME
+    game.ship.fireTimer = 0.0
+    game.ship.hyperspaceTimer = 0.0
+    game.ship.thrusting = false
+}
+
+func initStars(game: &Game) {
+    game.stars = []
+    for _ in 0..STAR_COUNT {
+        let layer = randInt(&game.rng, 3)
+        let speed: Float32
+        let brightness: UInt8
+        if layer == 0 {
+            speed = 12.0
+            brightness = 70
+        } else if layer == 1 {
+            speed = 28.0
+            brightness = 120
+        } else {
+            speed = 52.0
+            brightness = 210
+        }
+
+        game.stars.append(Star(
+            x: randRange(&game.rng, 0.0, WIDTH_F),
+            y: randRange(&game.rng, 0.0, HEIGHT_F),
+            speed: speed,
+            brightness: brightness))
+    }
+}
+
+func resetGame(game: &Game) {
+    game.score = 0
+    game.lives = 3
+    game.wave = 1
+    game.pendingWave = false
+    game.paused = false
+    game.gameOver = false
+    game.bullets = []
+    game.particles = []
+    game.trailPrimed = false
+    seedRng(&game.rng, UInt32(SDL3.getTicks()))
+    initStars(game)
+    resetShip(game)
+    spawnWave(game)
+}
+
+func spawnParticle(
+    game: &Game,
+    x: Float32,
+    y: Float32,
+    red: UInt8,
+    green: UInt8,
+    blue: UInt8,
+    speed: Float32,
+    life: Float32,
+    size: Float32) {
+    let angle = randRange(&game.rng, 0.0, TAU_F)
+    let velocity = speed * randRange(&game.rng, 0.35, 1.0)
+    game.particles.append(Particle(
+        x: x,
+        y: y,
+        vx: Math.cos(angle) * velocity,
+        vy: Math.sin(angle) * velocity,
+        life: life,
+        maxLife: life,
+        size: size,
+        red: red,
+        green: green,
+        blue: blue,
+        active: true))
+}
+
+func burstExplosion(game: &Game, x: Float32, y: Float32, tier: Int32) {
+    let count = 10 + tier * 6
+    for _ in 0..count {
+        spawnParticle(game, x, y, 255, 210, 120, 180.0, 0.55, 2.2)
+        spawnParticle(game, x, y, 180, 220, 255, 140.0, 0.75, 1.6)
+    }
+}
+
+func queueTone(
+    stream: &SDL3.AudioStream?,
+    device: UInt32,
+    playback: &AudioPlayback,
+    frequency: Float32,
+    durationSeconds: Float32,
+    volume: Float32) {
+    if stream == nil || device == 0 {
+        return
+    }
+
+    var sampleCount: Int = Int(durationSeconds * Float32(AUDIO_RATE))
+    if sampleCount <= 0 {
+        return
+    }
+
+    if sampleCount > 4096 {
+        sampleCount = 4096
+    }
+
+    var samples: [Int16, 4096] = []
+    var phase: Float32 = 0.0
+    let phaseStep: Float32 = TAU_F * frequency / Float32(AUDIO_RATE)
+    for sampleIndex in 0..sampleCount {
+        var gain: Float32 = volume
+        if sampleIndex < AUDIO_FADE {
+            gain = gain * Float32(sampleIndex) / Float32(AUDIO_FADE)
+        } else if sampleIndex >= sampleCount - AUDIO_FADE {
+            gain = gain * Float32(sampleCount - sampleIndex) / Float32(AUDIO_FADE)
+        }
+        samples[sampleIndex] = Int16(AUDIO_AMP * gain * Math.sin(phase))
+        phase = phase + phaseStep
+        if phase >= TAU_F {
+            phase = phase - TAU_F
+        }
+    }
+
+    let byteLength: Int32 = Int32(sampleCount * 2)
+    if !SDL3.putAudioStreamData(stream, samples.bytes, byteLength) {
+        return
+    }
+
+    if !playback.started {
+        if SDL3.resumeAudioDevice(device) {
+            playback.started = true
+        }
+    }
+}
+
+func queueNoiseBurst(
+    stream: &SDL3.AudioStream?,
+    device: UInt32,
+    playback: &AudioPlayback,
+    durationSeconds: Float32,
+    volume: Float32) {
+    if stream == nil || device == 0 {
+        return
+    }
+
+    var sampleCount: Int = Int(durationSeconds * Float32(AUDIO_RATE))
+    if sampleCount <= 0 {
+        return
+    }
+
+    if sampleCount > 4096 {
+        sampleCount = 4096
+    }
+
+    var samples: [Int16, 4096] = []
+    var seed: UInt32 = UInt32(SDL3.getTicks())
+    for sampleIndex in 0..sampleCount {
+        seed = seed * 1664525 + 1013904223
+        let noise = Float32(Int32(seed % 2001) - 1000) / 1000.0
+        var gain: Float32 = volume
+        if sampleIndex < AUDIO_FADE {
+            gain = gain * Float32(sampleIndex) / Float32(AUDIO_FADE)
+        } else if sampleIndex >= sampleCount - AUDIO_FADE {
+            gain = gain * Float32(sampleCount - sampleIndex) / Float32(AUDIO_FADE)
+        }
+        samples[sampleIndex] = Int16(AUDIO_AMP * gain * noise)
+    }
+
+    let byteLength: Int32 = Int32(sampleCount * 2)
+    if !SDL3.putAudioStreamData(stream, samples.bytes, byteLength) {
+        return
+    }
+
+    if !playback.started {
+        if SDL3.resumeAudioDevice(device) {
+            playback.started = true
+        }
+    }
+}
+
+func fireBullet(game: &Game) {
+    if game.ship.fireTimer > 0.0 {
+        return
+    }
+
+    let noseX = game.ship.x + Math.cos(game.ship.angle) * 18.0
+    let noseY = game.ship.y + Math.sin(game.ship.angle) * 18.0
+    game.bullets.append(Bullet(
+        x: noseX,
+        y: noseY,
+        vx: game.ship.vx + Math.cos(game.ship.angle) * BULLET_SPEED,
+        vy: game.ship.vy + Math.sin(game.ship.angle) * BULLET_SPEED,
+        life: BULLET_LIFE,
+        active: true))
+    game.ship.fireTimer = FIRE_COOLDOWN
+}
+
+func tryHyperspace(game: &Game) {
+    if game.ship.hyperspaceTimer > 0.0 || !game.ship.alive {
+        return
+    }
+
+    game.ship.x = randRange(&game.rng, 80.0, WIDTH_F - 80.0)
+    game.ship.y = randRange(&game.rng, 80.0, HEIGHT_F - 80.0)
+    game.ship.vx = 0.0
+    game.ship.vy = 0.0
+    game.ship.invuln = INVULN_TIME
+    game.ship.hyperspaceTimer = HYPERSPACE_COOLDOWN
+
+    for _ in 0..24 {
+        spawnParticle(game, game.ship.x, game.ship.y, 120, 180, 255, 90.0, 0.35, 1.4)
+    }
+}
+
+func asteroidHitRadius(asteroid: Asteroid) -> Float32 {
+    var sum: Float32 = 0.0
+    for vertexIndex in 0..asteroid.vertexCount {
+        sum = sum + asteroid.radii[Int(vertexIndex)]
+    }
+
+    return sum / Float32(asteroid.vertexCount)
+}
+
+func pointSegmentDistance(px: Float32, py: Float32, ax: Float32, ay: Float32, bx: Float32, by: Float32) -> Float32 {
+    let abx = bx - ax
+    let aby = by - ay
+    let apx = px - ax
+    let apy = py - ay
+    let abLenSq = abx * abx + aby * aby
+    if abLenSq <= 0.0001 {
+        return Math.hypot(px - ax, py - ay)
+    }
+
+    var segmentParameter = (apx * abx + apy * aby) / abLenSq
+    segmentParameter = Math.clamp(segmentParameter, 0.0, 1.0)
+    let cx = ax + abx * segmentParameter
+    let cy = ay + aby * segmentParameter
+    return Math.hypot(px - cx, py - cy)
+}
+
+func shipHitsAsteroid(ship: Ship, asteroid: Asteroid) -> Bool {
+    if !asteroid.alive || !ship.alive {
+        return false
+    }
+
+    let radius = asteroidHitRadius(asteroid)
+    if Math.hypot(ship.x - asteroid.x, ship.y - asteroid.y) > radius + 10.0 {
+        return false
+    }
+
+    for vertexIndex in 0..asteroid.vertexCount {
+        let nextVertexIndex = (vertexIndex + 1) % asteroid.vertexCount
+        let a0 = asteroid.angle + TAU_F * Float32(vertexIndex) / Float32(asteroid.vertexCount)
+        let a1 = asteroid.angle + TAU_F * Float32(nextVertexIndex) / Float32(asteroid.vertexCount)
+        let edgeStartX = asteroid.x + Math.cos(a0) * asteroid.radii[Int(vertexIndex)]
+        let edgeStartY = asteroid.y + Math.sin(a0) * asteroid.radii[Int(vertexIndex)]
+        let edgeEndX = asteroid.x + Math.cos(a1) * asteroid.radii[Int(nextVertexIndex)]
+        let edgeEndY = asteroid.y + Math.sin(a1) * asteroid.radii[Int(nextVertexIndex)]
+        if pointSegmentDistance(ship.x, ship.y, edgeStartX, edgeStartY, edgeEndX, edgeEndY) < 8.0 {
+            return true
+        }
+    }
+
+    return Math.hypot(ship.x - asteroid.x, ship.y - asteroid.y) < radius * 0.45
+}
+
+func destroyAsteroid(
+    game: &Game,
+    index: Int,
+    stream: &SDL3.AudioStream?,
+    device: UInt32,
+    playback: &AudioPlayback) {
+    let asteroid = game.asteroids[index]
+    if !asteroid.alive {
+        return
+    }
+
+    game.asteroids[index].alive = false
+    game.score = game.score + tierScore(asteroid.tier)
+    burstExplosion(game, asteroid.x, asteroid.y, asteroid.tier)
+    queueNoiseBurst(stream, device, playback, 0.12, 0.55)
+
+    if asteroid.tier < 3 {
+        let childTier = asteroid.tier + 1
+        let childSpeed = Math.hypot(asteroid.vx, asteroid.vy) + 50.0
+        let dirA = randRange(&game.rng, 0.0, TAU_F)
+        let dirB = dirA + 1.9
+        spawnAsteroid(
+            game,
+            asteroid.x,
+            asteroid.y,
+            childTier,
+            Math.cos(dirA) * childSpeed,
+            Math.sin(dirA) * childSpeed)
+        spawnAsteroid(
+            game,
+            asteroid.x,
+            asteroid.y,
+            childTier,
+            Math.cos(dirB) * childSpeed,
+            Math.sin(dirB) * childSpeed)
+    }
+}
+
+func compactAsteroids(game: &Game) {
+    var writeIndex: Int = 0
+    for readIndex in 0..game.asteroids.count {
+        if game.asteroids[readIndex].alive {
+            if writeIndex != readIndex {
+                game.asteroids[writeIndex] = game.asteroids[readIndex]
+            }
+            writeIndex = writeIndex + 1
+        }
+    }
+
+    while game.asteroids.count > writeIndex {
+        game.asteroids.remove(at: game.asteroids.count - 1)
+    }
+}
+
+func compactBullets(game: &Game) {
+    var writeIndex: Int = 0
+    for readIndex in 0..game.bullets.count {
+        if game.bullets[readIndex].active {
+            if writeIndex != readIndex {
+                game.bullets[writeIndex] = game.bullets[readIndex]
+            }
+            writeIndex = writeIndex + 1
+        }
+    }
+    while game.bullets.count > writeIndex {
+        game.bullets.remove(at: game.bullets.count - 1)
+    }
+}
+
+func compactParticles(game: &Game) {
+    var writeIndex: Int = 0
+    for readIndex in 0..game.particles.count {
+        if game.particles[readIndex].active {
+            if writeIndex != readIndex {
+                game.particles[writeIndex] = game.particles[readIndex]
+            }
+            writeIndex = writeIndex + 1
+        }
+    }
+    while game.particles.count > writeIndex {
+        game.particles.remove(at: game.particles.count - 1)
+    }
+}
+
+func updateStars(game: &Game, dt: Float32) {
+    for starIndex in 0..game.stars.count {
+        game.stars[starIndex].y = game.stars[starIndex].y + game.stars[starIndex].speed * dt
+        if game.stars[starIndex].y > HEIGHT_F {
+            game.stars[starIndex].y = 0.0
+            game.stars[starIndex].x = randRange(&game.rng, 0.0, WIDTH_F)
+        }
+    }
+}
+
+func updateShip(
+    game: &Game,
+    input: InputState,
+    dt: Float32,
+    stream: &SDL3.AudioStream?,
+    device: UInt32,
+    playback: &AudioPlayback) {
+    if !game.ship.alive {
+        return
+    }
+
+    if game.ship.invuln > 0.0 {
+        game.ship.invuln = game.ship.invuln - dt
+    }
+
+    if game.ship.fireTimer > 0.0 {
+        game.ship.fireTimer = game.ship.fireTimer - dt
+    }
+
+    if game.ship.hyperspaceTimer > 0.0 {
+        game.ship.hyperspaceTimer = game.ship.hyperspaceTimer - dt
+    }
+
+    if input.rotateLeft {
+        game.ship.angle = game.ship.angle - SHIP_ROT_SPEED * dt
+    }
+
+    if input.rotateRight {
+        game.ship.angle = game.ship.angle + SHIP_ROT_SPEED * dt
+    }
+
+    game.ship.thrusting = false
+    if input.thrust {
+        game.ship.vx = game.ship.vx + Math.cos(game.ship.angle) * SHIP_THRUST * dt
+        game.ship.vy = game.ship.vy + Math.sin(game.ship.angle) * SHIP_THRUST * dt
+        game.ship.thrusting = true
+        if Int32(SDL3.getPerformanceCounter() % 6) == 0 {
+            queueNoiseBurst(stream, device, playback, 0.03, 0.08)
+        }
+    }
+
+    let speed = Math.hypot(game.ship.vx, game.ship.vy)
+    if speed > SHIP_MAX_SPEED {
+        let scale = SHIP_MAX_SPEED / speed
+        game.ship.vx = game.ship.vx * scale
+        game.ship.vy = game.ship.vy * scale
+    }
+
+    game.ship.vx = game.ship.vx * SHIP_DRAG
+    game.ship.vy = game.ship.vy * SHIP_DRAG
+    game.ship.x = game.ship.x + game.ship.vx * dt
+    game.ship.y = game.ship.y + game.ship.vy * dt
+    wrapShip(&game.ship)
+
+    if input.fire {
+        fireBullet(game)
+        queueTone(stream, device, playback, 880.0, 0.05, 0.35)
+    }
+
+    if input.hyperspace {
+        tryHyperspace(game)
+        queueTone(stream, device, playback, 220.0, 0.12, 0.25)
+    }
+}
+
+func updateBullets(game: &Game, dt: Float32) {
+    for bulletIndex in 0..game.bullets.count {
+        if !game.bullets[bulletIndex].active {
+            continue
+        }
+
+        game.bullets[bulletIndex].life = game.bullets[bulletIndex].life - dt
+        if game.bullets[bulletIndex].life <= 0.0 {
+            game.bullets[bulletIndex].active = false
+            continue
+        }
+
+        game.bullets[bulletIndex].x = game.bullets[bulletIndex].x + game.bullets[bulletIndex].vx * dt
+        game.bullets[bulletIndex].y = game.bullets[bulletIndex].y + game.bullets[bulletIndex].vy * dt
+        wrapBullet(&game.bullets[bulletIndex])
+    }
+    compactBullets(game)
+}
+
+func updateAsteroids(game: &Game, dt: Float32) {
+    for asteroidIndex in 0..game.asteroids.count {
+        if !game.asteroids[asteroidIndex].alive {
+            continue
+        }
+
+        game.asteroids[asteroidIndex].angle = game.asteroids[asteroidIndex].angle + game.asteroids[asteroidIndex].spin * dt
+        game.asteroids[asteroidIndex].x = game.asteroids[asteroidIndex].x + game.asteroids[asteroidIndex].vx * dt
+        game.asteroids[asteroidIndex].y = game.asteroids[asteroidIndex].y + game.asteroids[asteroidIndex].vy * dt
+        wrapAsteroid(&game.asteroids[asteroidIndex])
+    }
+}
+
+func updateParticles(game: &Game, dt: Float32) {
+    for particleIndex in 0..game.particles.count {
+        if !game.particles[particleIndex].active {
+            continue
+        }
+
+        game.particles[particleIndex].life = game.particles[particleIndex].life - dt
+        if game.particles[particleIndex].life <= 0.0 {
+            game.particles[particleIndex].active = false
+            continue
+        }
+
+        game.particles[particleIndex].x = game.particles[particleIndex].x + game.particles[particleIndex].vx * dt
+        game.particles[particleIndex].y = game.particles[particleIndex].y + game.particles[particleIndex].vy * dt
+        game.particles[particleIndex].vx = game.particles[particleIndex].vx * 0.98
+        game.particles[particleIndex].vy = game.particles[particleIndex].vy * 0.98
+    }
+    compactParticles(game)
+}
+
+func resolveCollisions(
+    game: &Game,
+    stream: &SDL3.AudioStream?,
+    device: UInt32,
+    playback: &AudioPlayback) {
+    for bulletIndex in 0..game.bullets.count {
+        if !game.bullets[bulletIndex].active {
+            continue
+        }
+
+        for asteroidIndex in 0..game.asteroids.count {
+            if !game.asteroids[asteroidIndex].alive {
+                continue
+            }
+
+            let radius = asteroidHitRadius(game.asteroids[asteroidIndex])
+            let deltaX = game.bullets[bulletIndex].x - game.asteroids[asteroidIndex].x
+            let deltaY = game.bullets[bulletIndex].y - game.asteroids[asteroidIndex].y
+            if deltaX * deltaX + deltaY * deltaY <= radius * radius {
+                game.bullets[bulletIndex].active = false
+                destroyAsteroid(game, asteroidIndex, stream, device, playback)
+                break
+            }
+        }
+    }
+    compactAsteroids(game)
+    compactBullets(game)
+
+    if !game.ship.alive || game.ship.invuln > 0.0 {
+        return
+    }
+
+    for asteroidIndex in 0..game.asteroids.count {
+        if shipHitsAsteroid(game.ship, game.asteroids[asteroidIndex]) {
+            game.ship.alive = false
+            burstExplosion(game, game.ship.x, game.ship.y, 2)
+            queueNoiseBurst(stream, device, playback, 0.35, 0.75)
+            game.lives = game.lives - 1
+            if game.lives <= 0 {
+                game.gameOver = true
+            } else {
+                resetShip(game)
+            }
+            break
+        }
+    }
+}
+
+func livingAsteroidCount(game: Game) -> Int32 {
+    var count: Int32 = 0
+    for asteroidIndex in 0..game.asteroids.count {
+        if game.asteroids[asteroidIndex].alive {
+            count = count + 1
+        }
+    }
+
+    return count
+}
+
+func drawStars(renderer: &SDL3.Renderer?, game: Game) {
+    for starIndex in 0..game.stars.count {
+        let star = game.stars[starIndex]
+        SDL3.setRenderDrawColor(renderer, star.brightness, star.brightness, star.brightness, 255)
+        SDL3.renderPoint(renderer, star.x, star.y)
+    }
+}
+
+func drawAsteroidGeometry(renderer: &SDL3.Renderer?, asteroid: Asteroid) {
+    if !asteroid.alive || asteroid.vertexCount < 3 {
+        return
+    }
+
+    var vertices: [SDL3.Vertex, MAX_VERTICES] = []
+    var vertexCount: Int32 = 0
+    for vertexIndex in 0..asteroid.vertexCount {
+        let nextVertexIndex = (vertexIndex + 1) % asteroid.vertexCount
+        let a0 = asteroid.angle + TAU_F * Float32(vertexIndex) / Float32(asteroid.vertexCount)
+        let a1 = asteroid.angle + TAU_F * Float32(nextVertexIndex) / Float32(asteroid.vertexCount)
+        let edgeStartX = asteroid.x + Math.cos(a0) * asteroid.radii[Int(vertexIndex)]
+        let edgeStartY = asteroid.y + Math.sin(a0) * asteroid.radii[Int(vertexIndex)]
+        let edgeEndX = asteroid.x + Math.cos(a1) * asteroid.radii[Int(nextVertexIndex)]
+        let edgeEndY = asteroid.y + Math.sin(a1) * asteroid.radii[Int(nextVertexIndex)]
+
+        let shade: Float32
+        if asteroid.tier == 1 {
+            shade = 0.78
+        } else if asteroid.tier == 2 {
+            shade = 0.88
+        } else {
+            shade = 0.95
+        }
+
+        vertices[Int(vertexCount)] = makeVertex(asteroid.x, asteroid.y, shade, shade, shade, 1.0)
+        vertices[Int(vertexCount + 1)] = makeVertex(edgeStartX, edgeStartY, shade, shade, shade, 1.0)
+        vertices[Int(vertexCount + 2)] = makeVertex(edgeEndX, edgeEndY, shade, shade, shade, 1.0)
+        vertexCount = vertexCount + 3
+    }
+
+    SDL3.renderGeometry(renderer, nil, ((vertices.bytes) as &SDL3.Vertex), vertexCount, nil, 0)
+}
+
+func drawShipGeometry(renderer: &SDL3.Renderer?, ship: Ship) {
+    if !ship.alive {
+        return
+    }
+
+    if ship.invuln > 0.0 && Int32(ship.invuln * 10.0) % 2 == 0 {
+        return
+    }
+
+    let tipX = ship.x + Math.cos(ship.angle) * 18.0
+    let tipY = ship.y + Math.sin(ship.angle) * 18.0
+    let leftX = ship.x + Math.cos(ship.angle + 2.4) * 14.0
+    let leftY = ship.y + Math.sin(ship.angle + 2.4) * 14.0
+    let rightX = ship.x + Math.cos(ship.angle - 2.4) * 14.0
+    let rightY = ship.y + Math.sin(ship.angle - 2.4) * 14.0
+
+    var vertices: [SDL3.Vertex, 3] = [
+        makeVertex(tipX, tipY, 0.95, 0.98, 1.0, 1.0),
+        makeVertex(leftX, leftY, 0.75, 0.85, 1.0, 1.0),
+        makeVertex(rightX, rightY, 0.75, 0.85, 1.0, 1.0),
+    ]
+    SDL3.renderGeometry(renderer, nil, ((vertices.bytes) as &SDL3.Vertex), 3, nil, 0)
+
+    if ship.thrusting {
+        let flameX = ship.x - Math.cos(ship.angle) * 16.0
+        let flameY = ship.y - Math.sin(ship.angle) * 16.0
+        let flameLeftX = ship.x + Math.cos(ship.angle + 2.7) * 8.0
+        let flameLeftY = ship.y + Math.sin(ship.angle + 2.7) * 8.0
+        let flameRightX = ship.x + Math.cos(ship.angle - 2.7) * 8.0
+        let flameRightY = ship.y + Math.sin(ship.angle - 2.7) * 8.0
+        var flame: [SDL3.Vertex, 3] = [
+            makeVertex(flameX, flameY, 1.0, 0.55, 0.15, 0.95),
+            makeVertex(flameLeftX, flameLeftY, 1.0, 0.35, 0.05, 0.75),
+            makeVertex(flameRightX, flameRightY, 1.0, 0.35, 0.05, 0.75),
+        ]
+        SDL3.renderGeometry(renderer, nil, ((flame.bytes) as &SDL3.Vertex), 3, nil, 0)
+    }
+}
+
+func drawBullets(renderer: &SDL3.Renderer?, game: Game) {
+    SDL3.setRenderDrawColor(renderer, 255, 240, 180, 255)
+    for bulletIndex in 0..game.bullets.count {
+        if game.bullets[bulletIndex].active {
+            SDL3.renderPoint(renderer, game.bullets[bulletIndex].x, game.bullets[bulletIndex].y)
+            SDL3.renderPoint(renderer, game.bullets[bulletIndex].x + 1.0, game.bullets[bulletIndex].y)
+        }
+    }
+}
+
+func drawParticles(renderer: &SDL3.Renderer?, game: Game) {
+    for particleIndex in 0..game.particles.count {
+        if !game.particles[particleIndex].active {
+            continue
+        }
+
+        let alpha = UInt8(255.0 * (game.particles[particleIndex].life / game.particles[particleIndex].maxLife))
+        SDL3.setRenderDrawColor(
+            renderer,
+            game.particles[particleIndex].red,
+            game.particles[particleIndex].green,
+            game.particles[particleIndex].blue,
+            alpha)
+        var rect = SDL3.FRect(
+            x: game.particles[particleIndex].x,
+            y: game.particles[particleIndex].y,
+            w: game.particles[particleIndex].size,
+            h: game.particles[particleIndex].size)
+        SDL3.renderFillRect(renderer, &rect)
+    }
+}
+
+func drawDigit(
+    renderer: &SDL3.Renderer?,
+    digit: Int,
+    x: Float32,
+    y: Float32,
+    pixelSize: Float32,
+    red: UInt8,
+    green: UInt8,
+    blue: UInt8) {
+    var rows: [UInt8, 7] = [0, 0, 0, 0, 0, 0, 0]
+    if digit == 0 { rows = DIGIT_0 }
+
+    if digit == 1 { rows = DIGIT_1 }
+
+    if digit == 2 { rows = DIGIT_2 }
+
+    if digit == 3 { rows = DIGIT_3 }
+
+    if digit == 4 { rows = DIGIT_4 }
+
+    if digit == 5 { rows = DIGIT_5 }
+
+    if digit == 6 { rows = DIGIT_6 }
+
+    if digit == 7 { rows = DIGIT_7 }
+
+    if digit == 8 { rows = DIGIT_8 }
+
+    if digit == 9 { rows = DIGIT_9 }
+
+    for row in 0..DIGIT_ROWS {
+        let bits = rows[row]
+        for col in 0..DIGIT_COLS {
+            let mask = UInt8(1 << (DIGIT_COLS - 1 - col))
+            if (bits & mask) != 0 {
+                var rect = SDL3.FRect(
+                    x: x + Float32(col) * pixelSize,
+                    y: y + Float32(row) * pixelSize,
+                    w: pixelSize,
+                    h: pixelSize)
+                SDL3.setRenderDrawColor(renderer, red, green, blue, 255)
+                SDL3.renderFillRect(renderer, &rect)
+            }
+        }
+    }
+}
+
+func drawNumber(
+    renderer: &SDL3.Renderer?,
+    value: Int32,
+    x: Float32,
+    y: Float32,
+    pixelSize: Float32,
+    red: UInt8,
+    green: UInt8,
+    blue: UInt8) {
+    if value == 0 {
+        drawDigit(renderer, 0, x, y, pixelSize, red, green, blue)
+        return
+    }
+
+    var digits: [Int] = []
+    var remaining = value
+    while remaining > 0 {
+        digits.append(Int(remaining % 10))
+        remaining = remaining / 10
+    }
+
+    var drawX = x
+    for digitIndex in 0..digits.count {
+        let digit = digits[digits.count - 1 - digitIndex]
+        drawDigit(renderer, digit, drawX, y, pixelSize, red, green, blue)
+        drawX = drawX + (Float32(DIGIT_COLS) * pixelSize) + HUD_GAP
+    }
+}
+
+func drawHud(renderer: &SDL3.Renderer?, game: Game) {
+    var panel = SDL3.FRect(x: 8.0, y: 8.0, w: 250.0, h: 72.0)
+    SDL3.setRenderDrawColor(renderer, 16, 20, 32, 180)
+    SDL3.renderFillRect(renderer, &panel)
+    drawNumber(renderer, game.score, 16.0, 14.0, HUD_PIXEL, 240, 230, 180)
+    drawNumber(renderer, game.lives, 16.0, 38.0, HUD_PIXEL, 120, 220, 255)
+    drawNumber(renderer, game.wave, 120.0, 38.0, HUD_PIXEL, 255, 180, 120)
+}
+
+func drawPausedOverlay(renderer: &SDL3.Renderer?) {
+    var panel = SDL3.FRect(x: 250.0, y: 260.0, w: 300.0, h: 80.0)
+    SDL3.setRenderDrawColor(renderer, 10, 12, 20, 210)
+    SDL3.renderFillRect(renderer, &panel)
+    SDL3.setRenderDrawColor(renderer, 220, 230, 255, 255)
+    SDL3.renderDebugText(renderer, 320.0, 292.0, "PAUSED")
+}
+
+func drawGameOverOverlay(renderer: &SDL3.Renderer?, score: Int32) {
+    var panel = SDL3.FRect(x: 210.0, y: 230.0, w: 380.0, h: 140.0)
+    SDL3.setRenderDrawColor(renderer, 10, 12, 20, 220)
+    SDL3.renderFillRect(renderer, &panel)
+    SDL3.setRenderDrawColor(renderer, 255, 120, 120, 255)
+    SDL3.renderDebugText(renderer, 300.0, 260.0, "GAME OVER")
+    drawNumber(renderer, score, 340.0, 310.0, HUD_PIXEL, 240, 230, 180)
+}
+
+func fadeTrail(renderer: &SDL3.Renderer?, game: &Game) {
+    if !game.trailPrimed {
+        SDL3.setRenderDrawColor(renderer, 0, 0, 0, 255)
+        SDL3.renderClear(renderer)
+        game.trailPrimed = true
+        return
+    }
+
+    SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.blend)
+    SDL3.setRenderDrawColor(renderer, 0, 0, 0, TRAIL_FADE_ALPHA)
+    var full = SDL3.FRect(x: 0.0, y: 0.0, w: WIDTH_F, h: HEIGHT_F)
+    SDL3.renderFillRect(renderer, &full)
+}
+
+func drawWorld(renderer: &SDL3.Renderer?, game: Game) {
+    for asteroidIndex in 0..game.asteroids.count {
+        drawAsteroidGeometry(renderer, game.asteroids[asteroidIndex])
+    }
+    drawBullets(renderer, game)
+    drawShipGeometry(renderer, game.ship)
+    drawParticles(renderer, game)
+}
+
+func openFirstGamepad() -> &SDL3.Gamepad? {
+    var count: Int32 = 0
+    let ids = SDL3.getGamepads(&count)
+    if ids == nil || count <= 0 {
+        return nil
+    }
+
+    let list = Slice<SDL3.JoystickId>(elements: ids!, count: Int(count))
+    let firstId = list[0]
+    SDL3.free(ids)
+    return SDL3.openGamepad(firstId)
+}
+
+func handleEvent(
+    event: SDL3.Event,
+    input: &InputState,
+    gamepad: &SDL3.Gamepad?) -> (running: Bool, gamepad: &SDL3.Gamepad?) {
+    var gp = gamepad
+    if event.type == SDL3.EventType.quit {
+        return (running: false, gamepad: gp)
+    }
+
+    if event.type == SDL3.EventType.keyDown && event.down {
+        if event.scancode == SDL3.Scancode.escape {
+            return (running: false, gamepad: gp)
+        }
+        if event.scancode == SDL3.Scancode.p {
+            input.pause = true
+        }
+    }
+
+    if event.type == SDL3.EventType.gamepadAdded {
+        if gp == nil {
+            gp = SDL3.openGamepad(event.windowId)
+        }
+    } else if event.type == SDL3.EventType.gamepadRemoved {
+        if gp != nil {
+            SDL3.closeGamepad(gp)
+            gp = nil
+        }
+    }
+
+    return (running: true, gamepad: gp)
+}
+
+func promptReplay(window: &SDL3.Window?, score: Int32) -> Bool {
+    let title = CString("Asteroids")
+    let body = CString("Final score: ${score}. Play again?")
+    let noLabel = CString("No")
+    let yesLabel = CString("Yes")
+
+    var buttons: [SDL3.MessageBoxButtonData, 2] = [
+        SDL3.MessageBoxButtonData(
+            flags: SDL3.MessageBoxButtonFlags.escapeKeyDefault,
+            buttonId: 0,
+            text: noLabel.asCStringSlice()),
+        SDL3.MessageBoxButtonData(
+            flags: SDL3.MessageBoxButtonFlags.returnKeyDefault,
+            buttonId: 1,
+            text: yesLabel.asCStringSlice()),
+    ]
+
+    var data = SDL3.MessageBoxData(
+        flags: SDL3.MessageBoxFlags.information,
+        parentWindow: window,
+        title: title.asCStringSlice(),
+        message: body.asCStringSlice(),
+        numButtons: 2,
+        buttons: *buttons,
+        colorScheme: nil)
+
+    var buttonId: Int32 = -1
+    if SDL3.showMessageBox(&data, &buttonId) {
+        return buttonId == 1
+    }
+
+    return false
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video | SDL3.InitFlags.audio | SDL3.InitFlags.gamepad) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    var window: &SDL3.Window? = nil
+    var renderer: &SDL3.Renderer? = nil
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Asteroids", WIDTH, HEIGHT, 0, &window, &renderer) {
+        Console.printLine("SDL_CreateWindowAndRenderer failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.setRenderVSync(renderer, 1) {
+        Console.printLine("SDL_SetRenderVSync failed: ${SDL3.getError()!}")
+    }
+
+    var trailTexture: &SDL3.Texture? = nil
+    if TRAILS_ENABLED {
+        trailTexture = SDL3.createTexture(
+            renderer,
+            SDL3.PixelFormat.rgba8888,
+            SDL3.TextureAccess.target,
+            WIDTH,
+            HEIGHT)
+        if trailTexture == nil {
+            Console.printLine("SDL_CreateTexture failed: ${SDL3.getError()!}")
+            SDL3.destroyRenderer(renderer)
+            SDL3.destroyWindow(window)
+            SDL3.quit()
+            return 1
+        }
+
+        if !SDL3.setTextureBlendMode(trailTexture, SDL3.BlendMode.blend) {
+            Console.printLine("SDL_SetTextureBlendMode failed: ${SDL3.getError()!}")
+        }
+    }
+
+    var spec = SDL3.AudioSpec(format: SDL3.AudioFormat.s16, channels: 1, freq: AUDIO_RATE)
+    let device = SDL3.openAudioDevice(SDL3.defaultPlaybackDevice, &spec)
+    if device == 0 {
+        Console.printLine("SDL_OpenAudioDevice failed: ${SDL3.getError()!}")
+        SDL3.destroyTexture(trailTexture)
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        return 1
+    }
+
+    let stream = SDL3.createAudioStream(&spec, &spec)
+    if stream == nil {
+        Console.printLine("SDL_CreateAudioStream failed: ${SDL3.getError()!}")
+        SDL3.closeAudioDevice(device)
+        SDL3.destroyTexture(trailTexture)
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.bindAudioStream(device, stream) {
+        Console.printLine("SDL_BindAudioStream failed: ${SDL3.getError()!}")
+        SDL3.destroyAudioStream(stream)
+        SDL3.closeAudioDevice(device)
+        SDL3.destroyTexture(trailTexture)
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        return 1
+    }
+
+    var playback = AudioPlayback(started: false)
+    var game = Game(
+        ship: Ship(
+            x: WIDTH_F * 0.5,
+            y: HEIGHT_F * 0.5,
+            vx: 0.0,
+            vy: 0.0,
+            angle: 0.0,
+            alive: true,
+            invuln: 0.0,
+            fireTimer: 0.0,
+            hyperspaceTimer: 0.0,
+            thrusting: false),
+        bullets: [],
+        asteroids: [],
+        particles: [],
+        stars: [],
+        score: 0,
+        lives: 3,
+        wave: 1,
+        pendingWave: false,
+        paused: false,
+        gameOver: false,
+        rng: Rng(state: 1),
+        trailPrimed: false)
+    resetGame(&game)
+
+    var gamepad = openFirstGamepad()
+    var running = true
+    var event = SDL3.Event()
+    let perfFreq = SDL3.getPerformanceFrequency()
+    var lastCounter = SDL3.getPerformanceCounter()
+
+    Console.printLine("Asteroids: arrows/WASD thrust & turn, Space fire, Shift hyperspace, P pause.")
+
+    while running {
+        while SDL3.pollEvent(&event) {
+            var edgeInput = InputState(
+                rotateLeft: false,
+                rotateRight: false,
+                thrust: false,
+                fire: false,
+                hyperspace: false,
+                pause: false,
+                quit: false)
+            let outcome = handleEvent(event, &edgeInput, gamepad)
+            gamepad = outcome.gamepad
+            if !outcome.running {
+                running = false
+            }
+
+            if edgeInput.pause {
+                game.paused = !game.paused
+            }
+        }
+
+        let counter = SDL3.getPerformanceCounter()
+        var deltaTime = Float32(counter - lastCounter) / Float32(perfFreq)
+        lastCounter = counter
+        if deltaTime > 0.05 {
+            deltaTime = 0.05
+        }
+
+        var input = InputState(
+            rotateLeft: false,
+            rotateRight: false,
+            thrust: false,
+            fire: false,
+            hyperspace: false,
+            pause: false,
+            quit: false)
+        readKeyboard(&input, SDL3.getKeyboardState(nil))
+        applyGamepad(&input, gamepad)
+
+        if !game.paused && !game.gameOver {
+            updateStars(&game, deltaTime)
+            updateShip(&game, input, deltaTime, stream, device, &playback)
+            updateBullets(&game, deltaTime)
+            updateAsteroids(&game, deltaTime)
+            updateParticles(&game, deltaTime)
+            resolveCollisions(&game, stream, device, &playback)
+
+            if livingAsteroidCount(game) == 0 {
+                game.wave = game.wave + 1
+                spawnWave(&game)
+            }
+        }
+
+        SDL3.setRenderDrawColor(renderer, 4, 6, 12, 255)
+        SDL3.renderClear(renderer)
+        drawStars(renderer, game)
+
+        if TRAILS_ENABLED {
+            SDL3.setRenderTarget(renderer, trailTexture)
+            fadeTrail(renderer, &game)
+            drawWorld(renderer, game)
+            SDL3.setRenderTarget(renderer, nil)
+
+            SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.add)
+            var dest = SDL3.FRect(x: 0.0, y: 0.0, w: WIDTH_F, h: HEIGHT_F)
+            SDL3.renderTexture(renderer, trailTexture, nil, &dest)
+            SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.none)
+        } else {
+            drawWorld(renderer, game)
+        }
+
+        drawHud(renderer, game)
+        if game.paused {
+            drawPausedOverlay(renderer)
+        }
+        if game.gameOver {
+            drawGameOverOverlay(renderer, game.score)
+        }
+
+        SDL3.renderPresent(renderer)
+
+        if game.gameOver {
+            let replay = promptReplay(window, game.score)
+            if replay {
+                resetGame(&game)
+            } else {
+                running = false
+            }
+        }
+    }
+
+    if gamepad != nil {
+        SDL3.closeGamepad(gamepad)
+    }
+    SDL3.destroyAudioStream(stream)
+    SDL3.closeAudioDevice(device)
+    if trailTexture != nil {
+        SDL3.destroyTexture(trailTexture)
+    }
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    Console.printLine("Asteroids finished.")
+    return 0
+}

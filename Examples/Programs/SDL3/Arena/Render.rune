@@ -1,0 +1,281 @@
+import Standard.*
+import SDL3
+
+const DIGIT_COLS: Int = 5
+const DIGIT_ROWS: Int = 7
+const HUD_PIXEL: Float32 = 2.0
+const HUD_GAP: Float32 = 2.0
+const DIGIT_0: [UInt8, _] = [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E]
+const DIGIT_1: [UInt8, _] = [0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E]
+const DIGIT_2: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x10, 0x10, 0x0E]
+const DIGIT_3: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_4: [UInt8, _] = [0x11, 0x11, 0x11, 0x1F, 0x01, 0x01, 0x01]
+const DIGIT_5: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_6: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_7: [UInt8, _] = [0x0E, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01]
+const DIGIT_8: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_9: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x01, 0x01, 0x0E]
+
+func setColor(renderer: &SDL3.Renderer?, red: UInt8, green: UInt8, blue: UInt8, alpha: UInt8) {
+    SDL3.setRenderDrawColor(renderer, red, green, blue, alpha)
+}
+
+func drawCircleAlpha(renderer: &SDL3.Renderer?, center: Vec2, radius: Float32, red: UInt8, green: UInt8, blue: UInt8, alpha: UInt8) {
+    setColor(renderer, red, green, blue, alpha)
+    let step: Float32 = PI_F / 18.0
+    var last = vec2(center.x + radius, center.y)
+
+    for angle in 0.0..=(PI_F * 2.0 + step) by step {
+        let point = vec2(center.x + Math.cos(angle) * radius, center.y + Math.sin(angle) * radius)
+        SDL3.renderLine(renderer, last.x, last.y, point.x, point.y)
+        last = point
+    }
+}
+
+func drawCircle(renderer: &SDL3.Renderer?, center: Vec2, radius: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    drawCircleAlpha(renderer, center, radius, red, green, blue, 255)
+}
+
+func drawTriangle(renderer: &SDL3.Renderer?, center: Vec2, radius: Float32, angle: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    let a = add(center, scale(vec2(Math.cos(angle), Math.sin(angle)), radius))
+    let b = add(center, scale(vec2(Math.cos(angle + 2.09), Math.sin(angle + 2.09)), radius))
+    let c = add(center, scale(vec2(Math.cos(angle - 2.09), Math.sin(angle - 2.09)), radius))
+    setColor(renderer, red, green, blue, 255)
+    SDL3.renderLine(renderer, a.x, a.y, b.x, b.y)
+    SDL3.renderLine(renderer, b.x, b.y, c.x, c.y)
+    SDL3.renderLine(renderer, c.x, c.y, a.x, a.y)
+}
+
+func draw(renderer: &SDL3.Renderer?, player: Player) {
+    var alpha: UInt8 = 255
+    if player.invulnerable > 0.0 {
+        alpha = 160
+    }
+    drawCircleAlpha(renderer, player.position, player.radius + 10.0 + player.dashFlash * 55.0, 105, 205, 255, 70)
+    drawCircleAlpha(renderer, player.position, player.radius + 4.0, 180, 230, 255, alpha)
+    setColor(renderer, 225, 245, 255, alpha)
+    var body = SDL3.FRect(
+        x: player.position.x - 11.0,
+        y: player.position.y - 11.0,
+        w: 22.0,
+        h: 22.0)
+    SDL3.renderRect(renderer, &body)
+    SDL3.renderLine(renderer, player.position.x - 17.0, player.position.y, player.position.x + 17.0, player.position.y)
+    SDL3.renderLine(renderer, player.position.x, player.position.y - 17.0, player.position.x, player.position.y + 17.0)
+    if player.dashCooldown <= 0.0 {
+        setColor(renderer, 130, 245, 255, 210)
+        SDL3.renderLine(renderer, player.position.x - 5.0, player.position.y + 18.0, player.position.x + 5.0, player.position.y + 18.0)
+    }
+}
+
+func draw(renderer: &SDL3.Renderer?, chaser: Chaser) {
+    drawCircleAlpha(renderer, chaser.position, chaser.radius + 5.0 + Math.sin(chaser.heat) * 2.0, 255, 80, 95, 70)
+    drawCircle(renderer, chaser.position, chaser.radius, 255, 95, 100)
+    setColor(renderer, 255, 145, 120, 255)
+    SDL3.renderLine(renderer, chaser.position.x - 8.0, chaser.position.y, chaser.position.x + 8.0, chaser.position.y)
+    SDL3.renderLine(renderer, chaser.position.x, chaser.position.y - 8.0, chaser.position.x, chaser.position.y + 8.0)
+}
+
+func draw(renderer: &SDL3.Renderer?, dasher: Dasher) {
+    drawCircleAlpha(renderer, dasher.position, dasher.radius + 9.0 * clampFloat(1.4 - dasher.timer, 0.0, 1.0), 255, 180, 80, 80)
+    drawTriangle(renderer, dasher.position, dasher.radius + 4.0, Math.atan2(dasher.direction.y, dasher.direction.x), 255, 180, 80)
+    setColor(renderer, 255, 215, 130, 130)
+    SDL3.renderLine(renderer, dasher.position.x, dasher.position.y, dasher.position.x + dasher.direction.x * 38.0, dasher.position.y + dasher.direction.y * 38.0)
+}
+
+func draw(renderer: &SDL3.Renderer?, spinner: Spinner) {
+    drawCircle(renderer, spinner.center, 3.0, 95, 105, 125)
+    drawCircleAlpha(renderer, spinner.center, spinner.distance, 100, 120, 160, 70)
+    setColor(renderer, 110, 125, 150, 180)
+    SDL3.renderLine(renderer, spinner.center.x, spinner.center.y, spinner.position.x, spinner.position.y)
+    drawCircleAlpha(renderer, spinner.position, spinner.radius + 5.0, 190, 130, 255, 80)
+    drawCircle(renderer, spinner.position, spinner.radius, 185, 125, 255)
+}
+
+func draw(renderer: &SDL3.Renderer?, energy: Energy) {
+    let size: Float32 = 9.0 + Math.sin(energy.pulse) * 2.0
+    drawCircleAlpha(renderer, energy.position, size + 10.0, 85, 245, 165, 80)
+    setColor(renderer, 115, 240, 160, 255)
+    var rect = SDL3.FRect(x: energy.position.x - size, y: energy.position.y - size, w: size * 2.0, h: size * 2.0)
+    SDL3.renderRect(renderer, &rect)
+    SDL3.renderLine(renderer, energy.position.x - size, energy.position.y, energy.position.x, energy.position.y - size)
+    SDL3.renderLine(renderer, energy.position.x, energy.position.y - size, energy.position.x + size, energy.position.y)
+    SDL3.renderLine(renderer, energy.position.x + size, energy.position.y, energy.position.x, energy.position.y + size)
+    SDL3.renderLine(renderer, energy.position.x, energy.position.y + size, energy.position.x - size, energy.position.y)
+}
+
+func draw(renderer: &SDL3.Renderer?, shield: Shield) {
+    drawCircleAlpha(renderer, shield.position, shield.radius + 10.0 + Math.sin(shield.pulse) * 4.0, 90, 180, 255, 80)
+    drawCircle(renderer, shield.position, shield.radius + Math.sin(shield.pulse) * 3.0, 110, 190, 255)
+    setColor(renderer, 120, 220, 255, 255)
+    SDL3.renderLine(renderer, shield.position.x - 7.0, shield.position.y, shield.position.x + 7.0, shield.position.y)
+    SDL3.renderLine(renderer, shield.position.x, shield.position.y - 7.0, shield.position.x, shield.position.y + 7.0)
+}
+
+func draw(renderer: &SDL3.Renderer?, spark: Spark) {
+    var alpha: UInt8 = 80
+    if spark.life > 0.45 {
+        alpha = 210
+    } else if spark.life > 0.20 {
+        alpha = 150
+    }
+    setColor(renderer, spark.red, spark.green, spark.blue, alpha)
+    let size: Float32 = 1.5 + spark.life * 3.0
+    var rect = SDL3.FRect(x: spark.position.x - size * 0.5, y: spark.position.y - size * 0.5, w: size, h: size)
+    SDL3.renderFillRect(renderer, &rect)
+}
+
+func drawGrid(renderer: &SDL3.Renderer?) {
+    setColor(renderer, 18, 24, 32, 255)
+    var border = SDL3.FRect(x: 10.0, y: 10.0, w: WORLD_W - 20.0, h: WORLD_H - 20.0)
+    SDL3.renderRect(renderer, &border)
+    setColor(renderer, 24, 31, 40, 255)
+    for x in 0.0..=WORLD_W by 60.0 {
+        SDL3.renderLine(renderer, x, 0.0, x, WORLD_H)
+    }
+
+    for y in 0.0..=WORLD_H by 60.0 {
+        SDL3.renderLine(renderer, 0.0, y, WORLD_W, y)
+    }
+
+    setColor(renderer, 36, 44, 54, 160)
+    SDL3.renderLine(renderer, 0.0, 0.0, WORLD_W, WORLD_H)
+    SDL3.renderLine(renderer, WORLD_W, 0.0, 0.0, WORLD_H)
+}
+
+func drawBar(renderer: &SDL3.Renderer?, x: Float32, y: Float32, width: Float32, value: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    var frame = SDL3.FRect(x: x, y: y, w: width, h: 8.0)
+    setColor(renderer, 72, 82, 94, 255)
+    SDL3.renderRect(renderer, &frame)
+    var fill = SDL3.FRect(x: x + 1.0, y: y + 1.0, w: (width - 2.0) * clampFloat(value, 0.0, 1.0), h: 6.0)
+    setColor(renderer, red, green, blue, 255)
+    SDL3.renderFillRect(renderer, &fill)
+}
+
+func drawDigit(renderer: &SDL3.Renderer?, digit: Int, x: Float32, y: Float32, pixel: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    var rows: [UInt8, DIGIT_ROWS] = [0, 0, 0, 0, 0, 0, 0]
+    if digit == 0 { rows = DIGIT_0 }
+    if digit == 1 { rows = DIGIT_1 }
+    if digit == 2 { rows = DIGIT_2 }
+    if digit == 3 { rows = DIGIT_3 }
+    if digit == 4 { rows = DIGIT_4 }
+    if digit == 5 { rows = DIGIT_5 }
+    if digit == 6 { rows = DIGIT_6 }
+    if digit == 7 { rows = DIGIT_7 }
+    if digit == 8 { rows = DIGIT_8 }
+    if digit == 9 { rows = DIGIT_9 }
+
+    setColor(renderer, red, green, blue, 255)
+    for row in 0..DIGIT_ROWS {
+        let mask = rows[row]
+        for col in 0..DIGIT_COLS {
+            let bit = UInt8(1 << (DIGIT_COLS - 1 - col))
+            if (mask & bit) != 0 {
+                var rect = SDL3.FRect(
+                    x: x + Float32(col) * pixel,
+                    y: y + Float32(row) * pixel,
+                    w: pixel,
+                    h: pixel)
+                SDL3.renderFillRect(renderer, &rect)
+            }
+        }
+    }
+}
+
+func drawNumber(renderer: &SDL3.Renderer?, value: Int32, x: Float32, y: Float32, pixel: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    var remaining = value
+    if remaining == 0 {
+        drawDigit(renderer, 0, x, y, pixel, red, green, blue)
+        return
+    }
+
+    var digits: [Int] = []
+    while remaining > 0 {
+        digits.append(Int(remaining % 10))
+        remaining = remaining / 10
+    }
+
+    for i in 0..digits.count {
+        let digit = digits[digits.count - 1 - i]
+        drawDigit(renderer, digit, x + Float32(i) * ((Float32(DIGIT_COLS) * pixel) + HUD_GAP), y, pixel, red, green, blue)
+    }
+}
+
+func drawHud(renderer: &SDL3.Renderer?, game: &Game) {
+    setColor(renderer, 220, 235, 245, 255)
+    SDL3.renderDebugText(renderer, 16.0, 14.0, "ARENA")
+    SDL3.renderDebugText(renderer, 84.0, 14.0, "COLLECT ALL ENERGY")
+    SDL3.renderDebugText(renderer, 16.0, 34.0, "SCORE")
+    drawNumber(renderer, game.score, 78.0, 34.0, HUD_PIXEL, 120, 245, 170)
+    SDL3.renderDebugText(renderer, 188.0, 34.0, "TIME")
+    drawNumber(renderer, Int32(game.time), 240.0, 34.0, HUD_PIXEL, 255, 225, 120)
+    SDL3.renderDebugText(renderer, 330.0, 34.0, "LEFT")
+    drawNumber(renderer, game.remainingEnergy(), 384.0, 34.0, HUD_PIXEL, 130, 245, 170)
+    SDL3.renderDebugText(renderer, 452.0, 34.0, "COMBO")
+    drawNumber(renderer, game.combo, 518.0, 34.0, HUD_PIXEL, 255, 160, 90)
+    SDL3.renderDebugText(renderer, 16.0, 56.0, "SHIELD")
+    drawBar(renderer, 84.0, 60.0, 150.0, game.player.shield / 100.0, 110, 190, 255)
+    SDL3.renderDebugText(renderer, 252.0, 56.0, "DASH")
+    drawBar(renderer, 306.0, 60.0, 82.0, 1.0 - game.player.dashCooldown / 0.72, 120, 235, 255)
+
+    if game.gameOver {
+        drawCircleAlpha(renderer, game.player.position, 82.0, 220, 235, 245, 110)
+        if game.won {
+            SDL3.renderDebugText(renderer, 390.0, 294.0, "ARENA CLEARED")
+        } else {
+            SDL3.renderDebugText(renderer, 404.0, 294.0, "RUN ENDED")
+        }
+        SDL3.renderDebugText(renderer, 384.0, 318.0, "R TO RESTART")
+    } else {
+        SDL3.renderDebugText(renderer, 690.0, 584.0, "SPACE/SHIFT DASH")
+    }
+}
+
+func drawWorld(renderer: &SDL3.Renderer?, game: &Game) {
+    setColor(renderer, 10, 14, 20, 255)
+    SDL3.renderClear(renderer)
+    drawGrid(renderer)
+
+    for i in 0..game.energy.count {
+        if game.energy[i].alive {
+            draw(renderer, game.energy[i])
+        }
+    }
+
+    for i in 0..game.shields.count {
+        if game.shields[i].alive {
+            draw(renderer, game.shields[i])
+        }
+    }
+
+    for i in 0..game.chasers.count {
+        if game.chasers[i].alive {
+            draw(renderer, game.chasers[i])
+        }
+    }
+
+    for i in 0..game.dashers.count {
+        if game.dashers[i].alive {
+            draw(renderer, game.dashers[i])
+        }
+    }
+
+    for i in 0..game.spinners.count {
+        if game.spinners[i].alive {
+            draw(renderer, game.spinners[i])
+        }
+    }
+
+    for i in 0..game.sparks.count {
+        if game.sparks[i].alive {
+            draw(renderer, game.sparks[i])
+        }
+    }
+
+    if game.player.alive {
+        draw(renderer, game.player)
+    }
+
+    drawHud(renderer, game)
+    SDL3.renderPresent(renderer)
+}

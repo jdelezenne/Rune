@@ -1,0 +1,95 @@
+import Standard.*
+
+let SCREEN_W: Int32 = 900
+let SCREEN_H: Int32 = 620
+let WORLD_W: Float32 = 900.0
+let WORLD_H: Float32 = 620.0
+let PI_F: Float32 = 3.1415927
+
+struct Vec2 {
+    var x: Float32
+    var y: Float32
+}
+
+func vec2(x: Float32, y: Float32) -> Vec2 {
+    return Vec2(x: x, y: y)
+}
+
+func add(a: Vec2, b: Vec2) -> Vec2 {
+    return Vec2(x: a.x + b.x, y: a.y + b.y)
+}
+
+func sub(a: Vec2, b: Vec2) -> Vec2 {
+    return Vec2(x: a.x - b.x, y: a.y - b.y)
+}
+
+func scale(v: Vec2, amount: Float32) -> Vec2 {
+    return Vec2(x: v.x * amount, y: v.y * amount)
+}
+
+func lengthSquared(v: Vec2) -> Float32 {
+    return v.x * v.x + v.y * v.y
+}
+
+func length(v: Vec2) -> Float32 {
+    return Math.sqrt(lengthSquared(v))
+}
+
+func normalize(v: Vec2) -> Vec2 {
+    let len = length(v)
+    if len <= 0.0001 {
+        return vec2(0.0, 0.0)
+    }
+
+    return vec2(v.x / len, v.y / len)
+}
+
+func clampFloat(value: Float32, low: Float32, high: Float32) -> Float32 {
+    return Math.max(low, Math.min(value, high))
+}
+
+func wrapPosition(position: &Vec2) {
+    if position.x < 0.0 {
+        position.x = position.x + WORLD_W
+    } else if position.x >= WORLD_W {
+        position.x = position.x - WORLD_W
+    }
+
+    if position.y < 0.0 {
+        position.y = position.y + WORLD_H
+    } else if position.y >= WORLD_H {
+        position.y = position.y - WORLD_H
+    }
+}
+
+func distanceSquared(a: Vec2, b: Vec2) -> Float32 {
+    return lengthSquared(sub(a, b))
+}
+
+func circlesOverlap(a: Vec2, ar: Float32, b: Vec2, br: Float32) -> Bool {
+    let radius = ar + br
+    return distanceSquared(a, b) <= radius * radius
+}
+
+struct Rng {
+    var state: UInt32
+}
+
+func seedRng(rng: &Rng, seed: UInt32) {
+    if seed == 0 {
+        rng.state = 0xA341316C
+    } else {
+        rng.state = seed
+    }
+}
+
+func nextRandom(rng: &Rng) -> UInt32 {
+    rng.state = rng.state * 1664525 + 1013904223
+    return rng.state
+}
+
+func randomFloat(rng: &Rng, minValue: Float32, maxValue: Float32) -> Float32 {
+    let raw = nextRandom(rng) & 65535
+    let unit = Float32(raw) / 65535.0
+    return minValue + (maxValue - minValue) * unit
+}

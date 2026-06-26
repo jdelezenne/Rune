@@ -1,0 +1,33 @@
+import Standard.*
+
+interface Weapon {
+    func strike() -> String
+}
+
+struct Sword implements Weapon {
+    var damage: Int
+
+    func strike() -> String {
+        return "slash for ${damage}"
+    }
+}
+
+struct Bow implements Weapon {
+    var damage: Int
+
+    func strike() -> String {
+        return "arrow for ${damage}"
+    }
+}
+
+func attackWith(weapon: *Weapon) -> Void {
+    Console.printLine(weapon.strike())
+}
+
+func main() -> Int {
+    let blade = Sword(damage: 12)
+    let bow = Bow(damage: 9)
+    attackWith(*blade)
+    attackWith(*bow)
+    return 0
+}

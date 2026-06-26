@@ -1,0 +1,17 @@
+import Standard.*
+
+// Cooperative tasks on the current thread. Spawn runs body concurrently with
+// the caller; await Task.value waits for the spawned work to finish.
+
+func compute() async -> Int {
+    return 42
+}
+
+func main() async -> Int {
+    let handle = Task.spawn(body: compute)
+    if await Task.value(handle) != 42 {
+        return 1
+    }
+
+    return 0
+}

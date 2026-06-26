@@ -1,0 +1,8 @@
+func main() -> Int {
+    let owned = CString(value: "Rune")
+    let _: String = owned.toString()
+    let _: CStringSlice = owned.asCStringSlice()
+    let _: StringSlice = owned.asSlice()
+
+    return 0
+}

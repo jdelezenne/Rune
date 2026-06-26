@@ -1,0 +1,83 @@
+/// Literal conversion protocols.
+///
+/// These interfaces are compiler-known semantic contracts. A type conforming to
+/// one of them may be used as the contextual type for the corresponding literal category.
+
+public struct NilLiteral {}
+
+public struct BooleanLiteral {}
+
+public struct CharacterLiteral {}
+
+public struct IntegerLiteral {}
+
+public struct FloatingPointLiteral {}
+
+public struct StringLiteral {}
+
+public interface NilLiteralConvertible {
+    init(nilLiteral: NilLiteral)
+}
+
+public interface BooleanLiteralConvertible {
+    init(booleanLiteral: BooleanLiteral)
+}
+
+public interface CharacterLiteralConvertible {
+    init(characterLiteral: CharacterLiteral)
+}
+
+public interface IntegerLiteralConvertible {
+    init(integerLiteral: IntegerLiteral)
+}
+
+public interface FloatingPointLiteralConvertible {
+    init(floatingPointLiteral: FloatingPointLiteral)
+}
+
+public interface StringLiteralConvertible {
+    init(stringLiteral: StringLiteral)
+}
+
+public interface ArrayLiteralConvertible {
+    type Element
+
+    init(elements: Element...)
+}
+
+public interface DictionaryLiteralConvertible {
+    type Key
+    type Value
+
+    init(dictionaryLiteral: (key: Key, value: Value)...)
+}
+
+public interface RangeLiteralConvertible {
+    type Bound
+
+    init(rangeStart: Bound, rangeEnd: Bound)
+}
+
+public interface ClosedRangeLiteralConvertible {
+    type Bound
+
+    init(closedRangeStart: Bound, closedRangeEnd: Bound)
+}
+
+public interface PartialRangeFromLiteralConvertible {
+    type Bound
+
+    init(partialRangeFromStart: Bound)
+}
+
+public interface PartialRangeToLiteralConvertible {
+    type Bound
+
+    init(partialRangeToEnd: Bound)
+}
+
+public interface PartialRangeThroughLiteralConvertible {
+    type Bound
+
+    init(partialRangeThroughEnd: Bound)
+}

@@ -1,0 +1,6 @@
+@include("SDL3/SDL_error.h")
+@link("SDL3")
+{
+    @symbol("SDL_GetError")
+    public func getError() -> CStringSlice?
+}

@@ -1,0 +1,182 @@
+public enum EventType: UInt32 {
+    first = 0 // SDL_EVENT_FIRST
+    quit = 256 // SDL_EVENT_QUIT
+    terminating = 257 // SDL_EVENT_TERMINATING
+    lowMemory = 258 // SDL_EVENT_LOW_MEMORY
+    willEnterBackground = 259 // SDL_EVENT_WILL_ENTER_BACKGROUND
+    didEnterBackground = 260 // SDL_EVENT_DID_ENTER_BACKGROUND
+    willEnterForeground = 261 // SDL_EVENT_WILL_ENTER_FOREGROUND
+    didEnterForeground = 262 // SDL_EVENT_DID_ENTER_FOREGROUND
+    localeChanged = 263 // SDL_EVENT_LOCALE_CHANGED
+    systemThemeChanged = 264 // SDL_EVENT_SYSTEM_THEME_CHANGED
+    windowShown = 514 // SDL_EVENT_WINDOW_SHOWN
+    windowHidden = 515 // SDL_EVENT_WINDOW_HIDDEN
+    windowExposed = 516 // SDL_EVENT_WINDOW_EXPOSED
+    windowMoved = 517 // SDL_EVENT_WINDOW_MOVED
+    windowResized = 518 // SDL_EVENT_WINDOW_RESIZED
+    windowPixelSizeChanged = 519 // SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED
+    windowMetalViewResized = 520 // SDL_EVENT_WINDOW_METAL_VIEW_RESIZED
+    windowMinimized = 521 // SDL_EVENT_WINDOW_MINIMIZED
+    windowMaximized = 522 // SDL_EVENT_WINDOW_MAXIMIZED
+    windowRestored = 523 // SDL_EVENT_WINDOW_RESTORED
+    windowMouseEnter = 524 // SDL_EVENT_WINDOW_MOUSE_ENTER
+    windowMouseLeave = 525 // SDL_EVENT_WINDOW_MOUSE_LEAVE
+    windowFocusGained = 526 // SDL_EVENT_WINDOW_FOCUS_GAINED
+    windowFocusLost = 527 // SDL_EVENT_WINDOW_FOCUS_LOST
+    windowCloseRequested = 528 // SDL_EVENT_WINDOW_CLOSE_REQUESTED
+    windowHitTest = 529 // SDL_EVENT_WINDOW_HIT_TEST
+    windowIccProfChanged = 530 // SDL_EVENT_WINDOW_ICCPROF_CHANGED
+    windowDisplayChanged = 531 // SDL_EVENT_WINDOW_DISPLAY_CHANGED
+    windowDisplayScaleChanged = 532 // SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED
+    windowSafeAreaChanged = 533 // SDL_EVENT_WINDOW_SAFE_AREA_CHANGED
+    windowOccluded = 534 // SDL_EVENT_WINDOW_OCCLUDED
+    windowEnterFullscreen = 535 // SDL_EVENT_WINDOW_ENTER_FULLSCREEN
+    windowLeaveFullscreen = 536 // SDL_EVENT_WINDOW_LEAVE_FULLSCREEN
+    windowDestroyed = 537 // SDL_EVENT_WINDOW_DESTROYED
+    keyDown = 768 // SDL_EVENT_KEY_DOWN
+    keyUp = 769 // SDL_EVENT_KEY_UP
+    textEditing = 770 // SDL_EVENT_TEXT_EDITING
+    textInput = 771 // SDL_EVENT_TEXT_INPUT
+    mouseMotion = 1024 // SDL_EVENT_MOUSE_MOTION
+    mouseButtonDown = 1025 // SDL_EVENT_MOUSE_BUTTON_DOWN
+    mouseButtonUp = 1026 // SDL_EVENT_MOUSE_BUTTON_UP
+    mouseWheel = 1027 // SDL_EVENT_MOUSE_WHEEL
+    audioDeviceAdded = 4352 // SDL_EVENT_AUDIO_DEVICE_ADDED
+    audioDeviceRemoved = 4353 // SDL_EVENT_AUDIO_DEVICE_REMOVED
+    audioDeviceFormatChanged = 4354 // SDL_EVENT_AUDIO_DEVICE_FORMAT_CHANGED
+    renderTargetsReset = 8192 // SDL_EVENT_RENDER_TARGETS_RESET
+    renderDeviceReset = 8193 // SDL_EVENT_RENDER_DEVICE_RESET
+    renderDeviceLost = 8194 // SDL_EVENT_RENDER_DEVICE_LOST
+    gamepadAxisMotion = 1616 // SDL_EVENT_GAMEPAD_AXIS_MOTION
+    gamepadButtonDown = 1617 // SDL_EVENT_GAMEPAD_BUTTON_DOWN
+    gamepadButtonUp = 1618 // SDL_EVENT_GAMEPAD_BUTTON_UP
+    gamepadAdded = 1619 // SDL_EVENT_GAMEPAD_ADDED
+    gamepadRemoved = 1620 // SDL_EVENT_GAMEPAD_REMOVED
+    user = 32768 // SDL_EVENT_USER
+    last = 65535 // SDL_EVENT_LAST
+}
+
+// SDL_MouseButtonEvent layout: cast from &Event when type == .mouseButtonDown or .mouseButtonUp.
+@layout(kind: c)
+public struct MouseButtonEvent {
+    public var type: EventType = .first
+    public var reserved: UInt32 = 0
+    public var timestamp: UInt64 = 0
+    public var windowId: UInt32 = 0
+    public var which: UInt32 = 0
+    public var button: UInt8 = 0
+    public var down: Bool = false
+    public var clicks: UInt8 = 0
+    public var _align: UInt8 = 0
+    public var x: Float32 = 0.0
+    public var y: Float32 = 0.0
+}
+
+// SDL_MouseMotionEvent layout: cast from &Event when type == .mouseMotion.
+@layout(kind: c)
+public struct MouseMotionEvent {
+    public var type: EventType = .first
+    public var reserved: UInt32 = 0
+    public var timestamp: UInt64 = 0
+    public var windowId: UInt32 = 0
+    public var which: UInt32 = 0
+    public var state: MouseButton = 0
+    public var x: Float32 = 0.0
+    public var y: Float32 = 0.0
+    public var xrel: Float32 = 0.0
+    public var yrel: Float32 = 0.0
+}
+
+// SDL_MouseWheelEvent layout: cast from &Event when type == .mouseWheel.
+@layout(kind: c)
+public struct MouseWheelEvent {
+    public var type: EventType = .first
+    public var reserved: UInt32 = 0
+    public var timestamp: UInt64 = 0
+    public var windowId: UInt32 = 0
+    public var which: UInt32 = 0
+    public var x: Float32 = 0.0
+    public var y: Float32 = 0.0
+    public var direction: MouseWheelDirection = .normal
+    public var mouseX: Float32 = 0.0
+    public var mouseY: Float32 = 0.0
+    public var integerX: Int32 = 0
+    public var integerY: Int32 = 0
+}
+
+@symbol("SDL_KeyboardEvent")
+@layout(kind: c)
+public struct KeyboardEvent {
+    public var type: EventType = .first
+    public var reserved: UInt32 = 0
+    public var timestamp: UInt64 = 0
+    public var windowID: UInt32 = 0
+    public var which: UInt32 = 0
+    public var scancode: Scancode = .unknown
+    public var keycode: Int32 = 0
+    public var mod: UInt16 = 0
+    public var raw: UInt16 = 0
+    public var down: Bool = false
+    public var repeat: Bool = false
+}
+
+@symbol("SDL_GamepadDeviceEvent")
+@layout(kind: c)
+public struct GamepadDeviceEvent {
+    public var type: EventType = .first
+    public var reserved: UInt32 = 0
+    public var timestamp: UInt64 = 0
+    public var which: UInt32 = 0
+}
+
+@symbol("SDL_Event")
+@layout(kind: c)
+public struct Event {
+    public var type: EventType = .first
+    public var reserved: UInt32 = 0
+    public var timestamp: UInt64 = 0
+    public var windowId: UInt32 = 0
+    public var which: UInt32 = 0
+    public var scancode: Scancode = .unknown
+    public var keycode: Int32 = 0
+    public var mod: UInt16 = 0
+    public var raw: UInt16 = 0
+    public var down: Bool = false
+    public var repeat: Bool = false
+    public var _align: [UInt8, 2] = []
+    public var _padding: [UInt8, 88] = []
+}
+
+@include("SDL3/SDL_events.h")
+@link("SDL3")
+{
+    @symbol("SDL_PumpEvents")
+    public func pumpEvents() -> Void
+
+    @symbol("SDL_PollEvent")
+    public func pollEvent(event: &Event) -> Bool
+
+    @symbol("SDL_WaitEvent")
+    public func waitEvent(event: &Event) -> Bool
+
+    @symbol("SDL_WaitEventTimeout")
+    public func waitEventTimeout(event: &Event, timeoutMS: Int32) -> Bool
+
+    @symbol("SDL_PushEvent")
+    public func pushEvent(event: &Event) -> Bool
+
+    @symbol("SDL_HasEvent")
+    public func hasEvent(type: EventType) -> Bool
+
+    @symbol("SDL_FlushEvent")
+    public func flushEvent(type: EventType) -> Void
+
+    @symbol("SDL_FlushEvents")
+    public func flushEvents(minType: EventType, maxType: EventType) -> Void
+
+    @symbol("SDL_SetEventEnabled")
+    public func setEventEnabled(type: EventType, enabled: Bool) -> Void
+
+    @symbol("SDL_EventEnabled")
+    public func eventEnabled(type: EventType) -> Bool
+}

@@ -1,0 +1,27 @@
+// Tuple literals, return types, destructuring, member access, and discard wildcards.
+
+func divmod(a: Int, b: Int) -> (quotient: Int, remainder: Int) {
+    return (quotient: a / b, remainder: a % b)
+}
+
+func getTriple() -> (first: Int, middle: Int, last: Int) {
+    return (first: 10, middle: 20, last: 30)
+}
+
+func main() -> Int {
+    let pair = (left: 40, right: 2)
+    let (left, right) = pair
+    let fromMembers = pair.0 + pair.1
+
+    let (quotient, remainder) = divmod(17, 5)
+    let fromDivmod = quotient * 10 + remainder
+
+    let (_, middle, _) = getTriple()
+
+    let result = left + right + fromMembers + fromDivmod + middle
+    if result != 136 {
+        return 1
+    }
+
+    return 0
+}

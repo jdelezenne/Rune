@@ -1,0 +1,27 @@
+import Standard.*
+
+func main() -> Int {
+    let secret = 42
+    var attempts = 0
+
+    while attempts < 5 {
+        Console.printLine("Guess the number (1-100):")
+        let input = Console.readLine()
+        let guess = toInt(input)
+        attempts = attempts + 1
+
+        if guess == secret {
+            Console.printLine("Correct!")
+            return 0
+        }
+
+        if guess < secret {
+            Console.printLine("Too low")
+        } else {
+            Console.printLine("Too high")
+        }
+    }
+
+    Console.printLine("Out of attempts")
+    return 1
+}

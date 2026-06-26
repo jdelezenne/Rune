@@ -1,0 +1,11 @@
+func add(a: Int, b: Int) -> Int {
+    return a + b
+}
+
+func main() -> Int {
+    if add(a: 2, b: 3) != 5 {
+        return 1
+    }
+
+    return 0
+}

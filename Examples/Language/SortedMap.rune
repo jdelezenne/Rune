@@ -1,0 +1,23 @@
+func main() -> Int {
+    let scores: SortedMap<Int, Int> = [3: 30, 1: 10, 2: 20]
+
+    if scores.count != 3 {
+        return 1
+    }
+
+    let first = scores.tryGet(key: 1)
+    if first == nil || first! != 10 {
+        return 2
+    }
+
+    let third = scores.tryGet(key: 3)
+    if third == nil || third! != 30 {
+        return 3
+    }
+
+    if scores.contains(key: 99) {
+        return 4
+    }
+
+    return 0
+}

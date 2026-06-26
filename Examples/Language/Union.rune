@@ -1,0 +1,22 @@
+union Command {
+    step(Int, Int)
+    leap(Int)
+    halt
+}
+
+func energy(cmd: Command) -> Int {
+    match cmd {
+        .step(dx, dy) => return dx + dy
+        .leap(height) => return height * 2
+        .halt => return 0
+    }
+}
+
+func main() -> Int {
+    let cmd: Command = .step(10, 32)
+    if energy(cmd) != 42 {
+        return 1
+    }
+
+    return 0
+}

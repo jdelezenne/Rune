@@ -1,0 +1,52 @@
+import Standard.*
+
+// Protect shared mutable state with lock/unlock. Same pattern as
+// Examples/Programs/SDL3/AudioStreamDemo.rune (AudioQueue).
+
+struct SharedCounter {
+    var mutex: Mutex
+    var value: Int
+
+    init(initial: Int) {
+        self.mutex = Mutex()
+        self.value = initial
+    }
+
+    final() {
+        self.mutex.release()
+    }
+
+    mutating func add(amount: Int) {
+        self.mutex.lock()
+        self.value = self.value + amount
+        self.mutex.unlock()
+    }
+
+    mutating func get() -> Int {
+        self.mutex.lock()
+        let current = self.value
+        self.mutex.unlock()
+        return current
+    }
+}
+
+func main() -> Int {
+    var counter = SharedCounter(initial: 0)
+
+    counter.add(amount: 10)
+    counter.add(amount: 32)
+
+    Console.printLine("Counter = ${counter.get()}")
+
+    let total = counter.get()
+    Console.printLine("Counter = ${total}")
+
+    if counter.mutex.nativeHandle != nil {
+        Console.printLine("Mutex initialized")
+    }
+
+    if total != 42 {
+        return 1
+    }
+    return 0
+}

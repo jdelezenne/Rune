@@ -1,0 +1,26 @@
+import Standard.*
+
+func loadWidth() async -> Int {
+    Console.printLine("  load width")
+    return 10
+}
+
+func loadHeight() async -> Int {
+    Console.printLine("  load height")
+    return 4
+}
+
+func computeArea() async -> Int {
+    let width = await loadWidth()
+    let height = await loadHeight()
+    let area = width * height
+    Console.printLine("  area = ${width} * ${height} = ${area}")
+    return area
+}
+
+func main() async -> Int {
+    Console.printLine("async / await pipeline:")
+    let area = await computeArea()
+    Console.printLine("done, area=${area}")
+    return area
+}

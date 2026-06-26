@@ -1,0 +1,22 @@
+import Standard.*
+
+func main() -> Int {
+    let name = "Rune"
+    let version = 1
+    Console.printLine("Language: ${name}, version ${version}")
+
+    let enabled = true
+    let disabled = false
+    let signed = -42
+    let unsigned = 42
+    let decimal = 3.5
+    let hexFloat = 0x1.8p3
+    let infinity = Float64.inf
+    let negativeInfinity = -Float64.inf
+    let notANumber = Float64.nan
+    let rawText = #"C:\temp"#
+    Console.printLine("Variables: enabled=${enabled}, disabled=${disabled}, signed=${signed}, unsigned=${unsigned}, decimal=${decimal}, hexFloat=${hexFloat}")
+    Console.printLine("Special floats: inf=${infinity}, -inf=${negativeInfinity}, nan=${notANumber}")
+    Console.printLine("Literals: decimal=${42}, hex=${0x2A}, binary=${0b101010}, octal=${0o52}, bool=${true}, nil=${nil}, string=${"ok"}, raw=${rawText}")
+    return 0
+}

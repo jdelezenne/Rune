@@ -1,0 +1,39 @@
+func main() -> Int {
+    let elementSize = #sizeOf<Int64>()
+    let raw = try! Memory.systemAllocateAligned(
+        size: elementSize * 2,
+        alignment: #alignmentOf<Int64>())
+
+    let address = Int(raw)
+    let mutableByte = address as &Byte
+    if Int(mutableByte) != address {
+        Memory.systemDeallocate(address: raw)
+        return 1
+    }
+
+    let value = ((mutableByte) as &Int64)
+    value^ = 42
+
+    let immutableByte = address as *Byte
+    let readValue = ((immutableByte) as *Int64)
+    if readValue^ != 42 {
+        Memory.systemDeallocate(address: raw)
+        return 2
+    }
+
+    let next = (Int(mutableByte) + Int(elementSize)) as &Byte
+    let nextAddress = Int(next)
+    if nextAddress - address != Int(elementSize) {
+        Memory.systemDeallocate(address: raw)
+        return 3
+    }
+
+    let recovered = (nextAddress - Int(elementSize)) as &Byte
+    if Int(recovered) != address {
+        Memory.systemDeallocate(address: raw)
+        return 4
+    }
+
+    Memory.systemDeallocate(address: raw)
+    return 0
+}

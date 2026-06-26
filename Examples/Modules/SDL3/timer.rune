@@ -1,0 +1,22 @@
+public const millisecondsPerSecond: UInt32 = 1000 // SDL_MS_PER_SECOND
+public const microsecondsPerSecond: UInt32 = 1000000 // SDL_US_PER_SECOND
+public const nanosecondsPerSecond: UInt64 = 1000000000 // SDL_NS_PER_SECOND
+
+@include("SDL3/SDL_timer.h")
+@link("SDL3")
+{
+    @symbol("SDL_Delay")
+    public func delay(milliseconds: UInt32) -> Void
+
+    @symbol("SDL_GetTicks")
+    public func getTicks() -> UInt64
+
+    @symbol("SDL_GetTicksNS")
+    public func getTicksNanoseconds() -> UInt64
+
+    @symbol("SDL_GetPerformanceCounter")
+    public func getPerformanceCounter() -> UInt64
+
+    @symbol("SDL_GetPerformanceFrequency")
+    public func getPerformanceFrequency() -> UInt64
+}

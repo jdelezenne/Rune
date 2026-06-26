@@ -1,0 +1,11 @@
+func identity<T>(value: T) -> T {
+    return value
+}
+
+func main() -> Int {
+    let answer = identity<Int>(42)
+    if answer != 42 {
+        return 1
+    }
+    return 0
+}

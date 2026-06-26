@@ -1,0 +1,124 @@
+@symbol("FILE")
+public distinct FILE
+
+public const EOF: Int32 = -1
+public const SEEK_SET: Int32 = 0
+public const SEEK_CUR: Int32 = 1
+public const SEEK_END: Int32 = 2
+
+public distinct CVarArg = Int64
+
+@include("stdio.h")
+@link("c")
+{
+    public stdin: *FILE? {
+        @symbol("rune_stdin")
+        get
+    }
+
+    public stdout: *FILE? {
+        @symbol("rune_stdout")
+        get
+    }
+
+    public stderr: *FILE? {
+        @symbol("rune_stderr")
+        get
+    }
+
+    @symbol
+    public func printf(format: CStringSlice?, args: CVarArg...) -> Int32
+
+    @symbol
+    public func fprintf(stream: *FILE?, format: CStringSlice?, args: CVarArg...) -> Int32
+
+    @symbol
+    public func sprintf(buffer: &Byte?, format: CStringSlice?, args: CVarArg...) -> Int32
+
+    @symbol
+    public func snprintf(buffer: &Byte?, size: UInt, format: CStringSlice?, args: CVarArg...) -> Int32
+
+    @symbol
+    public func scanf(format: CStringSlice?, args: CVarArg...) -> Int32
+
+    @symbol
+    public func fscanf(stream: *FILE?, format: CStringSlice?, args: CVarArg...) -> Int32
+
+    @symbol
+    public func sscanf(buffer: CStringSlice?, format: CStringSlice?, args: CVarArg...) -> Int32
+
+    @symbol
+    public func fopen(path: CStringSlice?, mode: CStringSlice?) -> *FILE?
+
+    @symbol
+    public func fclose(stream: *FILE?) -> Int32
+
+    @symbol
+    public func fflush(stream: *FILE?) -> Int32
+
+    @symbol
+    public func fread(ptr: &Byte?, size: UInt, count: UInt, stream: *FILE?) -> UInt
+
+    @symbol
+    public func fwrite(ptr: *Byte?, size: UInt, count: UInt, stream: *FILE?) -> UInt
+
+    @symbol
+    public func fgetc(stream: *FILE?) -> Int32
+
+    @symbol
+    public func fputc(character: Int32, stream: *FILE?) -> Int32
+
+    @symbol
+    public func fgets(buffer: &Byte?, size: UInt, stream: *FILE?) -> &Byte?
+
+    @symbol
+    public func fputs(text: CStringSlice?, stream: *FILE?) -> Int32
+
+    @symbol
+    public func fseek(stream: *FILE?, offset: Int64, whence: Int32) -> Int32
+
+    @symbol
+    public func ftell(stream: *FILE?) -> Int64
+
+    @symbol
+    public func rewind(stream: *FILE?) -> Void
+
+    @symbol
+    public func remove(path: CStringSlice?) -> Int32
+
+    @symbol
+    public func rename(oldPath: CStringSlice?, newPath: CStringSlice?) -> Int32
+
+    @symbol
+    public func perror(message: CStringSlice?) -> Void
+
+    @symbol
+    public func feof(stream: *FILE?) -> Int32
+
+    @symbol
+    public func ferror(stream: *FILE?) -> Int32
+
+    @symbol
+    public func clearerr(stream: *FILE?) -> Void
+
+    @symbol
+    public func puts(text: CStringSlice?) -> Int32
+
+    @symbol
+    public func putchar(character: Int32) -> Int32
+
+    @symbol
+    public func getchar() -> Int32
+
+    @symbol
+    public func ungetc(character: Int32, stream: *FILE?) -> Int32
+
+    @symbol
+    public func fdopen(fd: Int32, mode: CStringSlice?) -> *FILE?
+
+    @symbol
+    public func fileno(stream: *FILE?) -> Int32
+
+    @symbol
+    public func tmpfile() -> *FILE?
+}

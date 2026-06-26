@@ -1,0 +1,57 @@
+// The discard wildcard _ can appear in let bindings, tuple destructuring,
+// for-loop variables, match default cases, and union payload patterns.
+
+func divmod(a: Int, b: Int) -> (quotient: Int, remainder: Int) {
+    return (quotient: a / b, remainder: a % b)
+}
+
+func sideEffect() -> Int {
+    return 42
+}
+
+union Event {
+    click(Int, Int)
+    keyPress(Int)
+    resize
+}
+
+func handleEvent(event: Event) -> Int {
+    match event {
+        .click(_, _) => return 1
+        .keyPress(_) => return 2
+        .resize => return 3
+    }
+}
+
+func main() -> Int {
+    // Discard a return value without binding it.
+    let _ = sideEffect()
+
+    // Discard unwanted fields during tuple destructuring.
+    let (quotient, _) = divmod(17, 5)
+
+    // Discard the loop variable when only the iteration count matters.
+    var count = 0
+    for _ in 0..5 {
+        count = count + 1
+    }
+
+    // Default catch-all case in a match expression.
+    var score = 0
+    match quotient {
+        3 => score = 10
+        _ => score = 0
+    }
+
+    // Discard associated values when only the union case matters.
+    let clickScore = handleEvent(.click(10, 20))
+    let keyScore = handleEvent(.keyPress(65))
+    let resizeScore = handleEvent(.resize)
+
+    let result = quotient + count + score + clickScore + keyScore + resizeScore
+    if result != 24 {
+        return 1
+    }
+
+    return 0
+}

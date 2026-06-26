@@ -1,0 +1,24 @@
+@link("c")
+@include("ctype.h")
+static CChar {
+    @symbol("isalpha")
+    func isAlpha(value: Int32) -> Int32
+
+    @symbol("isdigit")
+    func isDigit(value: Int32) -> Int32
+
+    @symbol("toupper")
+    func toUpper(value: Int32) -> Int32
+
+    @symbol("tolower")
+    func toLower(value: Int32) -> Int32
+}
+
+func main() {
+    let upperA: Int32 = 65
+    let lowerZ: Int32 = 122
+    let digit7: Int32 = 55
+
+    #printLn("C ctype: isAlpha('A')=${CChar.isAlpha(upperA)}, isDigit('7')=${CChar.isDigit(digit7)}")
+    #printLn("C ctype: toUpper('z')=${CChar.toUpper(lowerZ)}, toLower('A')=${CChar.toLower(upperA)}")
+}

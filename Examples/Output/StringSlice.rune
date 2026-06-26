@@ -1,0 +1,8 @@
+import Standard.*
+
+func main() -> Int {
+    let language: String = "Rune"
+    let core: StringSlice = language[0..4]
+    Console.printLine("core length=${core.length}")
+    return 0
+}

@@ -1,0 +1,14 @@
+struct OffsetTable {
+    var base: Int
+
+    operator [](index: Int) -> Int {
+        return base + index
+    }
+}
+
+func main() -> Int {
+    let table = OffsetTable(base: 40)
+    let _ = table
+
+    return 0
+}

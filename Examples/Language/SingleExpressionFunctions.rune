@@ -1,0 +1,19 @@
+func double(value: Int) -> Int {
+    value * 2
+}
+
+func isZero(value: Int) -> Bool {
+    value == 0
+}
+
+func main() -> Int {
+    if double(8) != 16 {
+        return 1
+    }
+
+    if !isZero(0) {
+        return 2
+    }
+
+    return 0
+}

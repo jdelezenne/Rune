@@ -1,0 +1,58 @@
+@symbol("SDL_Gamepad")
+public distinct Gamepad
+
+public alias JoystickId = UInt32
+
+public const joystickAxisMax: Int32 = 32767 // SDL_JOYSTICK_AXIS_MAX
+public const joystickAxisMin: Int32 = -32768 // SDL_JOYSTICK_AXIS_MIN
+
+public enum GamepadButton: Int32 {
+    invalid = -1 // SDL_GAMEPAD_BUTTON_INVALID
+    south = 0 // SDL_GAMEPAD_BUTTON_SOUTH
+    east = 1 // SDL_GAMEPAD_BUTTON_EAST
+    west = 2 // SDL_GAMEPAD_BUTTON_WEST
+    north = 3 // SDL_GAMEPAD_BUTTON_NORTH
+    back = 4 // SDL_GAMEPAD_BUTTON_BACK
+    guide = 5 // SDL_GAMEPAD_BUTTON_GUIDE
+    start = 6 // SDL_GAMEPAD_BUTTON_START
+    leftStick = 7 // SDL_GAMEPAD_BUTTON_LEFT_STICK
+    rightStick = 8 // SDL_GAMEPAD_BUTTON_RIGHT_STICK
+    leftShoulder = 9 // SDL_GAMEPAD_BUTTON_LEFT_SHOULDER
+    rightShoulder = 10 // SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER
+    dpadUp = 11 // SDL_GAMEPAD_BUTTON_DPAD_UP
+    dpadDown = 12 // SDL_GAMEPAD_BUTTON_DPAD_DOWN
+    dpadLeft = 13 // SDL_GAMEPAD_BUTTON_DPAD_LEFT
+    dpadRight = 14 // SDL_GAMEPAD_BUTTON_DPAD_RIGHT
+}
+
+public enum GamepadAxis: Int32 {
+    invalid = -1 // SDL_GAMEPAD_AXIS_INVALID
+    leftX = 0 // SDL_GAMEPAD_AXIS_LEFTX
+    leftY = 1 // SDL_GAMEPAD_AXIS_LEFTY
+    rightX = 2 // SDL_GAMEPAD_AXIS_RIGHTX
+    rightY = 3 // SDL_GAMEPAD_AXIS_RIGHTY
+    leftTrigger = 4 // SDL_GAMEPAD_AXIS_LEFT_TRIGGER
+    rightTrigger = 5 // SDL_GAMEPAD_AXIS_RIGHT_TRIGGER
+}
+
+@include("SDL3/SDL_gamepad.h")
+@link("SDL3")
+{
+    @symbol("SDL_HasGamepad")
+    public func hasGamepad() -> Bool
+
+    @symbol("SDL_GetGamepads")
+    public func getGamepads(count: &Int32?) -> *JoystickId?
+
+    @symbol("SDL_OpenGamepad")
+    public func openGamepad(instanceId: JoystickId) -> &Gamepad?
+
+    @symbol("SDL_CloseGamepad")
+    public func closeGamepad(gamepad: &Gamepad?) -> Void
+
+    @symbol("SDL_GetGamepadButton")
+    public func getGamepadButton(gamepad: &Gamepad?, button: GamepadButton) -> Bool
+
+    @symbol("SDL_GetGamepadAxis")
+    public func getGamepadAxis(gamepad: &Gamepad?, axis: GamepadAxis) -> Int32
+}

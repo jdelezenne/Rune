@@ -1,0 +1,18 @@
+func main() -> Int {
+    let text: String = "Hello, world!"
+
+    // Half-open range [start, end): end index is excluded
+    let hello: StringSlice = text[0..5]   // "Hello"
+    let world: StringSlice = text[7..12]  // "world"
+    let sep: StringSlice = text[5..7]     // ", "
+
+    if hello.isEmpty or world.isEmpty or sep.isEmpty {
+        return 1
+    }
+
+    if hello.length + sep.length + world.length != 12 {
+        return 2
+    }
+
+    return 0
+}

@@ -1,0 +1,26 @@
+import Standard.*
+
+// Tuple literals, return types, destructuring, member access, and discard wildcards.
+
+func divmod(a: Int, b: Int) -> (quotient: Int, remainder: Int) {
+    return (quotient: a / b, remainder: a % b)
+}
+
+func getTriple() -> (first: Int, middle: Int, last: Int) {
+    return (first: 10, middle: 20, last: 30)
+}
+
+func main() -> Int {
+    let pair = (left: 40, right: 2)
+    let (left, right) = pair
+    Console.printLine("pair = (${left}, ${right})")
+    Console.printLine("pair.0 + pair.1 = ${pair.0 + pair.1}")
+
+    let (quotient, remainder) = divmod(17, 5)
+    Console.printLine("divmod(17, 5) = (${quotient}, ${remainder})")
+
+    let (_, middle, _) = getTriple()
+    Console.printLine("getTriple middle = ${middle}")
+
+    return 0
+}

@@ -1,0 +1,63 @@
+func baseValue() async -> Int {
+    return 5
+}
+
+func add(value: Int, delta: Int) async -> Int {
+    return value + delta
+}
+
+func scale(value: Int) async -> Int {
+    return value * 3
+}
+
+func record(marker: &Int) async -> Void {
+    marker^ = marker^ + 1
+}
+
+func choose(flag: Bool) async -> Int {
+    if flag {
+        return await add(value: 10, delta: 4)
+    }
+
+    return await add(value: 20, delta: 2)
+}
+
+func compute() async -> Int {
+    let initial = await baseValue()
+    let shifted = await add(value: initial, delta: 9)
+    let scaled = await scale(value: shifted)
+    return scaled
+}
+
+func acceptsAsync(worker: () async -> Int) async -> Int {
+    return await worker()
+}
+
+func main() async -> Int {
+    var marker = 0
+    await record(marker: &marker)
+    await record(marker: &marker)
+
+    if marker != 2 {
+        return 1
+    }
+
+    if await compute() != 42 {
+        return 1
+    }
+
+    if await choose(flag: true) != 14 {
+        return 1
+    }
+
+    if await choose(flag: false) != 22 {
+        return 1
+    }
+
+    let worker: () async -> Int = compute
+    if await acceptsAsync(worker: worker) != 42 {
+        return 1
+    }
+
+    return 0
+}

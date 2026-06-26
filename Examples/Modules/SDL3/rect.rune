@@ -1,0 +1,27 @@
+@layout(kind: c)
+public struct Point {
+    public var x: Int32
+    public var y: Int32
+}
+
+@layout(kind: c)
+public struct FPoint {
+    public var x: Float32
+    public var y: Float32
+}
+
+@layout(kind: c)
+public struct Rect {
+    public var x: Int32
+    public var y: Int32
+    public var w: Int32
+    public var h: Int32
+}
+
+@layout(kind: c)
+public struct FRect {
+    public var x: Float32
+    public var y: Float32
+    public var w: Float32
+    public var h: Float32
+}

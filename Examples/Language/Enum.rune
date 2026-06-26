@@ -1,0 +1,14 @@
+enum Status: Int {
+    ready = 0
+    busy = 1
+    done = 2
+}
+
+func main() -> Int {
+    let current = Status.busy
+    if current != Status.busy {
+        return 1
+    }
+
+    return 0
+}

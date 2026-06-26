@@ -1,0 +1,24 @@
+open struct Shape {
+    var color: Int
+}
+
+struct Circle extends Shape {
+    var radius: Int
+}
+
+struct Rectangle extends Shape {
+    var width: Int
+    var height: Int
+}
+
+func main() -> Int {
+    let circle = Circle(color: 1, radius: 3)
+    let rect = Rectangle(color: 2, width: 6, height: 4)
+    let total = circle.color + circle.radius + rect.color + rect.width + rect.height
+
+    if total != 16 {
+        return 1
+    }
+
+    return 0
+}

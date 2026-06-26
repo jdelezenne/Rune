@@ -1,0 +1,463 @@
+// Builtin Primitive Types
+// This module defines the core types built into the Rune language.
+//
+// There are no implicit conversions between
+// distinct numeric types.
+//
+// The unlabeled initializer form, e.g. Int32(x), is reserved for value-preserving
+// conversion and must reject or trap when the source value is not representable.
+// Bit-pattern preserving integer conversion belongs in Int.truncating(x);
+// saturating conversion belongs in Int.clamping(x); exact/failable conversion
+// belongs in Int.exactly(x).
+
+// MARK: - Signed Integer Types
+
+/// 8-bit signed integer
+@builtin
+public struct Int8 {
+    @runtime("rune_int8_from_string")
+    public init(value: String)
+}
+
+public extension Int8 implements Equatable {
+    @intrinsic
+    public static operator ==(lhs: Int8, rhs: Int8) -> Bool
+}
+
+public extension Int8 implements Hashable {
+    @runtime("rune_int8_hash")
+    public func hash() -> Int
+}
+
+public extension Int8 implements CustomStringConvertible {
+    @runtime("rune_runtime_string_from_int8")
+    public func toString() -> String
+}
+
+@builtin
+public struct Int16 {
+    @runtime("rune_int16_from_string")
+    public init(value: String)
+}
+
+public extension Int16 implements Equatable {
+    @intrinsic
+    public static operator ==(lhs: Int16, rhs: Int16) -> Bool
+}
+
+public extension Int16 implements Hashable {
+    @runtime("rune_int16_hash")
+    public func hash() -> Int
+}
+
+public extension Int16 implements CustomStringConvertible {
+    @runtime("rune_runtime_string_from_int16")
+    public func toString() -> String
+}
+
+@builtin
+public struct Int32 {
+    @runtime("rune_int32_from_string")
+    public init(value: String)
+}
+
+public extension Int32 implements Equatable {
+    @intrinsic
+    public static operator ==(lhs: Int32, rhs: Int32) -> Bool
+}
+
+public extension Int32 implements Hashable {
+    @runtime("rune_int32_hash")
+    public func hash() -> Int
+}
+
+public extension Int32 implements CustomStringConvertible {
+    @runtime("rune_runtime_string_from_int32")
+    public func toString() -> String
+}
+
+/// 64-bit signed integer
+@builtin
+public struct Int64 {
+    @runtime("rune_int64_from_string")
+    public init(value: String)
+}
+
+public extension Int64 implements Equatable {
+    @intrinsic
+    public static operator ==(lhs: Int64, rhs: Int64) -> Bool
+}
+
+public extension Int64 implements Hashable {
+    @runtime("rune_int64_hash")
+    public func hash() -> Int
+}
+
+public extension Int64 implements CustomStringConvertible {
+    @runtime("rune_runtime_string_from_int64")
+    public func toString() -> String
+}
+
+/// Platform-width signed integer (pointer-sized).
+@builtin
+public struct Int {
+    @runtime("rune_int_from_string")
+    public init(value: String)
+}
+
+public extension Int implements Equatable {
+    @intrinsic
+    public static operator ==(lhs: Int, rhs: Int) -> Bool
+}
+
+public extension Int implements Hashable {
+    @runtime("rune_int_hash")
+    public func hash() -> Int
+}
+
+// MARK: - Unsigned Integer Types
+
+/// 8-bit unsigned integer
+@builtin
+public struct UInt8 {
+    @runtime("rune_uint8_from_string")
+    public init(value: String)
+}
+
+public extension UInt8 implements Equatable {
+    @intrinsic
+    public static operator ==(lhs: UInt8, rhs: UInt8) -> Bool
+}
+
+public extension UInt8 implements Hashable {
+    @runtime("rune_uint8_hash")
+    public func hash() -> Int
+}
+
+public extension UInt8 implements CustomStringConvertible {
+    @runtime("rune_runtime_string_from_uint8")
+    public func toString() -> String
+}
+
+/// 16-bit unsigned integer
+@builtin
+public struct UInt16 {
+    @runtime("rune_uint16_from_string")
+    public init(value: String)
+}
+
+public extension UInt16 implements Equatable {
+    @intrinsic
+    public static operator ==(lhs: UInt16, rhs: UInt16) -> Bool
+}
+
+public extension UInt16 implements Hashable {
+    @runtime("rune_uint16_hash")
+    public func hash() -> Int
+}
+
+public extension UInt16 implements CustomStringConvertible {
+    @runtime("rune_runtime_string_from_uint16")
+    public func toString() -> String
+}
+
+/// 32-bit unsigned integer
+@builtin
+public struct UInt32 {
+    @runtime("rune_uint32_from_string")
+    public init(value: String)
+}
+
+public extension UInt32 implements Equatable {
+    @intrinsic
+    public static operator ==(lhs: UInt32, rhs: UInt32) -> Bool
+}
+
+public extension UInt32 implements Hashable {
+    @runtime("rune_uint32_hash")
+    public func hash() -> Int
+}
+
+public extension UInt32 implements CustomStringConvertible {
+    @runtime("rune_runtime_string_from_uint32")
+    public func toString() -> String
+}
+
+/// 64-bit unsigned integer
+@builtin
+public struct UInt64 {
+    @runtime("rune_uint64_from_string")
+    public init(value: String)
+}
+
+public extension UInt64 implements Equatable {
+    @intrinsic
+    public static operator ==(lhs: UInt64, rhs: UInt64) -> Bool
+}
+
+public extension UInt64 implements Hashable {
+    @runtime("rune_uint64_hash")
+    public func hash() -> Int
+}
+
+public extension UInt64 implements CustomStringConvertible {
+    @runtime("rune_runtime_string_from_uint64")
+    public func toString() -> String
+}
+
+/// Platform-width unsigned integer (pointer-sized).
+@builtin
+public struct UInt {
+    @runtime("rune_uint_from_string")
+    public init(value: String)
+}
+
+public extension UInt implements Equatable {
+    @intrinsic
+    public static operator ==(lhs: UInt, rhs: UInt) -> Bool
+}
+
+public extension UInt implements Hashable {
+    @runtime("rune_uint_hash")
+    public func hash() -> Int
+}
+
+// MARK: - Floating Point Types
+
+/// 32-bit floating point
+@builtin
+public struct Float32 {
+    @runtime("rune_float32_from_string")
+    public init(value: String)
+}
+
+public extension Float32 implements Equatable {
+    @intrinsic
+    public static operator ==(lhs: Float32, rhs: Float32) -> Bool
+}
+
+public extension Float32 implements Hashable {
+    @runtime("rune_float32_hash")
+    public func hash() -> Int
+}
+
+public extension Float32 implements CustomStringConvertible {
+    @runtime("rune_runtime_string_from_float32")
+    public func toString() -> String
+}
+
+/// 64-bit floating point
+@builtin
+public struct Float64 {
+    @runtime("rune_float64_from_string")
+    public init(value: String)
+}
+
+public extension Float64 implements Equatable {
+    @intrinsic
+    public static operator ==(lhs: Float64, rhs: Float64) -> Bool
+}
+
+public extension Float64 implements Hashable {
+    @runtime("rune_float64_hash")
+    public func hash() -> Int
+}
+
+public extension Float64 implements CustomStringConvertible {
+    @runtime("rune_runtime_string_from_float64")
+    public func toString() -> String
+}
+
+// MARK: - Other Primitive Types
+
+/// Boolean type
+@builtin
+public struct Bool {}
+
+public extension Bool implements Equatable {
+    @intrinsic
+    public static operator ==(lhs: Bool, rhs: Bool) -> Bool
+}
+
+public extension Bool implements Hashable {
+    @runtime("rune_bool_hash")
+    public func hash() -> Int
+}
+
+public extension Bool implements CustomStringConvertible {
+    @runtime("rune_runtime_string_from_bool")
+    public func toString() -> String
+}
+
+/// One Unicode scalar value stored as UTF-8 (1–4 bytes).
+@builtin
+public struct Char {}
+
+public extension Char implements Equatable {
+    @intrinsic
+    public static operator ==(lhs: Char, rhs: Char) -> Bool
+}
+
+public extension Char implements Hashable {
+    /// Returns a stable hash value for this character.
+    @runtime("rune_runtime_char_hash")
+    public func hash() -> Int
+}
+
+public extension Char {
+    /// UTF-8 byte length of this character (1–4).
+    public utf8Length: Int {
+        @runtime("rune_runtime_char_utf8_length")
+        get
+    }
+
+    /// Unicode scalar value as Int.
+    public codePoint: Int {
+        @runtime("rune_runtime_char_code_point")
+        get
+    }
+}
+
+// MARK: - Comparable
+
+public extension Int8 implements Comparable {
+    @intrinsic
+    public func compareTo(other: Int8) -> Ordering
+}
+
+public extension Int16 implements Comparable {
+    @intrinsic
+    public func compareTo(other: Int16) -> Ordering
+}
+
+public extension Int32 implements Comparable {
+    @intrinsic
+    public func compareTo(other: Int32) -> Ordering
+}
+
+public extension Int64 implements Comparable {
+    @intrinsic
+    public func compareTo(other: Int64) -> Ordering
+}
+
+public extension Int implements Comparable {
+    @intrinsic
+    public func compareTo(other: Int) -> Ordering
+}
+
+public extension UInt8 implements Comparable {
+    @intrinsic
+    public func compareTo(other: UInt8) -> Ordering
+}
+
+public extension UInt16 implements Comparable {
+    @intrinsic
+    public func compareTo(other: UInt16) -> Ordering
+}
+
+public extension UInt32 implements Comparable {
+    @intrinsic
+    public func compareTo(other: UInt32) -> Ordering
+}
+
+public extension UInt64 implements Comparable {
+    @intrinsic
+    public func compareTo(other: UInt64) -> Ordering
+}
+
+public extension UInt implements Comparable {
+    @intrinsic
+    public func compareTo(other: UInt) -> Ordering
+}
+
+public extension Float32 implements Comparable {
+    @intrinsic
+    public func compareTo(other: Float32) -> Ordering
+}
+
+public extension Float64 implements Comparable {
+    @intrinsic
+    public func compareTo(other: Float64) -> Ordering
+}
+
+public extension Bool implements Comparable {
+    @intrinsic
+    public func compareTo(other: Bool) -> Ordering
+}
+
+public extension Char implements Comparable {
+    @intrinsic
+    public func compareTo(other: Char) -> Ordering
+}
+
+// MARK: - Literal Conversion
+
+public extension Int8 implements IntegerLiteralConvertible {
+    @intrinsic
+    public init(integerLiteral: IntegerLiteral)
+}
+
+public extension Int16 implements IntegerLiteralConvertible {
+    @intrinsic
+    public init(integerLiteral: IntegerLiteral)
+}
+
+public extension Int32 implements IntegerLiteralConvertible {
+    @intrinsic
+    public init(integerLiteral: IntegerLiteral)
+}
+
+public extension Int64 implements IntegerLiteralConvertible {
+    @intrinsic
+    public init(integerLiteral: IntegerLiteral)
+}
+
+public extension Int implements IntegerLiteralConvertible {
+    @intrinsic
+    public init(integerLiteral: IntegerLiteral)
+}
+
+public extension UInt8 implements IntegerLiteralConvertible {
+    @intrinsic
+    public init(integerLiteral: IntegerLiteral)
+}
+
+public extension UInt16 implements IntegerLiteralConvertible {
+    @intrinsic
+    public init(integerLiteral: IntegerLiteral)
+}
+
+public extension UInt32 implements IntegerLiteralConvertible {
+    @intrinsic
+    public init(integerLiteral: IntegerLiteral)
+}
+
+public extension UInt64 implements IntegerLiteralConvertible {
+    @intrinsic
+    public init(integerLiteral: IntegerLiteral)
+}
+
+public extension UInt implements IntegerLiteralConvertible {
+    @intrinsic
+    public init(integerLiteral: IntegerLiteral)
+}
+
+public extension Float32 implements FloatingPointLiteralConvertible {
+    @intrinsic
+    public init(floatingPointLiteral: FloatingPointLiteral)
+}
+
+public extension Float64 implements FloatingPointLiteralConvertible {
+    @intrinsic
+    public init(floatingPointLiteral: FloatingPointLiteral)
+}
+
+public extension Bool implements BooleanLiteralConvertible {
+    @intrinsic
+    public init(booleanLiteral: BooleanLiteral)
+}
+
+public extension Char implements CharacterLiteralConvertible {
+    @intrinsic
+    public init(characterLiteral: CharacterLiteral)
+}

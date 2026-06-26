@@ -1,0 +1,24 @@
+static CMath {
+    @link("c")
+    @include("stdlib.h")
+    @symbol("abs")
+    func absInt(value: Int32) -> Int32
+
+    @link("m")
+    @include("math.h")
+    {
+        @symbol("sqrt")
+        func sqrt64(value: Float64) -> Float64
+
+        @symbol("pow")
+        func pow64(base: Float64, exponent: Float64) -> Float64
+    }
+}
+
+func main() {
+    let absValue = CMath.absInt(-42)
+    let rootValue = CMath.sqrt64(81.0)
+    let powValue = CMath.pow64(2.0, 10.0)
+
+    #printLn("C math: abs(-42)=${absValue}, sqrt(81)=${rootValue}, pow(2,10)=${powValue}")
+}

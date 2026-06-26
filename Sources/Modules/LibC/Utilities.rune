@@ -1,0 +1,12 @@
+
+public func isRegularFile(mode: Int16) -> Bool {
+    return (mode & S_IFMT) == S_IFREG
+}
+
+public func isDirectory(mode: Int16) -> Bool {
+    return (mode & S_IFMT) == S_IFDIR
+}
+
+public func isSymlink(mode: Int16) -> Bool {
+    return (mode & S_IFMT) == S_IFLNK
+}

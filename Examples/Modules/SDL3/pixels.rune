@@ -1,0 +1,30 @@
+public enum PixelFormat: UInt32 {
+    unknown = 0 // SDL_PIXELFORMAT_UNKNOWN
+    index8 = 318769153 // SDL_PIXELFORMAT_INDEX8
+    rgb24 = 386930691 // SDL_PIXELFORMAT_RGB24
+    bgr24 = 390076419 // SDL_PIXELFORMAT_BGR24
+    xrgb8888 = 370546692 // SDL_PIXELFORMAT_XRGB8888
+    rgbx8888 = 371595268 // SDL_PIXELFORMAT_RGBX8888
+    xbgr8888 = 374740996 // SDL_PIXELFORMAT_XBGR8888
+    bgrx8888 = 375789572 // SDL_PIXELFORMAT_BGRX8888
+    argb8888 = 372645892 // SDL_PIXELFORMAT_ARGB8888
+    rgba8888 = 373694468 // SDL_PIXELFORMAT_RGBA8888
+    abgr8888 = 376840196 // SDL_PIXELFORMAT_ABGR8888
+    bgra8888 = 377888772 // SDL_PIXELFORMAT_BGRA8888
+}
+
+@layout(kind: c)
+public struct Color {
+    public var r: UInt8
+    public var g: UInt8
+    public var b: UInt8
+    public var a: UInt8
+}
+
+@layout(kind: c)
+public struct FColor {
+    public var r: Float32
+    public var g: Float32
+    public var b: Float32
+    public var a: Float32
+}

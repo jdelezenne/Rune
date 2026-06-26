@@ -1,0 +1,12 @@
+/// Result of a three-way comparison.
+public enum Ordering: Int8 {
+    less = -1
+    equal = 0
+    greater = 1
+}
+
+/// Types with a total ordering, required by sorted collections (`SortedMap`, `SortedSet`).
+public interface Comparable {
+    /// Returns the ordering of `self` relative to `other`.
+    func compareTo(other: Self) -> Ordering
+}

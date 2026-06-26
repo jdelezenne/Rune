@@ -1,0 +1,31 @@
+{
+  "version": "1.0.0",
+  "name": "SDL3",
+  "kind": "library",
+  "sources": [
+    "init.rune",
+    "error.rune",
+    "events.rune",
+    "video.rune",
+    "render.rune",
+    "audio.rune",
+    "timer.rune",
+    "mouse.rune",
+    "rect.rune",
+    "pixels.rune",
+    "blendmode.rune",
+    "scancode.rune",
+    "messagebox.rune",
+    "keyboard.rune",
+    "gamepad.rune",
+    "stdinc.rune"
+  ],
+  "dependencies": [
+    "../../../Code/Modules/Rune/Rune.runemanifest",
+    "../../../Code/Modules/LibC/LibC.runemanifest"
+  ],
+  "linkLibraries": [
+    "SDL3"
+  ],
+  "output": "SDL3.runemodule"
+}

@@ -1,0 +1,32 @@
+struct Point {
+    var x: Int
+    var y: Int
+
+    func sum() -> Int {
+        return x + y
+    }
+}
+
+struct Rectangle {
+    var origin: Point
+    var size: Point
+
+    func area() -> Int {
+        return size.x * size.y
+    }
+
+    func perimeter() -> Int {
+        return (size.x + size.y) * 2
+    }
+}
+
+func main() -> Int {
+    let origin = Point(x: 1, y: 2)
+    let size = Point(x: 6, y: 4)
+    let rect = Rectangle(origin: origin, size: size)
+    if rect.area() != 24 || rect.perimeter() != 20 {
+        return 1
+    }
+    rect.origin.sum()
+    return 0
+}

@@ -1,0 +1,24 @@
+struct Rectangle {
+    var width: Int
+    var height: Int
+
+    area: Int => width * height
+
+    perimeter: Int {
+        get {
+            return 2 * (width + height)
+        }
+        set(newValue) {
+            let side = newValue / 4
+            width = side
+            height = side
+        }
+    }
+}
+
+func main() -> Int {
+    var rect = Rectangle(width: 3, height: 4)
+    let _ = rect
+
+    return 0
+}

@@ -1,0 +1,10 @@
+// Minimal LibC text output smoke.
+
+import LibC
+import Standard.*
+
+func main() -> Int {
+    LibC.puts("WordCount smoke")
+    Console.printLine("strlen=${LibC.strlen("WordCount smoke")}")
+    return 0
+}

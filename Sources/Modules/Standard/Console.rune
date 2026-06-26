@@ -1,0 +1,17 @@
+/// Console input and output.
+public static Console {
+    /// Prints a value to stdout without a trailing newline.
+    /// @param value Text to print.
+    @runtime("rune_console_print")
+    public func print(value: String) -> Void
+
+    /// Prints a value to stdout followed by a newline.
+    /// @param value Text to print.
+    @runtime("rune_console_print_line")
+    public func printLine(value: String) -> Void
+
+    /// Reads a line of text from stdin.
+    /// @return The line read, without the trailing newline.
+    @runtime("rune_runtime_console_read_line")
+    public func readLine() -> String
+}

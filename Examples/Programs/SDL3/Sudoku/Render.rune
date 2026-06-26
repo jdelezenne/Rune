@@ -1,0 +1,211 @@
+import Standard.*
+import SDL3
+
+// MARK: - Layout constants
+
+const SCREEN_W: Int32 = 560
+const SCREEN_H: Int32 = 560
+const SCREEN_WF: Float32 = 560.0
+const SCREEN_HF: Float32 = 560.0
+
+const GRID_X: Float32 = 28.0
+const GRID_Y: Float32 = 56.0
+const CELL: Float32 = 56.0
+
+// MARK: - Pixel-font digit bitmaps (5 cols × 7 rows, MSB = left)
+
+const DIGIT_COLS: Int = 5
+const DIGIT_ROWS: Int = 7
+const DIGIT_PX: Float32 = 5.5
+
+const DIGIT_0: [UInt8, 7] = [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E]
+const DIGIT_1: [UInt8, 7] = [0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E]
+const DIGIT_2: [UInt8, 7] = [0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F]
+const DIGIT_3: [UInt8, 7] = [0x0E, 0x11, 0x01, 0x06, 0x01, 0x11, 0x0E]
+const DIGIT_4: [UInt8, 7] = [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02]
+const DIGIT_5: [UInt8, 7] = [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E]
+const DIGIT_6: [UInt8, 7] = [0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E]
+const DIGIT_7: [UInt8, 7] = [0x1F, 0x01, 0x02, 0x04, 0x04, 0x04, 0x04]
+const DIGIT_8: [UInt8, 7] = [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_9: [UInt8, 7] = [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C]
+
+// MARK: - Pixel font rendering
+
+func drawDigit(
+    renderer: &SDL3.Renderer?,
+    digit: Int,
+    x: Float32,
+    y: Float32,
+    px: Float32,
+    red: UInt8,
+    green: UInt8,
+    blue: UInt8) {
+    var bitmap: [UInt8, 7] = []
+    if digit == 0 { bitmap = DIGIT_0 }
+    if digit == 1 { bitmap = DIGIT_1 }
+    if digit == 2 { bitmap = DIGIT_2 }
+    if digit == 3 { bitmap = DIGIT_3 }
+    if digit == 4 { bitmap = DIGIT_4 }
+    if digit == 5 { bitmap = DIGIT_5 }
+    if digit == 6 { bitmap = DIGIT_6 }
+    if digit == 7 { bitmap = DIGIT_7 }
+    if digit == 8 { bitmap = DIGIT_8 }
+    if digit == 9 { bitmap = DIGIT_9 }
+    for row in 0..DIGIT_ROWS {
+        let bits = bitmap[row]
+        for col in 0..DIGIT_COLS {
+            let mask = UInt8(1 << (DIGIT_COLS - 1 - col))
+            if (bits & mask) != 0 {
+                var rect = SDL3.FRect(
+                    x: x + Float32(col) * px,
+                    y: y + Float32(row) * px,
+                    w: px,
+                    h: px)
+                SDL3.setRenderDrawColor(renderer, red, green, blue, 255)
+                SDL3.renderFillRect(renderer, &rect)
+            }
+        }
+    }
+}
+
+func drawCellDigit(renderer: &SDL3.Renderer?, digit: Int, cellX: Float32, cellY: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    let digitW = Float32(DIGIT_COLS) * DIGIT_PX
+    let digitH = Float32(DIGIT_ROWS) * DIGIT_PX
+    let ox = (CELL - digitW) * 0.5
+    let oy = (CELL - digitH) * 0.5
+    drawDigit(renderer, digit, cellX + ox, cellY + oy, DIGIT_PX, red, green, blue)
+}
+
+// MARK: - Board drawing
+
+func cellScreenPos(row: Int, col: Int) -> (x: Float32, y: Float32) {
+    return (x: GRID_X + Float32(col) * CELL, y: GRID_Y + Float32(row) * CELL)
+}
+
+func sameBox(row: Int, col: Int, selRow: Int, selCol: Int) -> Bool {
+    return (row / 3) == (selRow / 3) && (col / 3) == (selCol / 3)
+}
+
+func drawCellBackground(renderer: &SDL3.Renderer?, row: Int, col: Int, selRow: Int, selCol: Int, hasSelection: Bool, board: Board) {
+    let pos = cellScreenPos(row, col)
+    var rect = SDL3.FRect(x: pos.x + 1.0, y: pos.y + 1.0, w: CELL - 2.0, h: CELL - 2.0)
+    let idx = row * 9 + col
+    let isSelected = hasSelection && row == Int(selRow) && col == Int(selCol)
+    let inSameGroup = hasSelection && (row == Int(selRow) || col == Int(selCol) || sameBox(row, col, Int(selRow), Int(selCol)))
+    let selValue = board.cells[Int(selRow) * 9 + Int(selCol)]
+    let cellValue = board.cells[idx]
+    let sameValue = hasSelection && selValue != 0 && cellValue == selValue && !isSelected
+    let isWrong = !board.given[idx] && cellValue != 0 && cellValue != board.solution[idx]
+    if isSelected {
+        SDL3.setRenderDrawColor(renderer, 70, 100, 200, 255)
+    } else if isWrong {
+        SDL3.setRenderDrawColor(renderer, 60, 15, 20, 255)
+    } else if sameValue {
+        SDL3.setRenderDrawColor(renderer, 40, 55, 110, 255)
+    } else if inSameGroup {
+        SDL3.setRenderDrawColor(renderer, 28, 40, 80, 255)
+    } else {
+        SDL3.setRenderDrawColor(renderer, 18, 24, 52, 255)
+    }
+    SDL3.renderFillRect(renderer, &rect)
+}
+
+func drawCellValue(renderer: &SDL3.Renderer?, row: Int, col: Int, board: Board) {
+    let idx = row * 9 + col
+    let value = board.cells[idx]
+    if value == 0 {
+        return
+    }
+    let pos = cellScreenPos(row, col)
+    let isWrong = !board.given[idx] && value != board.solution[idx]
+    var r: UInt8 = 0
+    var g: UInt8 = 0
+    var b: UInt8 = 0
+    if isWrong {
+        r = 255
+        g = 70
+        b = 70
+    } else if board.given[idx] {
+        r = 220
+        g = 228
+        b = 255
+    } else {
+        r = 80
+        g = 190
+        b = 255
+    }
+    drawCellDigit(renderer, Int(value), pos.x, pos.y, r, g, b)
+}
+
+func drawGridLines(renderer: &SDL3.Renderer?) {
+    for i in 0..=9 {
+        let isBlock = (i % 3) == 0
+        var thick: Float32 = 1.0
+        if isBlock {
+            thick = 3.0
+            SDL3.setRenderDrawColor(renderer, 120, 145, 210, 255)
+        } else {
+            SDL3.setRenderDrawColor(renderer, 45, 58, 105, 255)
+        }
+        let px = GRID_X + Float32(i) * CELL
+        var vLine = SDL3.FRect(x: px - thick * 0.5, y: GRID_Y, w: thick, h: CELL * 9.0)
+        SDL3.renderFillRect(renderer, &vLine)
+        let py = GRID_Y + Float32(i) * CELL
+        var hLine = SDL3.FRect(x: GRID_X, y: py - thick * 0.5, w: CELL * 9.0, h: thick)
+        SDL3.renderFillRect(renderer, &hLine)
+    }
+}
+
+func drawBoard(renderer: &SDL3.Renderer?, board: Board, selRow: Int32, selCol: Int32, hasSelection: Bool) {
+    for row in 0..9 {
+        for col in 0..9 {
+            drawCellBackground(renderer, row, col, Int(selRow), Int(selCol), hasSelection, board)
+            drawCellValue(renderer, row, col, board)
+        }
+    }
+    drawGridLines(renderer)
+}
+
+// MARK: - HUD
+
+func drawHud(renderer: &SDL3.Renderer?, timer: Float32, won: Bool) {
+    SDL3.setRenderDrawColor(renderer, 160, 175, 230, 255)
+    SDL3.renderDebugText(renderer, 8.0, 8.0, "SUDOKU  |  Click: select   1-9: enter   Del: erase   N: new   Esc: quit")
+    let elapsed = Int(timer)
+    let mins = elapsed / 60
+    let secs = elapsed % 60
+    if secs < 10 {
+        let timeStr = CString("Time: ${mins}:0${secs}")
+        SDL3.setRenderDrawColor(renderer, 120, 160, 200, 255)
+        SDL3.renderDebugText(renderer, 8.0, 22.0, timeStr.asCStringSlice())
+    } else {
+        let timeStr = CString("Time: ${mins}:${secs}")
+        SDL3.setRenderDrawColor(renderer, 120, 160, 200, 255)
+        SDL3.renderDebugText(renderer, 8.0, 22.0, timeStr.asCStringSlice())
+    }
+    if won {
+        SDL3.setRenderDrawColor(renderer, 0, 0, 0, 180)
+        var overlay = SDL3.FRect(x: 0.0, y: 0.0, w: SCREEN_WF, h: SCREEN_HF)
+        SDL3.renderFillRect(renderer, &overlay)
+        SDL3.setRenderDrawColor(renderer, 80, 255, 120, 255)
+        SDL3.renderDebugText(renderer, 192.0, 272.0, "PUZZLE SOLVED!")
+        SDL3.setRenderDrawColor(renderer, 160, 200, 255, 255)
+        if secs < 10 {
+            let cs = CString("Time: ${mins}:0${secs}   N: new puzzle")
+            SDL3.renderDebugText(renderer, 164.0, 290.0, cs.asCStringSlice())
+        } else {
+            let cs = CString("Time: ${mins}:${secs}   N: new puzzle")
+            SDL3.renderDebugText(renderer, 164.0, 290.0, cs.asCStringSlice())
+        }
+    }
+}
+
+// MARK: - Frame
+
+func drawFrame(renderer: &SDL3.Renderer?, board: Board, selRow: Int32, selCol: Int32, hasSelection: Bool, timer: Float32, won: Bool) {
+    SDL3.setRenderDrawColor(renderer, 10, 14, 34, 255)
+    SDL3.renderClear(renderer)
+    drawBoard(renderer, board, selRow, selCol, hasSelection)
+    drawHud(renderer, timer, won)
+    SDL3.renderPresent(renderer)
+}

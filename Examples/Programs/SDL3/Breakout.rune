@@ -1,0 +1,609 @@
+// SDL3 Breakout: mouse/keyboard paddle, bouncing ball, destructible bricks.
+//
+// Controls:
+//   Mouse X / A D     - move paddle
+//   Space / click     - launch ball
+//   Escape / close    - quit
+
+import Standard.*
+import SDL3
+
+const BRICK_COLS: Int = 10
+const BRICK_ROWS: Int = 5
+const DIGIT_COLS: Int = 5
+const DIGIT_ROWS: Int = 7
+const SCORE_PIXEL: Float32 = 3.0
+const SCORE_GAP: Float32 = 2.0
+
+// 5x7 bitmap font (MSB = left). Mask bits: 0x10 left, 0x0E bar, 0x11 sides, 0x1F full, 0x01 right.
+const DIGIT_0: [UInt8, _] = [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E]
+const DIGIT_1: [UInt8, _] = [0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E]
+const DIGIT_2: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x10, 0x10, 0x0E]
+const DIGIT_3: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_4: [UInt8, _] = [0x11, 0x11, 0x11, 0x1F, 0x01, 0x01, 0x01]
+const DIGIT_5: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_6: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_7: [UInt8, _] = [0x0E, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01]
+const DIGIT_8: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_9: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x01, 0x01, 0x0E]
+
+struct KeyState {
+    var left: Bool
+    var right: Bool
+    var launch: Bool
+    var escape: Bool
+}
+
+struct Ball {
+    var x: Float32
+    var y: Float32
+    var vx: Float32
+    var vy: Float32
+}
+
+struct Paddle {
+    var x: Float32
+}
+
+struct Brick {
+    var x: Float32
+    var y: Float32
+    var alive: Bool
+    var red: UInt8
+    var green: UInt8
+    var blue: UInt8
+}
+
+struct Game {
+    var ball: Ball
+    var paddle: Paddle
+    var bricks: [Brick]
+    var score: Int32
+    var attached: Bool
+    var won: Bool
+    var lost: Bool
+}
+
+func setKeyDown(state: &KeyState, scancode: SDL3.Scancode, pressed: Bool) {
+    if scancode == SDL3.Scancode.a || scancode == SDL3.Scancode.left {
+        state.left = pressed
+    } else if scancode == SDL3.Scancode.d || scancode == SDL3.Scancode.right {
+        state.right = pressed
+    } else if scancode == SDL3.Scancode.space {
+        state.launch = pressed
+    } else if scancode == SDL3.Scancode.escape {
+        state.escape = pressed
+    }
+}
+
+func promptReplay(window: &SDL3.Window?, messageFlags: UInt32, message: String) -> Bool {
+    let title = CString("Breakout")
+    let body = CString(message)
+    let noLabel = CString("No")
+    let yesLabel = CString("Yes")
+
+    var buttons: [SDL3.MessageBoxButtonData, 2] = [
+        SDL3.MessageBoxButtonData(
+            flags: SDL3.MessageBoxButtonFlags.escapeKeyDefault,
+            buttonId: 0,
+            text: noLabel.asCStringSlice()),
+        SDL3.MessageBoxButtonData(
+            flags: SDL3.MessageBoxButtonFlags.returnKeyDefault,
+            buttonId: 1,
+            text: yesLabel.asCStringSlice()),
+    ]
+
+    var data = SDL3.MessageBoxData(
+        flags: messageFlags,
+        parentWindow: window,
+        title: title.asCStringSlice(),
+        message: body.asCStringSlice(),
+        numButtons: 2,
+        buttons: *buttons,
+        colorScheme: nil
+    )
+
+    var buttonId: Int32 = -1
+    if SDL3.showMessageBox(&data, &buttonId) {
+        return buttonId == 1
+    }
+
+    return true
+}
+
+func handleEvent(event: SDL3.Event, keys: &KeyState) -> Bool {
+    if event.type == SDL3.EventType.quit {
+        return false
+    }
+
+    if event.type == SDL3.EventType.keyDown && event.down {
+        setKeyDown(keys, event.scancode, true)
+        if event.scancode == SDL3.Scancode.escape {
+            return false
+        }
+
+        return true
+    }
+
+    if event.type == SDL3.EventType.keyUp {
+        setKeyDown(keys, event.scancode, false)
+    }
+
+    return true
+}
+
+func initBricks(
+    bricks: &[Brick],
+    originX: Float32,
+    originY: Float32,
+    brickW: Float32,
+    brickH: Float32,
+    gap: Float32) {
+    for row in 0..BRICK_ROWS {
+        for col in 0..BRICK_COLS {
+            let x = originX + (Float32(col) * (brickW + gap))
+            let y = originY + (Float32(row) * (brickH + gap))
+            let shade = 180 - (row * 28)
+
+            bricks.append(Brick(
+                x: x,
+                y: y,
+                alive: true,
+                red: UInt8(shade + 40),
+                green: UInt8(70 + (col * 8)),
+                blue: UInt8(120 + (row * 16))))
+        }
+    }
+}
+
+func resetBricks(game: &Game, originX: Float32, originY: Float32, brickW: Float32, brickH: Float32, gap: Float32) {
+    for brickIndex in 0..game.bricks.count {
+        let columnIndex = brickIndex % BRICK_COLS
+        let rowIndex = brickIndex / BRICK_COLS
+
+        game.bricks[brickIndex].alive = true
+        game.bricks[brickIndex].x = originX + (Float32(columnIndex) * (brickW + gap))
+        game.bricks[brickIndex].y = originY + (Float32(rowIndex) * (brickH + gap))
+    }
+}
+
+func resetRound(game: &Game, windowW: Float32, paddleW: Float32, paddleY: Float32, ballSize: Float32) {
+    game.paddle.x = (windowW - paddleW) / 2.0
+    game.ball.x = game.paddle.x + (paddleW - ballSize) / 2.0
+    game.ball.y = paddleY - ballSize - 4.0
+    game.ball.vx = 4.5
+    game.ball.vy = -4.5
+    game.attached = true
+    game.won = false
+    game.lost = false
+    game.score = 0
+}
+
+func rectsOverlap(ax: Float32, ay: Float32, aw: Float32, ah: Float32, bx: Float32, by: Float32, bw: Float32, bh: Float32) -> Bool {
+    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by
+}
+
+func updatePaddle(paddle: &Paddle, keys: KeyState, mouseX: Float32, paddleW: Float32, windowW: Float32, speed: Float32) {
+    paddle.x = mouseX - paddleW / 2.0
+    if keys.left {
+        paddle.x = paddle.x - speed
+    }
+
+    if keys.right {
+        paddle.x = paddle.x + speed
+    }
+    paddle.x = Math.clamp(paddle.x, 0.0, windowW - paddleW)
+}
+
+func checkBrickCollisions(
+    game: &Game,
+    stream: &SDL3.AudioStream?,
+    device: UInt32,
+    playback: &AudioPlayback,
+    ballSize: Float32,
+    brickW: Float32,
+    brickH: Float32) {
+    for brickIndex in 0..game.bricks.count {
+        if game.bricks[brickIndex].alive &&
+            rectsOverlap(game.ball.x, game.ball.y, ballSize, ballSize, game.bricks[brickIndex].x, game.bricks[brickIndex].y, brickW, brickH) {
+            game.bricks[brickIndex].alive = false
+            game.score = game.score + 10
+            game.ball.vy = -game.ball.vy
+            queueTone(stream, device, playback, 880.0, 0.06)
+        }
+    }
+
+    var alive: Int = 0
+    for brickIndex in 0..game.bricks.count {
+        if game.bricks[brickIndex].alive {
+            alive = alive + 1
+        }
+    }
+
+    if alive == 0 {
+        game.won = true
+    }
+}
+
+func updateBallMotion(
+    game: &Game,
+    stream: &SDL3.AudioStream?,
+    device: UInt32,
+    playback: &AudioPlayback,
+    windowW: Float32,
+    windowH: Float32,
+    paddleW: Float32,
+    paddleH: Float32,
+    paddleY: Float32,
+    ballSize: Float32) {
+    if game.attached {
+        return
+    }
+
+    game.ball.x = game.ball.x + game.ball.vx
+    game.ball.y = game.ball.y + game.ball.vy
+
+    if game.ball.x <= 0.0 {
+        game.ball.x = 0.0
+        game.ball.vx = -game.ball.vx
+    } else if game.ball.x + ballSize >= windowW {
+        game.ball.x = windowW - ballSize
+        game.ball.vx = -game.ball.vx
+    }
+
+    if game.ball.y <= 0.0 {
+        game.ball.y = 0.0
+        game.ball.vy = -game.ball.vy
+    }
+
+    if game.ball.y + ballSize >= windowH {
+        game.lost = true
+        return
+    }
+
+    if game.ball.vy > 0.0 &&
+        rectsOverlap(game.ball.x, game.ball.y, ballSize, ballSize, game.paddle.x, paddleY, paddleW, paddleH) {
+        game.ball.y = paddleY - ballSize
+        game.ball.vy = -Math.abs(game.ball.vy)
+        let hit = (game.ball.x + ballSize / 2.0) - (game.paddle.x + paddleW / 2.0)
+        game.ball.vx = hit * 0.12
+        queueTone(stream, device, playback, 440.0, 0.05)
+    }
+}
+
+func drawRect(renderer: &SDL3.Renderer?, x: Float32, y: Float32, w: Float32, h: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    SDL3.setRenderDrawColor(renderer, UInt8(red), UInt8(green), UInt8(blue), 255)
+    var rect: SDL3.FRect = SDL3.FRect(x: x, y: y, w: w, h: h)
+    SDL3.renderFillRect(renderer, &rect)
+}
+
+func digitRowMask(digit: Int, row: Int) -> UInt8 {
+    if digit == 0 { return DIGIT_0[row] }
+
+    if digit == 1 { return DIGIT_1[row] }
+
+    if digit == 2 { return DIGIT_2[row] }
+
+    if digit == 3 { return DIGIT_3[row] }
+
+    if digit == 4 { return DIGIT_4[row] }
+
+    if digit == 5 { return DIGIT_5[row] }
+
+    if digit == 6 { return DIGIT_6[row] }
+
+    if digit == 7 { return DIGIT_7[row] }
+
+    if digit == 8 { return DIGIT_8[row] }
+
+    if digit == 9 { return DIGIT_9[row] }
+
+    return 0
+}
+
+func drawDigit(
+    renderer: &SDL3.Renderer?,
+    digit: Int,
+    x: Float32,
+    y: Float32,
+    pixelSize: Float32,
+    red: UInt8,
+    green: UInt8,
+    blue: UInt8) {
+    for row in 0..DIGIT_ROWS {
+        let mask = digitRowMask(digit, row)
+        for col in 0..DIGIT_COLS {
+            let bit = UInt8(1) << (DIGIT_COLS - 1 - col)
+            if (mask & bit) != 0 {
+                drawRect(
+                    renderer,
+                    x + (Float32(col) * pixelSize),
+                    y + (Float32(row) * pixelSize),
+                    pixelSize,
+                    pixelSize,
+                    red,
+                    green,
+                    blue)
+            }
+        }
+    }
+}
+
+func drawNumber(
+    renderer: &SDL3.Renderer?,
+    value: Int32,
+    x: Float32,
+    y: Float32,
+    pixelSize: Float32,
+    red: UInt8,
+    green: UInt8,
+    blue: UInt8) {
+    if value == 0 {
+        drawDigit(renderer, 0, x, y, pixelSize, red, green, blue)
+        return
+    }
+
+    var digits: [Int] = []
+    var remaining = value
+    while remaining > 0 {
+        digits.append(Int(remaining % 10))
+        remaining = remaining / 10
+    }
+
+    var drawX = x
+    for digitIndex in 0..digits.count {
+        let digit = digits[digits.count - 1 - digitIndex]
+        drawDigit(renderer, digit, drawX, y, pixelSize, red, green, blue)
+        drawX = drawX + (Float32(DIGIT_COLS) * pixelSize) + SCORE_GAP
+    }
+}
+
+func drawScore(renderer: &SDL3.Renderer?, score: Int32) {
+    drawRect(renderer, 8.0, 8.0, 88.0, 28.0, 24, 28, 40)
+    drawNumber(renderer, score, 14.0, 12.0, SCORE_PIXEL, 240, 230, 180)
+}
+
+func drawBricks(renderer: &SDL3.Renderer?, bricks: &[Brick], brickW: Float32, brickH: Float32) {
+    for brickIndex in 0..bricks.count {
+        if bricks[brickIndex].alive {
+            drawRect(renderer, bricks[brickIndex].x, bricks[brickIndex].y, brickW, brickH, bricks[brickIndex].red, bricks[brickIndex].green, bricks[brickIndex].blue)
+        }
+    }
+}
+
+const audioSampleRate: Int32 = 11025
+const audioFadeSamples: Int = 220
+const audioTau: Float32 = 6.2831855
+const audioAmplitude: Float32 = 10000.0
+
+struct AudioPlayback {
+    var started: Bool
+}
+
+func queueTone(
+    stream: &SDL3.AudioStream?,
+    device: UInt32,
+    playback: &AudioPlayback,
+    frequency: Float32,
+    durationSeconds: Float32) {
+    if stream == nil || device == 0 {
+        return
+    }
+
+    var sampleCount: Int = Int(durationSeconds * Float32(audioSampleRate))
+    if sampleCount <= 0 {
+        return
+    }
+
+    if sampleCount > 4096 {
+        sampleCount = 4096
+    }
+
+    var samples: [Int16, 4096] = []
+    var phase: Float32 = 0.0
+    let phaseStep: Float32 = audioTau * frequency / Float32(audioSampleRate)
+    for sampleIndex in 0..sampleCount {
+        var gain: Float32 = 1.0
+        if sampleIndex < audioFadeSamples {
+            gain = Float32(sampleIndex) / Float32(audioFadeSamples)
+        } else if sampleIndex >= sampleCount - audioFadeSamples {
+            gain = Float32(sampleCount - sampleIndex) / Float32(audioFadeSamples)
+        }
+        samples[sampleIndex] = Int16(audioAmplitude * gain * Math.sin(phase))
+        phase = phase + phaseStep
+        if phase >= audioTau {
+            phase = phase - audioTau
+        }
+    }
+
+    let byteLength: Int32 = Int32(sampleCount * 2)
+    if !SDL3.putAudioStreamData(stream, samples.bytes, byteLength) {
+        return
+    }
+
+    if !playback.started {
+        if SDL3.resumeAudioDevice(device) {
+            playback.started = true
+        }
+    }
+}
+
+func main() -> Int {
+    let windowW: Float32 = 640.0
+    let windowH: Float32 = 480.0
+    let paddleW: Float32 = 104.0
+    let paddleH: Float32 = 14.0
+    let paddleY: Float32 = 448.0
+    let ballSize: Float32 = 10.0
+    let brickW: Float32 = 55.0
+    let brickH: Float32 = 18.0
+    let gap: Float32 = 4.0
+    let originX: Float32 = 27.0
+    let originY: Float32 = 48.0
+    let paddleSpeed: Float32 = 8.0
+
+    var window: &SDL3.Window? = nil
+    var renderer: &SDL3.Renderer? = nil
+
+    if !SDL3.initialize(SDL3.InitFlags.video | SDL3.InitFlags.audio) {
+        Console.printLine("SDL_Init failed")
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Breakout", 640, 480, 0, &window, &renderer) {
+        SDL3.quit()
+        Console.printLine("SDL_CreateWindowAndRenderer failed")
+        return 1
+    }
+
+    var spec = SDL3.AudioSpec(
+        format: SDL3.AudioFormat.s16,
+        channels: 1,
+        freq: audioSampleRate
+    )
+
+    let device = SDL3.openAudioDevice(SDL3.defaultPlaybackDevice, &spec)
+    if device == 0 {
+        Console.printLine("SDL_OpenAudioDevice failed: ${SDL3.getError()!}")
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        return 1
+    }
+
+    let stream = SDL3.createAudioStream(&spec, &spec)
+    if stream == nil {
+        Console.printLine("SDL_CreateAudioStream failed: ${SDL3.getError()!}")
+        SDL3.closeAudioDevice(device)
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.bindAudioStream(device, stream) {
+        Console.printLine("SDL_BindAudioStream failed: ${SDL3.getError()!}")
+        SDL3.destroyAudioStream(stream)
+        SDL3.closeAudioDevice(device)
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        return 1
+    }
+
+    var playback = AudioPlayback(started: false)
+
+    Console.printLine("Breakout: mouse/A/D paddle, Space/click launch.")
+
+    var keys = KeyState(left: false, right: false, launch: false, escape: false)
+
+    var game = Game(
+        ball: Ball(x: 315.0, y: 430.0, vx: 4.5, vy: -4.5),
+        paddle: Paddle(x: 268.0),
+        bricks: [],
+        score: 0,
+        attached: true,
+        won: false,
+        lost: false)
+    initBricks(&game.bricks, originX, originY, brickW, brickH, gap)
+
+    var running = true
+    var event = SDL3.Event()
+    var announcedWin = false
+    var announcedLoss = false
+
+    while running {
+        while SDL3.pollEvent(&event) {
+            if !handleEvent(event, &keys) {
+                running = false
+            }
+        }
+
+        var mouseX: Float32 = 0.0
+        var mouseY: Float32 = 0.0
+        let buttons = SDL3.MouseButton(SDL3.getMouseState(&mouseX, &mouseY))
+        let clickLaunch = (buttons & SDL3.MouseButton.leftMask) != SDL3.MouseButton(0)
+
+        if !game.won && !game.lost {
+            updatePaddle(&game.paddle, keys, mouseX, paddleW, windowW, paddleSpeed)
+
+            if game.attached {
+                game.ball.x = game.paddle.x + (paddleW - ballSize) / 2.0
+                game.ball.y = paddleY - ballSize - 4.0
+                if keys.launch || clickLaunch {
+                    game.attached = false
+                }
+            } else {
+                updateBallMotion(
+                    &game,
+                    stream,
+                    device,
+                    &playback,
+                    windowW,
+                    windowH,
+                    paddleW,
+                    paddleH,
+                    paddleY,
+                    ballSize)
+                checkBrickCollisions(
+                    &game,
+                    stream,
+                    device,
+                    &playback,
+                    ballSize,
+                    brickW,
+                    brickH)
+            }
+        }
+
+        if game.won && !announcedWin {
+            announcedWin = true
+            let replay = promptReplay(
+                window,
+                SDL3.MessageBoxFlags.information,
+                "You cleared the bricks! Score: ${game.score}. Play again?")
+            if replay {
+                resetRound(&game, windowW, paddleW, paddleY, ballSize)
+                resetBricks(&game, originX, originY, brickW, brickH, gap)
+                announcedWin = false
+                announcedLoss = false
+            } else {
+                running = false
+            }
+        } else if game.lost && !announcedLoss {
+            announcedLoss = true
+            let replay = promptReplay(
+                window,
+                SDL3.MessageBoxFlags.warning,
+                "Ball lost. Score: ${game.score}. Try again?")
+            if replay {
+                resetRound(&game, windowW, paddleW, paddleY, ballSize)
+                resetBricks(&game, originX, originY, brickW, brickH, gap)
+                announcedWin = false
+                announcedLoss = false
+            } else {
+                running = false
+            }
+        }
+
+        SDL3.setRenderDrawColor(renderer, 12, 14, 22, 255)
+        SDL3.renderClear(renderer)
+
+        drawScore(renderer, game.score)
+        drawRect(renderer, 0.0, paddleY + paddleH, windowW, windowH - paddleY - paddleH, 18, 22, 32)
+        drawBricks(renderer, &game.bricks, brickW, brickH)
+        drawRect(renderer, game.paddle.x, paddleY, paddleW, paddleH, 220, 230, 255)
+        drawRect(renderer, game.ball.x, game.ball.y, ballSize, ballSize, 255, 220, 90)
+
+        SDL3.renderPresent(renderer)
+        SDL3.delay(16)
+    }
+
+    SDL3.destroyAudioStream(stream)
+    SDL3.closeAudioDevice(device)
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    Console.printLine("Breakout finished.")
+    return 0
+}

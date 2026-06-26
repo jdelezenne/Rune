@@ -1,0 +1,51 @@
+var trace = 0
+
+func push(n: Int) {
+    trace = trace * 10 + n
+}
+
+func cleanup() {
+    trace = trace * 10 + 9
+}
+
+func work(fail: Bool) -> Int {
+    defer cleanup()
+
+    if fail {
+        return 1
+    }
+
+    return 0
+}
+
+func addOne() {
+    trace = trace + 1
+}
+
+func main() -> Int {
+    {
+        defer push(1)
+        defer push(2)
+    }
+
+    if trace != 21 {
+        return 1
+    }
+
+    let code = work(true)
+    if code != 1 || trace != 219 {
+        return 2
+    }
+
+    var i = 0
+    while i < 3 {
+        defer addOne()
+        i = i + 1
+    }
+
+    if trace != 222 {
+        return 3
+    }
+
+    return 0
+}

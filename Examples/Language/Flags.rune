@@ -1,0 +1,25 @@
+@flags
+enum FilePermissions: UInt8 {
+    read
+    write
+    execute
+}
+
+func main() -> Int {
+    let selected: FilePermissions = FilePermissions.read | FilePermissions.write
+    let toggled: FilePermissions = selected ^ FilePermissions.write
+
+    if (selected & FilePermissions.read) != FilePermissions.read {
+        return 1
+    }
+
+    if (selected & FilePermissions.execute) == FilePermissions.execute {
+        return 2
+    }
+
+    if toggled != FilePermissions.read {
+        return 3
+    }
+
+    return 0
+}

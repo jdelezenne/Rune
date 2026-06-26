@@ -1,0 +1,22 @@
+func main() -> Int {
+    let invulnerable = 0.5
+    let alpha = if invulnerable > 0.0 { 160 } else { 255 }
+
+    let health = 0
+    let label = if health > 0 {
+        1
+    }
+    else {
+        0
+    }
+
+    if alpha != 160 {
+        return 1
+    }
+
+    if label != 0 {
+        return 2
+    }
+
+    return 0
+}

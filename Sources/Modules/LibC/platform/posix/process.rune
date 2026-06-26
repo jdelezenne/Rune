@@ -1,0 +1,12 @@
+@include("unistd.h")
+@link("c")
+{
+    @symbol
+    public func fork() -> Int32
+
+    @symbol
+    public func execvp(file: CStringSlice?, argv: *Byte?) -> Int32
+
+    @symbol
+    public func pipe(fds: &Int32?) -> Int32
+}

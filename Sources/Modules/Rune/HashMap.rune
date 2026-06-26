@@ -1,0 +1,117 @@
+/// Unordered hash-table mapping of keys to values.
+///
+/// Backend: C runtime (`rune_hashmap_*` family).
+/// Keys must conform to `Hashable`.
+/// Allocation: uses the ambient allocator.
+///
+/// Conforms to `Dictionary<K, V>`.
+
+/// Iterator over the key-value pairs of a `HashMap<K, V>`.
+public struct HashMapIterator<K extends Hashable, V> {
+    @runtime("rune_hashmap_iterator_create")
+    public init(map: HashMap<K, V>)
+}
+
+public extension HashMapIterator<K extends Hashable, V> implements Iterator {
+    public type Element = (key: K, value: V)
+
+    @runtime("rune_hashmap_iterator_next")
+    public mutating func next() -> (key: K, value: V)?
+}
+
+/// Unordered mapping from hashable keys to values.
+@builtin
+public struct HashMap<K extends Hashable, V> {
+    /// Creates an empty map using the ambient allocator.
+    public init() {
+        initialize(keySize: #sizeOf<K>(), valueSize: #sizeOf<V>())
+    }
+
+    /// Creates an empty map with pre-allocated capacity.
+    public init(capacity: Int) {
+        initialize(keySize: #sizeOf<K>(), valueSize: #sizeOf<V>())
+        reserveCapacity(minimumCapacity: capacity)
+    }
+
+    @runtime("rune_runtime_hashmap_initialize")
+    private mutating func initialize(keySize: UInt, valueSize: UInt)
+
+    /// Releases the backing storage.
+    @runtime("rune_hashmap_destroy")
+    final()
+}
+
+public extension HashMap<K extends Hashable, V> implements Dictionary {
+    public type Key = K
+    public type Value = V
+    public type Element = (key: K, value: V)
+    public type Iter = HashMapIterator<K, V>
+
+    /// Returns an iterator over all key-value pairs.
+    @runtime("rune_hashmap_iterator_create")
+    public func makeIterator() -> HashMapIterator<K, V>
+
+    /// Number of key-value pairs.
+    public count: Int {
+        @runtime("rune_hashmap_count")
+        get
+    }
+
+    /// `true` when the map contains no entries.
+    public isEmpty: Bool {
+        @runtime("rune_hashmap_is_empty")
+        get
+    }
+
+    /// Inserts or updates the value for `key`.
+    @runtime("rune_hashmap_insert")
+    public mutating func insert(key: K, value: V)
+
+    /// Removes the entry for `key` if present.
+    @runtime("rune_hashmap_remove")
+    public mutating func remove(key: K)
+
+    /// Returns `true` if the map contains `key`.
+    @runtime("rune_hashmap_contains")
+    public func contains(key: K) -> Bool
+
+    /// Returns the value for `key`, or `nil` if absent.
+    public func tryGet(key: K) -> V? {
+        let value = tryGetPointer(key: key)
+        if value == nil {
+            return nil
+        }
+
+        return value!^
+    }
+
+    /// Returns the value for `key`, or `nil` if absent.
+    public operator [](key: K) -> V? {
+        return tryGet(key: key)
+    }
+
+    @runtime("rune_runtime_hashmap_try_get")
+    private func tryGetPointer(key: K) -> *V?
+
+    /// Removes all entries, retaining allocated storage.
+    @runtime("rune_hashmap_remove_all")
+    public mutating func removeAll()
+
+    /// Ensures at least `minimumCapacity` entries can be stored without rehashing.
+    @runtime("rune_hashmap_reserve")
+    public mutating func reserveCapacity(minimumCapacity: Int)
+}
+
+public extension HashMap<K extends Hashable, V> implements DictionaryLiteralConvertible {
+    public type Key = K
+    public type Value = V
+
+    public init(dictionaryLiteral: (key: K, value: V)...) {
+        initialize(keySize: #sizeOf<K>(), valueSize: #sizeOf<V>())
+        reserveCapacity(minimumCapacity: dictionaryLiteral.count)
+
+        for entry in dictionaryLiteral {
+            insert(key: entry.key, value: entry.value)
+        }
+    }
+}

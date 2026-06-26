@@ -1,0 +1,5 @@
+/// Represents a single byte of raw memory, equivalent to C++ std::byte.
+/// Not an arithmetic type; use explicit casts to integer types for arithmetic.
+/// &Byte maps to void* in C for raw memory buffer interoperability.
+@builtin
+public struct Byte {}

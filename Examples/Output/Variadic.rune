@@ -1,0 +1,18 @@
+import Standard.*
+
+func printAll(prefix: String, items: String...) {
+    Console.print(prefix)
+    for item in items {
+        Console.print(" " + item)
+    }
+    Console.printLine("")
+}
+
+func main() -> Int {
+    printAll("Numbers:", "one", "two", "three")
+    printAll("Empty:")
+    let words = ["apple", "banana"]
+    printAll("Fruits:", words)
+    printAll("Spanned:", ...words)
+    return 0
+}

@@ -1,0 +1,8 @@
+func main() -> Int {
+    let owned = CString(value: "Rune")
+    let borrowed: CStringSlice = owned.asCStringSlice()
+    let _: String = borrowed.toString()
+    let _: StringSlice = borrowed.asSlice()
+
+    return 0
+}

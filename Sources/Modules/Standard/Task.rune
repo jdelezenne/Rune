@@ -1,0 +1,21 @@
+/// Handle for a cooperative in-flight task.
+public alias TaskHandle = Int64
+
+/// Cooperative async tasks on the current OS thread.
+///
+/// Use `async`/`await` for direct calls; use `Task` when several async functions
+/// should run concurrently and interleave at `yield` and `await` points.
+@builtin
+public struct Task {
+    /// Starts `body` without waiting.
+    @runtime("rune_task_spawn")
+    public static func spawn(body: () async -> Void) -> TaskHandle
+
+    /// Suspends until `handle` completes.
+    @runtime("rune_task_await")
+    public static func value(handle: TaskHandle) -> Void
+
+    /// Yields so other in-flight tasks can run.
+    @runtime("rune_task_yield")
+    public static func yield() -> Void
+}

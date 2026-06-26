@@ -1,0 +1,10 @@
+func main() -> Int {
+    let immutable = 10
+    var counter = 2
+    counter = counter + immutable
+    if counter != 12 {
+        return 1
+    }
+
+    return 0
+}

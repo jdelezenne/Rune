@@ -1,0 +1,21 @@
+func main() -> Int {
+    let a: Int = 0b1010
+    let b: Int = 0b1100
+
+    let andResult = a & b
+    let orResult = a | b
+    let xorResult = a ^ b
+    let notResult = ~a
+    let shiftLeft = a << 1
+    let shiftRight = b >> 1
+
+    if andResult != 0b1000 || orResult != 0b1110 || xorResult != 0b0110 {
+        return 1
+    }
+
+    if shiftLeft != 0b10100 || shiftRight != 0b0110 {
+        return 2
+    }
+
+    return 0
+}

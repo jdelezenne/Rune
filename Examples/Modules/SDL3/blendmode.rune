@@ -1,0 +1,31 @@
+public enum BlendMode: UInt32 {
+    none = 0 // SDL_BLENDMODE_NONE
+    blend = 1 // SDL_BLENDMODE_BLEND
+    add = 2 // SDL_BLENDMODE_ADD
+    mod = 4 // SDL_BLENDMODE_MOD
+    mul = 8 // SDL_BLENDMODE_MUL
+    blendPremultiplied = 16 // SDL_BLENDMODE_BLEND_PREMULTIPLIED
+    addPremultiplied = 32 // SDL_BLENDMODE_ADD_PREMULTIPLIED
+    invalid = 2147483647 // SDL_BLENDMODE_INVALID
+}
+
+public enum BlendOperation: Int32 {
+    add = 1 // SDL_BLENDOPERATION_ADD
+    subtract = 2 // SDL_BLENDOPERATION_SUBTRACT
+    reverseSubtract = 3 // SDL_BLENDOPERATION_REV_SUBTRACT
+    minimum = 4 // SDL_BLENDOPERATION_MINIMUM
+    maximum = 5 // SDL_BLENDOPERATION_MAXIMUM
+}
+
+public enum BlendFactor: Int32 {
+    zero = 1 // SDL_BLENDFACTOR_ZERO
+    one = 2 // SDL_BLENDFACTOR_ONE
+    sourceColor = 3 // SDL_BLENDFACTOR_SRC_COLOR
+    oneMinusSourceColor = 4 // SDL_BLENDFACTOR_ONE_MINUS_SRC_COLOR
+    sourceAlpha = 5 // SDL_BLENDFACTOR_SRC_ALPHA
+    oneMinusSourceAlpha = 6 // SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA
+    destinationColor = 7 // SDL_BLENDFACTOR_DST_COLOR
+    oneMinusDestinationColor = 8 // SDL_BLENDFACTOR_ONE_MINUS_DST_COLOR
+    destinationAlpha = 9 // SDL_BLENDFACTOR_DST_ALPHA
+    oneMinusDestinationAlpha = 10 // SDL_BLENDFACTOR_ONE_MINUS_DST_ALPHA
+}

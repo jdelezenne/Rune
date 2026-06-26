@@ -1,0 +1,61 @@
+// Struct inheritance with base references: a *Shape parameter accepts any derived
+// struct without override or vtable dispatch.
+
+open struct Shape {
+    var color: Int
+
+    func describe() -> Int {
+        return self.color
+    }
+}
+
+struct Circle extends Shape {
+    var radius: Int
+
+    func area() -> Int {
+        return self.radius * self.radius
+    }
+}
+
+struct Rectangle extends Shape {
+    var width: Int
+    var height: Int
+
+    func area() -> Int {
+        return self.width * self.height
+    }
+
+    func perimeter() -> Int {
+        return 2 * (self.width + self.height)
+    }
+}
+
+func readColor(shape: *Shape) -> Int {
+    return shape.describe()
+}
+
+func paint(shape: &Shape, color: Int) {
+    shape.color = color
+}
+
+func main() -> Int {
+    var circle = Circle(color: 1, radius: 3)
+    var rect = Rectangle(color: 2, width: 6, height: 4)
+
+    let circleColor = readColor(*circle)
+    let rectColor = readColor(*rect)
+
+    paint(&circle, 10)
+    paint(&rect, 20)
+
+    let circleArea = circle.area()
+    let rectArea = rect.area()
+    let rectPerimeter = rect.perimeter()
+    let total = circleColor + rectColor + circle.color + rect.color + circleArea + rectArea + rectPerimeter
+
+    if total != 86 {
+        return 1
+    }
+
+    return 0
+}

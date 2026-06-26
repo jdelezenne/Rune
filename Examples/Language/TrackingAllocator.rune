@@ -1,0 +1,56 @@
+const allocationSignature: UInt32 = 0x52554E45
+
+struct AllocationHeader {
+    var signature: UInt32
+    var size: UInt
+}
+
+struct TrackingAllocator implements Allocator {
+    let headerStride: UInt
+
+    init() {
+        self.headerStride = Memory.alignUp(
+            value: #sizeOf<AllocationHeader>(),
+            alignment: #alignmentOf<AllocationHeader>())
+    }
+
+    public mutating func allocate(size: UInt, alignment: UInt) throws -> &Byte {
+        let blockAlignment = Memory.alignUp(
+            value: alignment,
+            alignment: self.headerStride)
+        let payloadSize = Memory.alignUp(value: size, alignment: alignment)
+        let total = self.headerStride + payloadSize
+        let raw = try Memory.systemAllocateAligned(size: total, alignment: blockAlignment)
+
+        var header = ((raw) as &AllocationHeader)
+        header.signature = allocationSignature
+        header.size = size
+
+        return (Int(raw) + Int(self.headerStride)) as &Byte
+    }
+
+    public mutating func deallocate(address: *Byte) {
+        let raw = (Int(address) - Int(self.headerStride)) as &Byte
+        var header = ((raw) as &AllocationHeader)
+        if header.signature != allocationSignature {
+            return
+        }
+        Memory.systemDeallocate(address: raw)
+    }
+}
+
+struct Box {
+    var value: Int
+}
+
+func main() -> Int {
+    var allocator = TrackingAllocator()
+    let box = make!(allocator) Box(value: 42)
+    let result = box.value
+    dispose(allocator) box
+    if result != 42 {
+        return 1
+    }
+
+    return 0
+}

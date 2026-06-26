@@ -1,0 +1,11 @@
+import Standard.*
+
+func main() -> Int {
+    let scores: HashMap<String, Int> = ["alice": 10, "bob": 20]
+    Console.printLine("count=${scores.count}")
+    if scores.contains(key: "alice") && scores.contains(key: "bob") {
+        Console.printLine("keys present")
+    }
+
+    return 0
+}

@@ -1,0 +1,42 @@
+@include("ctype.h")
+@link("c")
+{
+    @symbol
+    public func isalnum(character: Int32) -> Int32
+
+    @symbol
+    public func isalpha(character: Int32) -> Int32
+
+    @symbol
+    public func isdigit(character: Int32) -> Int32
+
+    @symbol
+    public func isspace(character: Int32) -> Int32
+
+    @symbol
+    public func isupper(character: Int32) -> Int32
+
+    @symbol
+    public func islower(character: Int32) -> Int32
+
+    @symbol
+    public func isblank(character: Int32) -> Int32
+
+    @symbol
+    public func iscntrl(character: Int32) -> Int32
+
+    @symbol
+    public func isprint(character: Int32) -> Int32
+
+    @symbol
+    public func ispunct(character: Int32) -> Int32
+
+    @symbol
+    public func isxdigit(character: Int32) -> Int32
+
+    @symbol
+    public func toupper(character: Int32) -> Int32
+
+    @symbol
+    public func tolower(character: Int32) -> Int32
+}

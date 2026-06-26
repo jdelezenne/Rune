@@ -1,0 +1,36 @@
+{
+  "version": "1.0.0",
+  "name": "LibC",
+  "kind": "library",
+  "sources": [
+    "ctype.rune",
+    "errno.rune",
+    "math.rune",
+    "stdio.rune",
+    "stdlib.rune",
+    "string.rune",
+    "time.rune",
+    { "path": "platform/posix/types.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/darwin/dirent.rune", "platforms": ["darwin"] },
+    { "path": "platform/darwin/socket.rune", "platforms": ["darwin"] },
+    { "path": "platform/darwin/stat.rune", "platforms": ["darwin"] },
+    { "path": "platform/windows/stat.rune", "platforms": ["windows"] },
+    { "path": "platform/posix/dirent.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/dlfcn.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/fcntl.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/process.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/signal.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/socket.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/time.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/unistd.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/wait.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/windows/fcntl.rune", "platforms": ["windows"] },
+    { "path": "platform/windows/io.rune", "platforms": ["windows"] },
+    { "path": "platform/windows/signal.rune", "platforms": ["windows"] },
+    { "path": "platform/windows/unistd.rune", "platforms": ["windows"] },
+    "Utilities.rune"
+  ],
+  "dependencies": [
+    "../Rune/Rune.runemanifest"
+  ]
+}

@@ -1,0 +1,116 @@
+/// Non-owning contiguous view over borrowed element storage.
+///
+/// A `Slice<T>` is a (pointer, length) pair.  It borrows its backing storage
+/// and must not outlive it.  No heap allocation is performed.
+
+/// Forward iterator over a `Slice<T>`.
+@builtin
+public struct SliceIterator<T> {}
+
+public extension SliceIterator<T> implements Iterator {
+	public type Element = T
+
+	/// Advances and returns the next element, or `nil` when exhausted.
+	@runtime("rune_contiguous_iterator_next")
+	public mutating func next() -> T?
+}
+
+/// Non-owning view over a contiguous region of `T` values.
+@builtin
+public struct Slice<T> {
+	/// Creates an empty slice.
+	public init() {
+		initialize(elementSize: #sizeOf<T>())
+	}
+
+	@runtime("rune_runtime_slice_initialize")
+	private mutating func initialize(elementSize: UInt)
+
+	/// Borrows contiguous foreign memory as a non-owning slice.
+	/// @param elements Pointer to the first element.
+	/// @param count Number of elements in the view.
+	public init(elements: *T, count: Int) {
+		borrow(
+			elements: elements,
+			count: count,
+			elementSize: #sizeOf<T>())
+	}
+
+	/// Borrows contiguous foreign memory as a non-owning slice.
+	/// @param elements Pointer to the first element.
+	/// @param count Number of elements in the view.
+	/// @param elementSize Size of one element in bytes.
+	@runtime("rune_runtime_slice_borrow")
+	private mutating func borrow(elements: *T, count: Int, elementSize: UInt)
+}
+
+public extension Slice<T> implements Collection {
+	public type Element = T
+	public type Iter = SliceIterator<T>
+
+	/// Returns a forward iterator over the elements.
+	@runtime("rune_runtime_slice_iterator_create")
+	public func makeIterator() -> SliceIterator<T>
+
+	/// Number of elements in the view.
+	public count: Int {
+		@runtime("rune_slice_count")
+		get
+	}
+
+	/// Mutable pointer to the slice's underlying byte storage.
+	public bytes: &Byte {
+		@runtime("rune_slice_bytes")
+		get
+	}
+
+	/// Mutable pointer to the first element in the slice storage.
+	public data: &T {
+		@runtime("rune_slice_bytes")
+		get
+	}
+
+	/// Total byte length of the slice storage (`count * strideOf<T>()`).
+	public byteLength: Int {
+		@runtime("rune_slice_byte_length")
+		get
+	}
+
+	/// `true` when the slice contains no elements.
+	public isEmpty: Bool {
+		@runtime("rune_slice_is_empty")
+		get
+	}
+
+	/// Returns the element at `index` (fatal trap on out-of-bounds).
+	@runtime("rune_slice_get")
+	public operator [](index: Int) -> T
+
+	/// Replaces the element at `index` with `value`.
+	@runtime("rune_slice_set")
+	public mutating operator []=(index: Int, value: T)
+
+	/// First element, or `nil` if empty.
+	public first: T? {
+		@runtime("rune_slice_first")
+		get
+	}
+
+	/// Last element, or `nil` if empty.
+	public last: T? {
+		@runtime("rune_slice_last")
+		get
+	}
+
+	/// Returns a sub-slice covering `start..<end`.
+	@runtime("rune_runtime_slice_sub")
+	public func sliceRange(start: Int, end: Int) -> Slice<T>
+
+	/// Returns a pointer to the bytes of the element at `index`.
+	@runtime("rune_slice_element_bytes")
+	public func elementBytes(at: Int) -> *Byte
+
+	/// Returns `true` if the slice contains `element`.
+	@runtime("rune_slice_contains")
+	public func contains(element: T) -> Bool
+}

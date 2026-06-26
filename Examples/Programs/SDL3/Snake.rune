@@ -1,0 +1,579 @@
+// SDL3 Snake - fixed-step grid game with score, pause, restart, and wraparound.
+//
+// Controls:
+//   Arrows / WASD      - turn
+//   Space              - pause / resume
+//   R                  - restart after game over
+//   Escape / close     - quit
+
+import Standard.*
+import SDL3
+
+const WIDTH: Int32 = 640
+const HEIGHT: Int32 = 520
+const WIDTH_F: Float32 = 640.0
+const HEIGHT_F: Float32 = 520.0
+
+const COLS: Int32 = 24
+const ROWS: Int32 = 18
+const GRID_CELLS: Int = 432
+const CELL: Float32 = 22.0
+const BOARD_X: Float32 = 56.0
+const BOARD_Y: Float32 = 78.0
+const BOARD_W: Float32 = 528.0
+const BOARD_H: Float32 = 396.0
+const TICK_START: Float32 = 0.145
+const TICK_MIN: Float32 = 0.07
+
+const DIGIT_COLS: Int = 5
+const DIGIT_ROWS: Int = 7
+const HUD_PIXEL: Float32 = 2.5
+const HUD_GAP: Float32 = 2.0
+
+const DIGIT_0: [UInt8, _] = [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E]
+const DIGIT_1: [UInt8, _] = [0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E]
+const DIGIT_2: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x10, 0x10, 0x0E]
+const DIGIT_3: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_4: [UInt8, _] = [0x11, 0x11, 0x11, 0x1F, 0x01, 0x01, 0x01]
+const DIGIT_5: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_6: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_7: [UInt8, _] = [0x0E, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01]
+const DIGIT_8: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_9: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x01, 0x01, 0x0E]
+
+enum Direction: Int32 {
+    up = 0
+    right = 1
+    down = 2
+    left = 3
+}
+
+enum GamePhase: Int32 {
+    playing = 0
+    paused = 1
+    gameOver = 2
+    won = 3
+}
+
+struct Rng {
+    var state: UInt32
+}
+
+struct InputEdge {
+    var turnUp: Bool
+    var turnRight: Bool
+    var turnDown: Bool
+    var turnLeft: Bool
+    var pause: Bool
+    var restart: Bool
+    var quit: Bool
+}
+
+struct Game {
+    var snakeX: [Int32, GRID_CELLS]
+    var snakeY: [Int32, GRID_CELLS]
+    var length: Int
+    var direction: Direction
+    var pendingDirection: Direction
+    var foodX: Int32
+    var foodY: Int32
+    var score: Int32
+    var highScore: Int32
+    var phase: GamePhase
+    var tickTimer: Float32
+    var rng: Rng
+}
+
+func seedRng(rng: &Rng, seed: UInt32) {
+    rng.state = seed
+    if rng.state == 0 {
+        rng.state = 0xA341316C
+    }
+}
+
+func randU32(rng: &Rng) -> UInt32 {
+    var x = rng.state
+    x = x ^ (x << 13)
+    x = x ^ (x >> 17)
+    x = x ^ (x << 5)
+    rng.state = x
+    return x
+}
+
+func randInt(rng: &Rng, upperExclusive: Int32) -> Int32 {
+    if upperExclusive <= 0 {
+        return 0
+    }
+
+    return Int32(randU32(rng) % UInt32(upperExclusive))
+}
+
+func directionDx(direction: Direction) -> Int32 {
+    if direction == Direction.left {
+        return -1
+    }
+
+    if direction == Direction.right {
+        return 1
+    }
+
+    return 0
+}
+
+func directionDy(direction: Direction) -> Int32 {
+    if direction == Direction.up {
+        return -1
+    }
+
+    if direction == Direction.down {
+        return 1
+    }
+
+    return 0
+}
+
+func isOpposite(a: Direction, b: Direction) -> Bool {
+    return (a == Direction.up && b == Direction.down) ||
+        (a == Direction.down && b == Direction.up) ||
+        (a == Direction.left && b == Direction.right) ||
+        (a == Direction.right && b == Direction.left)
+}
+
+func wrapGrid(value: Int32, limit: Int32) -> Int32 {
+    if value < 0 {
+        return limit - 1
+    }
+
+    if value >= limit {
+        return 0
+    }
+
+    return value
+}
+
+func snakeContains(game: &Game, x: Int32, y: Int32, count: Int) -> Bool {
+    for segmentIndex in 0..count {
+        if game.snakeX[segmentIndex] == x && game.snakeY[segmentIndex] == y {
+            return true
+        }
+    }
+
+    return false
+}
+
+func placeFood(game: &Game) {
+    if game.length >= GRID_CELLS {
+        game.phase = GamePhase.won
+        return
+    }
+
+    for _ in 0..GRID_CELLS {
+        let x = randInt(&game.rng, COLS)
+        let y = randInt(&game.rng, ROWS)
+        if !snakeContains(game, x, y, game.length) {
+            game.foodX = x
+            game.foodY = y
+            return
+        }
+    }
+
+    for y in 0..ROWS {
+        for x in 0..COLS {
+            if !snakeContains(game, x, y, game.length) {
+                game.foodX = x
+                game.foodY = y
+                return
+            }
+        }
+    }
+
+    game.phase = GamePhase.won
+}
+
+func resetGame(game: &Game) {
+    game.length = 5
+    game.direction = Direction.right
+    game.pendingDirection = Direction.right
+    game.score = 0
+    game.phase = GamePhase.playing
+    game.tickTimer = 0.0
+
+    let startX: Int32 = COLS / 2
+    let startY: Int32 = ROWS / 2
+    for segmentIndex in 0..game.length {
+        game.snakeX[segmentIndex] = startX - Int32(segmentIndex)
+        game.snakeY[segmentIndex] = startY
+    }
+    placeFood(game)
+}
+
+func setPendingDirection(game: &Game, direction: Direction) {
+    if !isOpposite(game.direction, direction) {
+        game.pendingDirection = direction
+    }
+}
+
+func applyInput(game: &Game, edge: InputEdge) {
+    if edge.turnUp {
+        setPendingDirection(game, Direction.up)
+    } else if edge.turnRight {
+        setPendingDirection(game, Direction.right)
+    } else if edge.turnDown {
+        setPendingDirection(game, Direction.down)
+    } else if edge.turnLeft {
+        setPendingDirection(game, Direction.left)
+    }
+
+    if edge.pause && game.phase == GamePhase.playing {
+        game.phase = GamePhase.paused
+    } else if edge.pause && game.phase == GamePhase.paused {
+        game.phase = GamePhase.playing
+    }
+
+    if edge.restart && (game.phase == GamePhase.gameOver || game.phase == GamePhase.won) {
+        resetGame(game)
+    }
+}
+
+func tickInterval(score: Int32) -> Float32 {
+    let interval = TICK_START - Float32(score / 5) * 0.006
+    if interval < TICK_MIN {
+        return TICK_MIN
+    }
+
+    return interval
+}
+
+func stepGame(game: &Game) {
+    if game.phase != GamePhase.playing {
+        return
+    }
+
+    game.direction = game.pendingDirection
+    let nextX = wrapGrid(game.snakeX[0] + directionDx(game.direction), COLS)
+    let nextY = wrapGrid(game.snakeY[0] + directionDy(game.direction), ROWS)
+    let grows = nextX == game.foodX && nextY == game.foodY
+    let collisionCount = grows ? game.length : game.length - 1
+
+    if snakeContains(game, nextX, nextY, collisionCount) {
+        game.phase = GamePhase.gameOver
+        if game.score > game.highScore {
+            game.highScore = game.score
+        }
+        return
+    }
+
+    var segmentIndex = game.length
+    if grows && game.length < GRID_CELLS {
+        segmentIndex = game.length
+        game.length = game.length + 1
+    } else {
+        segmentIndex = game.length - 1
+    }
+
+    while segmentIndex > 0 {
+        game.snakeX[segmentIndex] = game.snakeX[segmentIndex - 1]
+        game.snakeY[segmentIndex] = game.snakeY[segmentIndex - 1]
+        segmentIndex = segmentIndex - 1
+    }
+
+    game.snakeX[0] = nextX
+    game.snakeY[0] = nextY
+
+    if grows {
+        game.score = game.score + 1
+        if game.score > game.highScore {
+            game.highScore = game.score
+        }
+        placeFood(game)
+    }
+}
+
+func updateGame(game: &Game, deltaTime: Float32) {
+    if game.phase != GamePhase.playing {
+        return
+    }
+
+    game.tickTimer = game.tickTimer + deltaTime
+    let interval = tickInterval(game.score)
+    while game.tickTimer >= interval && game.phase == GamePhase.playing {
+        game.tickTimer = game.tickTimer - interval
+        stepGame(game)
+    }
+}
+
+func drawDigit(renderer: &SDL3.Renderer?, digit: Int, x: Float32, y: Float32, pixel: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    var rows: [UInt8, DIGIT_ROWS] = [0, 0, 0, 0, 0, 0, 0]
+    if digit == 0 { rows = DIGIT_0 }
+
+    if digit == 1 { rows = DIGIT_1 }
+
+    if digit == 2 { rows = DIGIT_2 }
+
+    if digit == 3 { rows = DIGIT_3 }
+
+    if digit == 4 { rows = DIGIT_4 }
+
+    if digit == 5 { rows = DIGIT_5 }
+
+    if digit == 6 { rows = DIGIT_6 }
+
+    if digit == 7 { rows = DIGIT_7 }
+
+    if digit == 8 { rows = DIGIT_8 }
+
+    if digit == 9 { rows = DIGIT_9 }
+    for row in 0..DIGIT_ROWS {
+        let mask = rows[row]
+        for col in 0..DIGIT_COLS {
+            let bit = UInt8(1 << (DIGIT_COLS - 1 - col))
+            if (mask & bit) != 0 {
+                var rect = SDL3.FRect(
+                    x: x + Float32(col) * pixel,
+                    y: y + Float32(row) * pixel,
+                    w: pixel,
+                    h: pixel)
+                SDL3.setRenderDrawColor(renderer, red, green, blue, 255)
+                SDL3.renderFillRect(renderer, &rect)
+            }
+        }
+    }
+}
+
+func drawNumber(renderer: &SDL3.Renderer?, value: Int32, x: Float32, y: Float32, pixel: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    var remaining = value
+    if remaining == 0 {
+        drawDigit(renderer, 0, x, y, pixel, red, green, blue)
+        return
+    }
+
+    var digits: [Int] = []
+    while remaining > 0 {
+        digits.append(Int(remaining % 10))
+        remaining = remaining / 10
+    }
+
+    for digitIndex in 0..digits.count {
+        let digit = digits[digits.count - 1 - digitIndex]
+        drawDigit(renderer, digit, x + Float32(digitIndex) * ((Float32(DIGIT_COLS) * pixel) + HUD_GAP), y, pixel, red, green, blue)
+    }
+}
+
+func drawCell(renderer: &SDL3.Renderer?, x: Int32, y: Int32, red: UInt8, green: UInt8, blue: UInt8) {
+    var rect = SDL3.FRect(
+        x: BOARD_X + Float32(x) * CELL + 1.0,
+        y: BOARD_Y + Float32(y) * CELL + 1.0,
+        w: CELL - 2.0,
+        h: CELL - 2.0)
+    SDL3.setRenderDrawColor(renderer, red, green, blue, 255)
+    SDL3.renderFillRect(renderer, &rect)
+}
+
+func drawBoard(renderer: &SDL3.Renderer?, game: &Game) {
+    SDL3.setRenderDrawColor(renderer, 10, 14, 18, 255)
+    var panel = SDL3.FRect(x: BOARD_X - 8.0, y: BOARD_Y - 8.0, w: BOARD_W + 16.0, h: BOARD_H + 16.0)
+    SDL3.renderFillRect(renderer, &panel)
+    SDL3.setRenderDrawColor(renderer, 52, 70, 82, 255)
+    SDL3.renderRect(renderer, &panel)
+
+    SDL3.setRenderDrawColor(renderer, 19, 27, 33, 255)
+    var board = SDL3.FRect(x: BOARD_X, y: BOARD_Y, w: BOARD_W, h: BOARD_H)
+    SDL3.renderFillRect(renderer, &board)
+
+    SDL3.setRenderDrawColor(renderer, 30, 42, 50, 255)
+    for col in 0..(COLS + 1) {
+        let x = BOARD_X + Float32(col) * CELL
+        SDL3.renderLine(renderer, x, BOARD_Y, x, BOARD_Y + BOARD_H)
+    }
+    for row in 0..(ROWS + 1) {
+        let y = BOARD_Y + Float32(row) * CELL
+        SDL3.renderLine(renderer, BOARD_X, y, BOARD_X + BOARD_W, y)
+    }
+
+    drawCell(renderer, game.foodX, game.foodY, 240, 90, 95)
+
+    var segmentIndex: Int = game.length - 1
+    while segmentIndex >= 0 {
+        let head = segmentIndex == 0
+        let green = head ? UInt8(235) : UInt8(190)
+        let blue = head ? UInt8(150) : UInt8(105)
+        drawCell(renderer, game.snakeX[segmentIndex], game.snakeY[segmentIndex], 90, green, blue)
+        if segmentIndex == 0 {
+            break
+        }
+        segmentIndex = segmentIndex - 1
+    }
+}
+
+func drawHud(renderer: &SDL3.Renderer?, game: &Game) {
+    SDL3.setRenderDrawColor(renderer, 190, 210, 215, 255)
+    SDL3.renderDebugText(renderer, 56.0, 26.0, "SCORE")
+    drawNumber(renderer, game.score, 114.0, 24.0, HUD_PIXEL, 110, 230, 170)
+    SDL3.renderDebugText(renderer, 420.0, 26.0, "BEST")
+    drawNumber(renderer, game.highScore, 468.0, 24.0, HUD_PIXEL, 245, 215, 120)
+
+    if game.phase == GamePhase.paused {
+        SDL3.setRenderDrawColor(renderer, 0, 0, 0, 150)
+        var overlay = SDL3.FRect(x: 0.0, y: 0.0, w: WIDTH_F, h: HEIGHT_F)
+        SDL3.renderFillRect(renderer, &overlay)
+        SDL3.setRenderDrawColor(renderer, 220, 235, 240, 255)
+        SDL3.renderDebugText(renderer, 292.0, 250.0, "PAUSED")
+    }
+}
+
+func drawEndOverlay(renderer: &SDL3.Renderer?, game: &Game) {
+    if game.phase != GamePhase.gameOver && game.phase != GamePhase.won {
+        return
+    }
+
+    SDL3.setRenderDrawColor(renderer, 0, 0, 0, 180)
+    var dim = SDL3.FRect(x: 0.0, y: 0.0, w: WIDTH_F, h: HEIGHT_F)
+    SDL3.renderFillRect(renderer, &dim)
+
+    var panel = SDL3.FRect(x: 198.0, y: 195.0, w: 244.0, h: 126.0)
+    SDL3.setRenderDrawColor(renderer, 12, 18, 24, 235)
+    SDL3.renderFillRect(renderer, &panel)
+    SDL3.setRenderDrawColor(renderer, 90, 120, 135, 255)
+    SDL3.renderRect(renderer, &panel)
+
+    if game.phase == GamePhase.won {
+        SDL3.setRenderDrawColor(renderer, 120, 240, 170, 255)
+        SDL3.renderDebugText(renderer, 286.0, 214.0, "YOU WIN")
+    } else {
+        SDL3.setRenderDrawColor(renderer, 245, 110, 115, 255)
+        SDL3.renderDebugText(renderer, 278.0, 214.0, "GAME OVER")
+    }
+
+    SDL3.setRenderDrawColor(renderer, 190, 210, 215, 255)
+    SDL3.renderDebugText(renderer, 242.0, 252.0, "SCORE")
+    drawNumber(renderer, game.score, 306.0, 250.0, HUD_PIXEL, 110, 230, 170)
+    SDL3.renderDebugText(renderer, 242.0, 286.0, "R TO RESTART")
+}
+
+func clearInputEdge(edge: &InputEdge) {
+    edge.turnUp = false
+    edge.turnRight = false
+    edge.turnDown = false
+    edge.turnLeft = false
+    edge.pause = false
+    edge.restart = false
+    edge.quit = false
+}
+
+func keyDown(edge: &InputEdge, scancode: SDL3.Scancode) {
+    if scancode == SDL3.Scancode.up || scancode == SDL3.Scancode.w {
+        edge.turnUp = true
+    } else if scancode == SDL3.Scancode.right || scancode == SDL3.Scancode.d {
+        edge.turnRight = true
+    } else if scancode == SDL3.Scancode.down || scancode == SDL3.Scancode.s {
+        edge.turnDown = true
+    } else if scancode == SDL3.Scancode.left || scancode == SDL3.Scancode.a {
+        edge.turnLeft = true
+    } else if scancode == SDL3.Scancode.space {
+        edge.pause = true
+    } else if scancode == SDL3.Scancode.r {
+        edge.restart = true
+    } else if scancode == SDL3.Scancode.escape {
+        edge.quit = true
+    }
+}
+
+func handleEvent(event: SDL3.Event, edge: &InputEdge) -> Bool {
+    if event.type == SDL3.EventType.quit {
+        return false
+    }
+
+    if event.type == SDL3.EventType.keyDown && event.down {
+        keyDown(edge, event.scancode)
+        if event.scancode == SDL3.Scancode.escape {
+            return false
+        }
+    }
+
+    return true
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    var window: &SDL3.Window? = nil
+    var renderer: &SDL3.Renderer? = nil
+    if !SDL3.createWindowAndRenderer("Rune SDL3 - Snake", WIDTH, HEIGHT, 0, &window, &renderer) {
+        Console.printLine("SDL_CreateWindowAndRenderer failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.setRenderVSync(renderer, 1) {
+        Console.printLine("SDL_SetRenderVSync failed: ${SDL3.getError()!}")
+    }
+
+    var game = Game(
+        snakeX: [],
+        snakeY: [],
+        length: 0,
+        direction: Direction.right,
+        pendingDirection: Direction.right,
+        foodX: 0,
+        foodY: 0,
+        score: 0,
+        highScore: 0,
+        phase: GamePhase.playing,
+        tickTimer: 0.0,
+        rng: Rng(state: 1))
+    seedRng(&game.rng, UInt32(SDL3.getTicks()))
+    resetGame(&game)
+
+    var running = true
+    var event = SDL3.Event()
+    let perfFreq = SDL3.getPerformanceFrequency()
+    var lastCounter = SDL3.getPerformanceCounter()
+
+    Console.printLine("Snake - arrows/WASD turn, Space pause, R restart.")
+
+    while running {
+        var edge = InputEdge(
+            turnUp: false,
+            turnRight: false,
+            turnDown: false,
+            turnLeft: false,
+            pause: false,
+            restart: false,
+            quit: false)
+
+        while SDL3.pollEvent(&event) {
+            if !handleEvent(event, &edge) {
+                running = false
+            }
+        }
+
+        let counter = SDL3.getPerformanceCounter()
+        var deltaTime = Float32(counter - lastCounter) / Float32(perfFreq)
+        lastCounter = counter
+        if deltaTime > 0.05 {
+            deltaTime = 0.05
+        }
+
+        if edge.quit {
+            running = false
+        }
+        applyInput(&game, edge)
+        updateGame(&game, deltaTime)
+
+        SDL3.setRenderDrawColor(renderer, 8, 12, 16, 255)
+        SDL3.renderClear(renderer)
+        drawBoard(renderer, &game)
+        drawHud(renderer, &game)
+        drawEndOverlay(renderer, &game)
+        SDL3.renderPresent(renderer)
+    }
+
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    Console.printLine("Snake finished.")
+    return 0
+}

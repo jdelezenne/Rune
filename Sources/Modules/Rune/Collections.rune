@@ -1,0 +1,195 @@
+/// Collection and iteration protocols.
+///
+///   Iterator
+///   Iterable                  (for-in; makeIterator())
+///     └─ Collection           (counted, indexed, read-only subscript)
+///          └─ MutableCollection                (indexed write via operator[]=)
+///               └─ RangeReplaceableCollection  (append / insert / remove)
+///
+///   Set extends Iterable              (insert / remove / contains)
+///     implemented by: HashSet<T extends Hashable>, SortedSet<T extends Comparable>
+///
+///   Dictionary extends Iterable
+///                                (key=>value lookup, iterates (key: K, value: V) pairs)
+///     implemented by: HashMap<K extends Hashable,V>, SortedMap<K extends Comparable,V>
+///
+/// Concrete types and their protocols:
+///   Array<T>             => RangeReplaceableCollection (heap, dynamic size)
+///   Slice<T>             => Collection                 (non-owning view; write via mutating op[]=, not a protocol)
+///   InlineArray<T,N>     => Collection                 (stack, fixed size)
+///   Range<Bound>         => Collection                 (half-open [start, end))
+///   RangeInclusive<Bound>=> Collection                 (closed [start, last])
+///   RangeTo/From/...       => Iterable                   (unbounded ranges)
+///   HashSet<T>           => Set                        (hash table)
+///   SortedSet<T>         => Set                        (balanced BST)
+///   HashMap<K,V>         => Dictionary                 (hash table)
+///   SortedMap<K,V>       => Dictionary                 (balanced BST)
+
+// MARK: - Iterator
+
+/// Stateful element-by-element traversal.
+/// Call `next()` repeatedly; returns `nil` when exhausted.
+public interface Iterator {
+    type Element
+
+    /// Advances the iterator and returns the next element, or `nil` if done.
+    mutating func next() -> Element?
+}
+
+// MARK: - Iterable (for-in)
+
+/// Any type whose values can be traversed with a `for-in` loop.
+/// Implementations must provide `makeIterator()` returning a concrete type
+/// that conforms to `Iterator`.
+public interface Iterable {
+    type Element
+    type Iter
+
+    /// Returns a fresh iterator positioned before the first element.
+    func makeIterator() -> Iter
+}
+
+// MARK: - MutableIterator
+
+/// Stateful element-by-element traversal that yields mutable references.
+/// Call `next()` repeatedly; returns `nil` when exhausted.
+public interface MutableIterator {
+    type Element
+
+    /// Advances the iterator and returns a mutable reference to the next
+    /// element, or `nil` if done.
+    mutating func next() -> &Element?
+}
+
+// MARK: - MutableIterable (for-in over &collection)
+
+/// Any type whose values can be traversed with `for x in &collection`,
+/// binding `x` as a mutable reference into the collection's storage.
+public interface MutableIterable {
+    type Element
+    type MutableIter
+
+    /// Returns a fresh mutable iterator positioned before the first element.
+    mutating func makeMutableIterator() -> MutableIter
+}
+
+// MARK: - ImmutableIterator
+
+/// Stateful element-by-element traversal that yields immutable references.
+/// Call `next()` repeatedly; returns `nil` when exhausted.
+public interface ImmutableIterator {
+    type Element
+
+    /// Advances the iterator and returns an immutable reference to the next
+    /// element, or `nil` if done.
+    mutating func next() -> *Element?
+}
+
+// MARK: - ImmutableIterable (for-in over *collection)
+
+/// Any type whose values can be traversed with `for x in *collection`,
+/// binding `x` as an immutable reference into the collection's storage
+/// (avoids copying each element).
+public interface ImmutableIterable {
+    type Element
+    type ImmutableIter
+
+    /// Returns a fresh immutable iterator positioned before the first element.
+    func makeImmutableIterator() -> ImmutableIter
+}
+
+// MARK: - Collection
+
+/// A finite, counted, indexable sequence.
+/// Inherits `Iterable` so every `Collection` is also usable in `for-in`.
+public interface Collection extends Iterable {
+    /// Number of elements.
+    count: Int { get }
+
+    /// `true` when `count == 0`.
+    isEmpty: Bool { get }
+
+    /// Returns the element at `index`. Behaviour on out-of-bounds index is
+    /// implementation-defined (typically a fatal trap).
+    operator [](index: Int) -> Element
+}
+
+// MARK: - MutableCollection
+
+/// A `Collection` whose elements can be replaced in place via subscript.
+public interface MutableCollection extends Collection {
+    /// Replaces the element at `index` with `value`.
+    mutating operator []=(index: Int, value: Element)
+}
+
+// MARK: - RangeReplaceableCollection
+
+/// A `MutableCollection` that supports structural mutation: appending,
+/// inserting, and removing elements.  All dynamically-sized collections
+/// (`Array`, `String`) conform to this interface.
+public interface RangeReplaceableCollection extends MutableCollection {
+    /// Creates an empty collection using the ambient allocator.
+    init()
+
+    /// Appends `element` to the end of the collection.
+    mutating func append(element: Element)
+
+    /// Inserts `element` before the element currently at `index`.
+    mutating func insert(element: Element, at: Int)
+
+    /// Removes and returns the element at `index`.
+    mutating func remove(at: Int) -> Element
+
+    /// Removes all elements, preserving allocated capacity.
+    mutating func removeAll()
+}
+
+// MARK: - SetAlgebra
+
+/// An unordered or sorted collection of unique elements.
+/// Implemented by `HashSet<T>` and `SortedSet<T>`.
+public interface Set extends Iterable {
+    /// Number of elements.
+    count: Int { get }
+
+    /// `true` when `count == 0`.
+    isEmpty: Bool { get }
+
+    /// Inserts `element` if not already present.
+    mutating func insert(element: Element)
+
+    /// Removes `element` if present.
+    mutating func remove(element: Element)
+
+    /// Returns `true` if the set contains `element`.
+    func contains(element: Element) -> Bool
+}
+
+// MARK: - Dictionary
+
+/// A key-to-value mapping.
+/// Implemented by `HashMap<K, V>` and `SortedMap<K, V>`.
+public interface Dictionary extends Iterable {
+    type Key
+    type Value
+    /// Number of key-value pairs.
+    count: Int { get }
+
+    /// `true` when `count == 0`.
+    isEmpty: Bool { get }
+
+    /// Inserts or updates the value for `key`.
+    mutating func insert(key: Key, value: Value)
+
+    /// Removes the entry for `key` if present.
+    mutating func remove(key: Key)
+
+    /// Returns `true` if the map contains `key`.
+    func contains(key: Key) -> Bool
+
+    /// Returns the value for `key`, or `nil` if absent.
+    func tryGet(key: Key) -> Value?
+
+    /// Returns the value for `key`, or `nil` if absent.
+    operator [](key: Key) -> Value?
+}

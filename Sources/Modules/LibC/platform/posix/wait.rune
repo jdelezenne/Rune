@@ -1,0 +1,8 @@
+public const WNOHANG: Int32 = 1
+
+@include("sys/wait.h")
+@link("c")
+{
+    @symbol
+    public func waitpid(pid: Int32, status: &Int32?, options: Int32) -> Int32
+}

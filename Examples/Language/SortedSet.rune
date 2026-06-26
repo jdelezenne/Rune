@@ -1,0 +1,17 @@
+func main() -> Int {
+    let ids: SortedSet<Int> = [3, 1, 2, 2]
+
+    if ids.count != 3 {
+        return 1
+    }
+
+    if !ids.contains(element: 1) || !ids.contains(element: 3) {
+        return 2
+    }
+
+    if ids.contains(element: 99) {
+        return 3
+    }
+
+    return 0
+}

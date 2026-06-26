@@ -1,0 +1,10 @@
+import Standard.*
+
+func main() -> Int {
+    let values: Array<Int> = [10, 20, 30]
+    for value in values {
+        Console.printLine("value=${value}")
+    }
+
+    return 0
+}

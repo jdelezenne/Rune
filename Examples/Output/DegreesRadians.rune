@@ -1,0 +1,25 @@
+import Standard.*
+
+func printConversion(degreesValue: Float64) {
+    let radiansValue = Math.radians(degreesValue)
+    let roundTripDegrees = Math.degrees(radiansValue)
+    #printLn("${degreesValue} deg = ${radiansValue} rad = ${roundTripDegrees} deg")
+}
+
+func main() -> Int {
+    #printLn("Degrees/radians conversions")
+    printConversion(degreesValue: 0.0)
+    printConversion(degreesValue: 45.0)
+    printConversion(degreesValue: 90.0)
+    printConversion(degreesValue: 180.0)
+    printConversion(degreesValue: 360.0)
+
+    let rightAngleRadians = Math.radians(90.0)
+    let halfTurnRadians = Math.radians(180.0)
+    let fullTurnDegrees = Math.degrees(Math.radians(360.0))
+    #printLn("right angle radians: ${rightAngleRadians}")
+    #printLn("half turn radians: ${halfTurnRadians}")
+    #printLn("full turn round trip: ${fullTurnDegrees}")
+
+    return 0
+}

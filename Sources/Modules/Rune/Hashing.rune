@@ -1,0 +1,12 @@
+/// Types conforming to Equatable can compare two values of the same type.
+public interface Equatable {
+    /// Returns whether two values are equal.
+    static operator ==(lhs: Self, rhs: Self) -> Bool
+}
+
+/// Types conforming to Hashable can provide a stable hash value for use as
+/// keys in HashMap and elements in HashSet.
+public interface Hashable extends Equatable {
+    /// Returns a stable hash value for this instance.
+    func hash() -> Int
+}

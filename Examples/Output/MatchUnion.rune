@@ -1,0 +1,21 @@
+import Standard.*
+
+union Shape {
+    circle(Float64)
+    rectangle(Float64, Float64)
+}
+
+func area(shape: Shape) -> Float64 {
+    match shape {
+        .circle(radius) => return Math.PI * radius * radius
+        .rectangle(width, height) => return width * height
+    }
+}
+
+func main() -> Int {
+    let round: Shape = .circle(2.0)
+    let flat: Shape = .rectangle(3.0, 4.0)
+    Console.printLine("circle area: ${area(round)}")
+    Console.printLine("rectangle area: ${area(flat)}")
+    return 0
+}

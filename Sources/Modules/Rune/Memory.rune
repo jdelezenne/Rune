@@ -1,0 +1,124 @@
+/// Provides utility functions and built-in system allocation entry points.
+public static Memory {
+    /// Returns whether `value` is a power of two.
+    /// @param value Value to test.
+    public func isPowerOfTwo(value: UInt) -> Bool {
+        return value != 0 && (value & (value - 1)) == 0
+    }
+
+    /// Rounds `value` up to the next multiple of `alignment`.
+    /// @param value Value to align.
+    /// @param alignment Required alignment in bytes.
+    public func alignUp(value: UInt, alignment: UInt) -> UInt {
+        if alignment <= 1 {
+            return value
+        }
+
+        let remainder = value % alignment
+        if remainder == 0 {
+            return value
+        }
+
+        return value + (alignment - remainder)
+    }
+
+    @runtime("rune_system_allocate")
+    private func systemAllocateRaw(size: UInt) -> &Byte?
+
+    @runtime("rune_system_allocate_aligned")
+    private func systemAllocateAlignedRaw(size: UInt, alignment: UInt) -> &Byte?
+
+    @runtime("rune_system_deallocate")
+    private func systemDeallocateRaw(address: *Byte)
+
+    @runtime("rune_runtime_allocator_initialize_default")
+    public func initializeDefaultAllocator(storage: *Byte)
+
+    /// Allocates `size` bytes from the system heap.
+    /// @param size Number of bytes to allocate.
+    /// @return Mutable reference to the allocated memory.
+    public func systemAllocate(size: UInt) throws -> &Byte {
+        let memory = Memory.systemAllocateRaw(size: size)
+        if memory == nil {
+            throw
+        }
+
+        return memory!
+    }
+
+    /// Allocates `size` bytes from the system heap with the given alignment.
+    /// @param size Number of bytes to allocate.
+    /// @param alignment Required alignment in bytes.
+    /// @return Mutable reference to the allocated memory.
+    public func systemAllocateAligned(size: UInt, alignment: UInt) throws -> &Byte {
+        let memory = Memory.systemAllocateAlignedRaw(size: size, alignment: alignment)
+        if memory == nil {
+            throw
+        }
+
+        return memory!
+    }
+
+    /// Deallocates memory previously returned by a system allocation function.
+    /// @param address Pointer to the memory to free.
+    public func systemDeallocate(address: *Byte) {
+        Memory.systemDeallocateRaw(address: address)
+    }
+
+    /// Zeroes `byteCount` bytes starting at `destination`.
+    /// @param destination Start of the region to clear.
+    /// @param byteCount Number of bytes to zero.
+    @runtime("rune_memory_zero")
+    public func zero(destination: &Byte, byteCount: UInt)
+
+    /// Fills `byteCount` bytes at `destination` with `value`.
+    /// @param destination Start of the region to fill.
+    /// @param value Byte value written to each position.
+    /// @param byteCount Number of bytes to fill.
+    @runtime("rune_memory_fill")
+    public func fill(destination: &Byte, value: UInt8, byteCount: UInt)
+
+    /// Copies `byteCount` bytes from `source` to `destination`.
+    /// The regions must not overlap; use `move` when they may overlap.
+    /// @param source Start of the source region.
+    /// @param destination Start of the destination region.
+    /// @param byteCount Number of bytes to copy.
+    @runtime("rune_memory_copy")
+    public func copy(source: *Byte, destination: &Byte, byteCount: UInt)
+
+    /// Copies `byteCount` bytes from `source` to `destination`.
+    /// Handles overlapping source and destination regions.
+    /// @param source Start of the source region.
+    /// @param destination Start of the destination region.
+    /// @param byteCount Number of bytes to move.
+    @runtime("rune_memory_move")
+    public func move(source: *Byte, destination: &Byte, byteCount: UInt)
+
+    /// Lexicographically compares `byteCount` bytes.
+    /// @param source Start of the left-hand region.
+    /// @param destination Start of the right-hand region.
+    /// @param byteCount Number of bytes to compare.
+    /// @return `Ordering.less`, `Ordering.equal`, or `Ordering.greater`.
+    @runtime("rune_memory_compare")
+    public func compare(source: *Byte, destination: *Byte, byteCount: UInt) -> Ordering
+
+    /// Default allocator used when no scoped allocator is active.
+    public defaultAllocator: &Allocator {
+        @runtime("rune_runtime_allocator_load_default")
+        get
+    }
+
+    /// Thread-local allocator override for the current scope.
+    public currentAllocator: &Allocator {
+        @runtime("rune_runtime_allocator_load_current")
+        get
+        @runtime("rune_runtime_allocator_store_current")
+        set
+    }
+
+    /// Active allocator for the current scope, if any.
+    public allocator: &Allocator? {
+        @runtime("rune_runtime_allocator_load_override")
+        get
+    }
+}

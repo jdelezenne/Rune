@@ -1,0 +1,131 @@
+/// Range types for iteration and subscript indexing.
+///
+/// All range variants share the C `RuneRange` layout (start, end, variant byte).
+/// Backend: `rune_range_*` intrinsics.
+///
+/// Hierarchy:
+///   RangeIterator<Bound>:    shared stateful iterator for all range variants
+///   Range<Bound>:            half-open [start, end)  -> Collection<Bound>
+///   RangeInclusive<Bound>:   closed [start, last]    -> Collection<Bound>
+///   RangeTo<Bound>:          [min, end)              -> Iterable<Bound>
+///   RangeFrom<Bound>:        [start, max]            -> Iterable<Bound>
+///   RangeToInclusive<Bound>: [min, last]             -> Iterable<Bound>
+
+/// Stateful iterator shared by all range variants.
+/// Wraps a `RuneRange` C value and advances `current` on each `next()` call.
+@builtin
+public struct RangeIterator<Bound> {
+    @runtime("rune_runtime_range_iterator_create_with_bounds")
+    public init(start: Bound, end: Bound, inclusive: Bool)
+}
+
+public extension RangeIterator<Bound> implements Iterator {
+    public type Element = Bound
+
+    /// Returns the next `Bound` value, or `nil` when the range is exhausted.
+    @runtime("rune_range_iterator_next")
+    public mutating func next() -> Bound?
+}
+
+/// Half-open range: `start` is included, `end` is excluded.
+/// Created with the `a..<b` operator.
+/// Conforms to `Collection<Bound>`; supports `count` and subscript by integer offset.
+@builtin
+public struct Range<Bound> {}
+
+public extension Range<Bound> implements Collection, Iterable {
+    public type Element = Bound
+    public type Iter = RangeIterator<Bound>
+
+    /// Returns an iterator over the elements of this range.
+    @runtime("rune_runtime_range_iterator_create")
+    public func makeIterator() -> RangeIterator<Bound>
+
+    /// Number of elements (`end - start`).
+    public count: Int {
+        @runtime("rune_range_count")
+        get
+    }
+
+    /// `true` when `start == end`.
+    public isEmpty: Bool {
+        @runtime("rune_range_is_empty")
+        get
+    }
+
+    /// Returns the element at integer offset `index` from `start`.
+    @runtime("rune_range_get")
+    public operator [](index: Int) -> Bound
+}
+
+/// Closed range: both `start` and `last` are included.
+/// Created with the `a...b` operator.
+/// Conforms to `Collection<Bound>`.
+@builtin
+public struct RangeInclusive<Bound> {}
+
+public extension RangeInclusive<Bound> implements Collection, Iterable {
+    public type Element = Bound
+    public type Iter = RangeIterator<Bound>
+
+    /// Returns an iterator over the elements of this range.
+    @runtime("rune_runtime_range_inclusive_iterator_create")
+    public func makeIterator() -> RangeIterator<Bound>
+
+    /// Number of elements (`last - start + 1`).
+    public count: Int {
+        @runtime("rune_range_inclusive_count")
+        get
+    }
+
+    /// `true` when impossible (start > last after normalisation).
+    public isEmpty: Bool {
+        @runtime("rune_range_inclusive_is_empty")
+        get
+    }
+
+    /// Returns the element at integer offset `index` from `start`.
+    @runtime("rune_range_inclusive_get")
+    public operator [](index: Int) -> Bound
+}
+
+/// Range from the type minimum (inclusive) up to `end` (exclusive).
+/// Iterable only; count is type-dependent.
+@builtin
+public struct RangeTo<Bound> {}
+
+public extension RangeTo<Bound> implements Iterable {
+    public type Element = Bound
+    public type Iter = RangeIterator<Bound>
+
+    /// Returns an iterator starting at the type minimum.
+    @runtime("rune_runtime_range_to_iterator_create")
+    public func makeIterator() -> RangeIterator<Bound>
+}
+
+/// Range from `start` (inclusive) to the type maximum (inclusive).
+/// Iterable only; typically used as a lower-bound constraint.
+@builtin
+public struct RangeFrom<Bound> {}
+
+public extension RangeFrom<Bound> implements Iterable {
+    public type Element = Bound
+    public type Iter = RangeIterator<Bound>
+
+    /// Returns an iterator starting at `start`.
+    @runtime("rune_runtime_range_from_iterator_create")
+    public func makeIterator() -> RangeIterator<Bound>
+}
+
+/// Range from the type minimum through `last` (both inclusive).
+@builtin
+public struct RangeToInclusive<Bound> {}
+
+public extension RangeToInclusive<Bound> implements Iterable {
+    public type Element = Bound
+    public type Iter = RangeIterator<Bound>
+
+    /// Returns an iterator from the type minimum through `last`.
+    @runtime("rune_runtime_range_to_inclusive_iterator_create")
+    public func makeIterator() -> RangeIterator<Bound>
+}

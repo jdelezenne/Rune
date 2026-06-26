@@ -1,0 +1,20 @@
+func main() -> Int {
+    let scores: HashMap<String, Int> = ["alice": 10, "bob": 20, "carol": 5]
+    let alice = scores.tryGet(key: "alice")
+    if alice == nil || alice! != 10 {
+        return 1
+    }
+    let bob = scores.tryGet(key: "bob")
+    if bob == nil {
+        return 2
+    }
+    let carol = scores.tryGet(key: "carol")
+    if carol == nil {
+        return 3
+    }
+
+    if alice! + bob! + carol! != 35 {
+        return 4
+    }
+    return 0
+}

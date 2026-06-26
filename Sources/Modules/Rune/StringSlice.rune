@@ -1,0 +1,60 @@
+/// Builtin StringSlice type.
+/// StringSlice represents a non-owning (ptr, length) view over UTF-8 String data.
+@builtin
+public struct StringSlice {}
+
+@builtin
+public struct StringSliceIterator {}
+
+public extension StringSliceIterator implements Iterator {
+    public type Element = Char
+
+    @runtime("rune_stringslice_iterator_next")
+    public mutating func next() -> Char?
+}
+
+public extension StringSlice implements Collection, Iterable {
+	public type Element = Char
+	public type Iter = StringSliceIterator
+
+	/// Returns an iterator over this slice's characters.
+    @runtime("rune_stringslice_iterator_create")
+	public func makeIterator() -> StringSliceIterator
+
+	/// Returns the character at Unicode scalar index `index`.
+    @runtime("rune_stringslice_char_at")
+	public operator [](index: Int) -> Char
+
+	/// Number of UTF-8 bytes. O(1).
+	public length: Int {
+		@runtime("rune_stringslice_byte_length")
+		get
+	}
+
+	/// Number of Unicode scalar values. O(n).
+	public count: Int {
+		@runtime("rune_stringslice_count")
+		get
+	}
+
+	/// Whether the slice contains no characters.
+	public isEmpty: Bool {
+		@runtime("rune_stringslice_is_empty")
+		get
+	}
+
+	/// Character at Unicode scalar index (not byte index).
+	/// @param at Unicode scalar index.
+    @runtime("rune_stringslice_char_at")
+    public func character(at: Int) -> Char
+}
+
+public extension StringSlice implements CustomStringConvertible {
+    @runtime("rune_runtime_string_from_stringslice")
+    public func toString() -> String
+}
+
+public extension StringSlice implements StringLiteralConvertible {
+    @intrinsic
+    public init(stringLiteral: StringLiteral)
+}

@@ -1,0 +1,11 @@
+func answer() -> Int {
+    return 42
+}
+
+func main() -> Int {
+    if answer() != 42 {
+        return 1
+    }
+
+    return 0
+}
