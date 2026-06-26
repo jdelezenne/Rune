@@ -1,0 +1,32 @@
+struct Point {
+    var x: Int
+    var y: Int
+
+    func offset(dx: Int, dy: Int) -> Point {
+        return Point(x: x + dx, y: y + dy)
+    }
+}
+
+func weightedSum(left: Int, right: Int, scale: Int) -> Int {
+    return (left + right) * scale
+}
+
+func main() -> Int {
+    let value = weightedSum(scale: 2, right: 5, left: 7)
+    let point = Point(y: 20, x: 10)
+    let moved = point.offset(dx: 2, dy: 3)
+
+    if value != 24 {
+        return 1
+    }
+
+    if moved.x != 12 {
+        return 2
+    }
+
+    if moved.y != 23 {
+        return 3
+    }
+
+    return 0
+}

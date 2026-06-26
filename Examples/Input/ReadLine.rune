@@ -1,0 +1,8 @@
+import Standard.*
+
+func main() -> Int {
+    Console.printLine("Enter your name:")
+    let name = Console.readLine()
+    Console.printLine("Hello, ${name}!")
+    return 0
+}

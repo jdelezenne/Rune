@@ -1,0 +1,240 @@
+@symbol("SDL_Renderer")
+public distinct Renderer
+@symbol("SDL_Texture")
+public distinct Texture
+
+public enum TextureAccess: Int32 {
+    static = 0 // SDL_TEXTUREACCESS_STATIC
+    streaming = 1 // SDL_TEXTUREACCESS_STREAMING
+    target = 2 // SDL_TEXTUREACCESS_TARGET
+}
+
+public enum TextureAddressMode: Int32 {
+    invalid = -1 // SDL_TEXTURE_ADDRESS_INVALID
+    auto = 0 // SDL_TEXTURE_ADDRESS_AUTO
+    clamp = 1 // SDL_TEXTURE_ADDRESS_CLAMP
+    wrap = 2 // SDL_TEXTURE_ADDRESS_WRAP
+}
+
+public enum RendererLogicalPresentation: Int32 {
+    disabled = 0 // SDL_LOGICAL_PRESENTATION_DISABLED
+    stretch = 1 // SDL_LOGICAL_PRESENTATION_STRETCH
+    letterbox = 2 // SDL_LOGICAL_PRESENTATION_LETTERBOX
+    overscan = 3 // SDL_LOGICAL_PRESENTATION_OVERSCAN
+    integerScale = 4 // SDL_LOGICAL_PRESENTATION_INTEGER_SCALE
+}
+
+public enum FlipMode: Int32 {
+    none = 0 // SDL_FLIP_NONE
+    horizontal = 1 // SDL_FLIP_HORIZONTAL
+    vertical = 2 // SDL_FLIP_VERTICAL
+}
+
+public enum ScaleMode: Int32 {
+    nearest = 0 // SDL_SCALEMODE_NEAREST
+    linear = 1 // SDL_SCALEMODE_LINEAR
+}
+
+@layout(kind: c)
+public struct Vertex {
+    public var position: FPoint
+    public var color: FColor
+    public var texCoord: FPoint
+}
+
+@include("SDL3/SDL_render.h")
+@link("SDL3")
+{
+    @symbol("SDL_GetNumRenderDrivers")
+    public func getNumRenderDrivers() -> Int32
+
+    @symbol("SDL_GetRenderDriver")
+    public func getRenderDriver(index: Int32) -> CStringSlice?
+
+    @symbol("SDL_CreateWindowAndRenderer")
+    public func createWindowAndRenderer(
+        title: CStringSlice?,
+        width: Int32,
+        height: Int32,
+        windowFlags: WindowFlags,
+        window: &(&Window?),
+        renderer: &(&Renderer?)) -> Bool
+
+    @symbol("SDL_CreateRenderer")
+    public func createRenderer(window: &Window?, name: CStringSlice?) -> &Renderer?
+
+    @symbol("SDL_DestroyRenderer")
+    public func destroyRenderer(renderer: &Renderer?) -> Void
+
+    @symbol("SDL_GetRendererName")
+    public func getRendererName(renderer: &Renderer?) -> CStringSlice?
+
+    @symbol("SDL_CreateTexture")
+    public func createTexture(renderer: &Renderer?, format: PixelFormat, access: TextureAccess, width: Int32, height: Int32) -> &Texture?
+
+    @symbol("SDL_DestroyTexture")
+    public func destroyTexture(texture: &Texture?) -> Void
+
+    @symbol("SDL_UpdateTexture")
+    public func updateTexture(texture: &Texture?, rect: *Rect?, pixels: *Byte?, pitch: Int32) -> Bool
+
+    @symbol("SDL_SetTextureBlendMode")
+    public func setTextureBlendMode(texture: &Texture?, blendMode: BlendMode) -> Bool
+
+    @symbol("SDL_SetTextureAlphaMod")
+    public func setTextureAlphaMod(texture: &Texture?, alpha: UInt8) -> Bool
+
+    @symbol("SDL_SetRenderDrawColor")
+    public func setRenderDrawColor(renderer: &Renderer?, red: UInt8, green: UInt8, blue: UInt8, alpha: UInt8) -> Bool
+
+    @symbol("SDL_SetRenderDrawColorFloat")
+    public func setRenderDrawColorFloat(renderer: &Renderer?, red: Float32, green: Float32, blue: Float32, alpha: Float32) -> Bool
+
+    @symbol("SDL_SetRenderDrawBlendMode")
+    public func setRenderDrawBlendMode(renderer: &Renderer?, blendMode: BlendMode) -> Bool
+
+    @symbol("SDL_RenderClear")
+    public func renderClear(renderer: &Renderer?) -> Bool
+
+    @symbol("SDL_RenderPresent")
+    public func renderPresent(renderer: &Renderer?) -> Bool
+
+    @symbol("SDL_RenderFillRect")
+    public func renderFillRect(renderer: &Renderer?, rect: *FRect?) -> Bool
+
+    @symbol("SDL_RenderRect")
+    public func renderRect(renderer: &Renderer?, rect: *FRect?) -> Bool
+
+    @symbol("SDL_RenderLine")
+    public func renderLine(renderer: &Renderer?, x1: Float32, y1: Float32, x2: Float32, y2: Float32) -> Bool
+
+    @symbol("SDL_RenderPoint")
+    public func renderPoint(renderer: &Renderer?, x: Float32, y: Float32) -> Bool
+
+    @symbol("SDL_RenderTexture")
+    public func renderTexture(renderer: &Renderer?, texture: &Texture?, sourceRect: *FRect?, destinationRect: *FRect?) -> Bool
+
+    @symbol("SDL_RenderTextureRotated")
+    public func renderTextureRotated(
+        renderer: &Renderer?,
+        texture: &Texture?,
+        sourceRect: *FRect?,
+        destinationRect: *FRect?,
+        angle: Float64,
+        center: *FPoint?,
+        flip: FlipMode) -> Bool
+
+    @symbol("SDL_SetRenderLogicalPresentation")
+    public func setRenderLogicalPresentation(renderer: &Renderer?, width: Int32, height: Int32, mode: RendererLogicalPresentation) -> Bool
+
+    @symbol("SDL_RenderDebugText")
+    public func renderDebugText(renderer: &Renderer?, x: Float32, y: Float32, text: CStringSlice?) -> Bool
+
+    @symbol("SDL_SetRenderTarget")
+    public func setRenderTarget(renderer: &Renderer?, texture: &Texture?) -> Bool
+
+    @symbol("SDL_GetRenderTarget")
+    public func getRenderTarget(renderer: &Renderer?) -> &Texture?
+
+    @symbol("SDL_RenderGeometry")
+    public func renderGeometry(
+        renderer: &Renderer?,
+        texture: &Texture?,
+        vertices: *Vertex?,
+        numVertices: Int32,
+        indices: *Int32?,
+        numIndices: Int32) -> Bool
+
+    @symbol("SDL_SetRenderVSync")
+    public func setRenderVSync(renderer: &Renderer?, vsync: Int32) -> Bool
+
+    @symbol("SDL_GetRenderOutputSize")
+    public func getRenderOutputSize(renderer: &Renderer?, width: &Int32, height: &Int32) -> Bool
+
+    @symbol("SDL_GetCurrentRenderOutputSize")
+    public func getCurrentRenderOutputSize(renderer: &Renderer?, width: &Int32, height: &Int32) -> Bool
+
+    @symbol("SDL_GetWindowFromRenderer")
+    public func getWindowFromRenderer(renderer: &Renderer?) -> &Window?
+
+    @symbol("SDL_SetRenderScale")
+    public func setRenderScale(renderer: &Renderer?, scaleX: Float32, scaleY: Float32) -> Bool
+
+    @symbol("SDL_GetRenderScale")
+    public func getRenderScale(renderer: &Renderer?, scaleX: &Float32, scaleY: &Float32) -> Bool
+
+    @symbol("SDL_SetRenderViewport")
+    public func setRenderViewport(renderer: &Renderer?, rect: *Rect?) -> Bool
+
+    @symbol("SDL_GetRenderViewport")
+    public func getRenderViewport(renderer: &Renderer?, rect: &Rect) -> Bool
+
+    @symbol("SDL_RenderViewportSet")
+    public func renderViewportSet(renderer: &Renderer?) -> Bool
+
+    @symbol("SDL_GetRenderSafeArea")
+    public func getRenderSafeArea(renderer: &Renderer?, rect: &Rect) -> Bool
+
+    @symbol("SDL_SetRenderClipRect")
+    public func setRenderClipRect(renderer: &Renderer?, rect: *Rect?) -> Bool
+
+    @symbol("SDL_GetRenderClipRect")
+    public func getRenderClipRect(renderer: &Renderer?, rect: &Rect) -> Bool
+
+    @symbol("SDL_RenderClipEnabled")
+    public func renderClipEnabled(renderer: &Renderer?) -> Bool
+
+    @symbol("SDL_RenderFillRects")
+    public func renderFillRects(renderer: &Renderer?, rects: *FRect?, count: Int32) -> Bool
+
+    @symbol("SDL_RenderRects")
+    public func renderRects(renderer: &Renderer?, rects: *FRect?, count: Int32) -> Bool
+
+    @symbol("SDL_RenderLines")
+    public func renderLines(renderer: &Renderer?, points: *FPoint?, count: Int32) -> Bool
+
+    @symbol("SDL_RenderPoints")
+    public func renderPoints(renderer: &Renderer?, points: *FPoint?, count: Int32) -> Bool
+
+    @symbol("SDL_GetTextureSize")
+    public func getTextureSize(texture: &Texture?, width: &Float32, height: &Float32) -> Bool
+
+    @symbol("SDL_SetTextureColorMod")
+    public func setTextureColorMod(texture: &Texture?, red: UInt8, green: UInt8, blue: UInt8) -> Bool
+
+    @symbol("SDL_GetTextureColorMod")
+    public func getTextureColorMod(texture: &Texture?, red: &UInt8, green: &UInt8, blue: &UInt8) -> Bool
+
+    @symbol("SDL_SetTextureColorModFloat")
+    public func setTextureColorModFloat(texture: &Texture?, red: Float32, green: Float32, blue: Float32) -> Bool
+
+    @symbol("SDL_GetTextureColorModFloat")
+    public func getTextureColorModFloat(texture: &Texture?, red: &Float32, green: &Float32, blue: &Float32) -> Bool
+
+    @symbol("SDL_GetTextureAlphaMod")
+    public func getTextureAlphaMod(texture: &Texture?, alpha: &UInt8) -> Bool
+
+    @symbol("SDL_GetTextureAlphaModFloat")
+    public func getTextureAlphaModFloat(texture: &Texture?, alpha: &Float32) -> Bool
+
+    @symbol("SDL_GetTextureBlendMode")
+    public func getTextureBlendMode(texture: &Texture?, blendMode: &BlendMode) -> Bool
+
+    @symbol("SDL_SetTextureScaleMode")
+    public func setTextureScaleMode(texture: &Texture?, scaleMode: ScaleMode) -> Bool
+
+    @symbol("SDL_GetTextureScaleMode")
+    public func getTextureScaleMode(texture: &Texture?, scaleMode: &ScaleMode) -> Bool
+
+    @symbol("SDL_LockTexture")
+    public func lockTexture(texture: &Texture?, rect: *Rect?, pixels: &&Byte, pitch: &Int32) -> Bool
+
+    @symbol("SDL_UnlockTexture")
+    public func unlockTexture(texture: &Texture?) -> Void
+
+    @symbol("SDL_RenderCoordinatesFromWindow")
+    public func renderCoordinatesFromWindow(renderer: &Renderer?, windowX: Float32, windowY: Float32, x: &Float32, y: &Float32) -> Bool
+
+    @symbol("SDL_RenderCoordinatesToWindow")
+    public func renderCoordinatesToWindow(renderer: &Renderer?, x: Float32, y: Float32, windowX: &Float32, windowY: &Float32) -> Bool
+}

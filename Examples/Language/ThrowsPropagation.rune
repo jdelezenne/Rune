@@ -1,0 +1,20 @@
+func fail() throws(Int) -> Int {
+    throw 42
+}
+
+func run() throws(Int) -> Int {
+    return try fail()
+}
+
+func main() -> Int {
+    try {
+        return run()
+    }
+    catch let code {
+        if code != 42 {
+            return 2
+        }
+
+        return 0
+    }
+}

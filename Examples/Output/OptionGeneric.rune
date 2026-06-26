@@ -1,0 +1,23 @@
+import Standard.*
+
+// Option<T> with nil literal, hasValue, unwrap, and unwrapOr.
+
+func describe(value: Option<Int>) -> String {
+    if value.hasValue() {
+        return "some(${value.unwrap()})"
+    }
+
+    return "none"
+}
+
+func main() -> Int {
+    let empty: Option<Int> = nil
+    let filled: Int? = 42
+
+    Console.printLine("empty=${describe(empty)}")
+    Console.printLine("filled=${describe(filled)}")
+    Console.printLine("unwrap=${filled.unwrap()}")
+    Console.printLine("unwrapOr=${empty.unwrapOr(7)}")
+
+    return 0
+}

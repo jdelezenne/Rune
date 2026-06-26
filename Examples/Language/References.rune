@@ -1,0 +1,43 @@
+func increment(value: &Int) -> Void {
+    value^ = value^ + 1
+}
+
+func read(value: *Int) -> Int {
+    return value^
+}
+
+func setTrue(value: &Bool) -> Void {
+    value^ = true
+}
+
+func readBool(value: *Bool) -> Bool {
+    return value^
+}
+
+func doubleFloat(value: &Float64) -> Void {
+    value^ = value^ + value^
+}
+
+func readFloat(value: *Float64) -> Float64 {
+    return value^
+}
+
+func main() -> Int {
+    var count = 41
+    increment(&count)
+    var result = read(*count)
+
+    var flag = false
+    setTrue(&flag)
+    var flagValue = readBool(*flag)
+
+    var x: Float64 = 21.0
+    doubleFloat(&x)
+    var xValue = readFloat(*x)
+
+    if result != 42 || !flagValue || xValue != 42.0 {
+        return 1
+    }
+
+    return 0
+}

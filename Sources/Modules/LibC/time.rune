@@ -1,0 +1,49 @@
+public alias time_t = Int64
+public alias clock_t = Int64
+
+@layout(kind: c)
+@symbol("struct tm")
+public struct tm {
+    public var tm_sec: Int32
+    public var tm_min: Int32
+    public var tm_hour: Int32
+    public var tm_mday: Int32
+    public var tm_mon: Int32
+    public var tm_year: Int32
+    public var tm_wday: Int32
+    public var tm_yday: Int32
+    public var tm_isdst: Int32
+    public var tm_gmtoff: Int64
+    public var tm_zone: *Byte?
+}
+
+@include("time.h")
+@link("c")
+{
+    @symbol
+    public func time(timer: &time_t?) -> time_t
+
+    @symbol
+    public func clock() -> clock_t
+
+    @symbol
+    public func difftime(end: time_t, beginning: time_t) -> Float64
+
+    @symbol
+    public func localtime(timer: *time_t?) -> *tm?
+
+    @symbol
+    public func gmtime(timer: *time_t?) -> *tm?
+
+    @symbol
+    public func mktime(timeinfo: &tm?) -> time_t
+
+    @symbol
+    public func asctime(timeinfo: *tm?) -> CStringSlice?
+
+    @symbol
+    public func ctime(timer: *time_t?) -> CStringSlice?
+
+    @symbol
+    public func strftime(dest: &Byte?, maxSize: UInt, format: CStringSlice?, timeinfo: *tm?) -> UInt
+}

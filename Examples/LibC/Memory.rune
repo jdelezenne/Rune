@@ -1,0 +1,6 @@
+import LibC
+import Standard.*
+
+func main() {
+    Console.printLine("memory smoke strlen=${LibC.strlen("memory")}")
+}

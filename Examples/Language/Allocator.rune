@@ -1,0 +1,15 @@
+struct Box {
+    var value: Int
+}
+
+func main() -> Int {
+    let allocator = SystemAllocator()
+    let box = make!(allocator) Box(value: 42)
+    let result = box.value
+    dispose(allocator) box
+    if result != 42 {
+        return 1
+    }
+
+    return 0
+}

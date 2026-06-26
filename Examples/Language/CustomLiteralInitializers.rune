@@ -1,0 +1,23 @@
+import Standard.*
+
+func main() -> Int {
+    var stack: Stack<Int> = [10, 20, 30]
+    if stack.count != 3 || stack.peek() != 30 {
+        return 1
+    }
+
+    if stack.pop() != 30 || stack.pop() != 20 || stack.pop() != 10 {
+        return 2
+    }
+
+    var queue: Queue<String> = ["red", "green", "blue"]
+    if queue.count != 3 || queue.peek() != "red" {
+        return 3
+    }
+
+    if queue.dequeue() != "red" || queue.dequeue() != "green" || queue.dequeue() != "blue" {
+        return 4
+    }
+
+    return 0
+}

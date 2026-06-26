@@ -1,0 +1,11 @@
+func message() -> String {
+    return "Ru" + "ne"
+}
+
+func main() -> Int {
+    const value = eval message()
+    if value.length == 4 {
+        return 0
+    }
+    return 1
+}

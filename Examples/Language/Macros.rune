@@ -1,0 +1,123 @@
+struct Point {
+    var x: Float32
+    var y: Float32
+}
+
+enum Direction: Int32 {
+    north
+    south
+}
+
+@flags
+
+enum Permissions: UInt8 {
+    read
+    write
+}
+
+func demonstrateLayout() -> Bool {
+    #printLn("=== Layout Macros ===")
+
+    // #sizeOf, #alignmentOf, and #strideOf return UInt and are computed at compile time.
+    let intSize = #sizeOf<Int32>()
+    let intAlign = #alignmentOf<Int32>()
+    let intStride = #strideOf<Int32>()
+
+    let pointSize = #sizeOf<Point>()
+    let pointAlign = #alignmentOf<Point>()
+    let pointStride = #strideOf<Point>()
+
+    #printLn("Int32:")
+    #printLn("  Size:      ", intSize)      // Expected: 4
+    #printLn("  Alignment: ", intAlign)     // Expected: 4
+    #printLn("  Stride:    ", intStride)    // Expected: 4
+
+    #printLn("Point struct:")
+    #printLn("  Size:      ", pointSize)     // Expected: 8 (x: Float32, y: Float32)
+    #printLn("  Alignment: ", pointAlign)    // Expected: 4
+    #printLn("  Stride:    ", pointStride)   // Expected: 8
+    #printLn()
+
+    return intSize == 4 && pointSize == 8
+}
+
+func demonstrateNames() -> Bool {
+    #printLn("=== Naming Macros ===")
+
+    // #nameOf returns the unqualified name as a String.
+    let primitiveName = #nameOf<Int32>()
+    let structName = #nameOf<Point>()
+    let enumName = #nameOf<Direction>()
+    let caseName = #nameOf(Direction.north)
+
+    // #qualifiedNameOf returns the module-qualified name.
+    let qualPrimitiveName = #qualifiedNameOf<Int32>()
+    let qualStructName = #qualifiedNameOf<Point>()
+    let qualEnumName = #qualifiedNameOf<Direction>()
+    let qualCaseName = #qualifiedNameOf(Direction.south)
+    let qualFlagsCase = #qualifiedNameOf(Permissions.read)
+
+    #printLn("#nameOf:")
+    #printLn("  Int32:           ", primitiveName)      // "Int32"
+    #printLn("  Point struct:    ", structName)         // "Point"
+    #printLn("  Direction enum:  ", enumName)           // "Direction"
+    #printLn("  Direction.north: ", caseName)           // "north"
+
+    #printLn("#qualifiedNameOf:")
+    #printLn("  Int32:           ", qualPrimitiveName)  // "Rune.Int32"
+    #printLn("  Point struct:    ", qualStructName)     // "Main.Point"
+    #printLn("  Direction enum:  ", qualEnumName)       // "Main.Direction"
+    #printLn("  Direction.south: ", qualCaseName)       // "Main.Direction.south"
+    #printLn("  Permissions.read:", qualFlagsCase)      // "Main.Permissions.read"
+    #printLn()
+
+    return primitiveName == "Int32" && caseName == "north" && qualCaseName == qualEnumName + ".south"
+}
+
+func demonstrateAssertions(value: Int) {
+    #printLn("=== Assertion Macros ===")
+
+    // #assert and #debugAssert abort execution on failure.
+    // In release builds, #debugAssert is typically compiled out.
+    // Note: comparison conditions involving '<' or '>' should be parenthesized to avoid
+    // ambiguity with generic type parameter brackets.
+    #assert(value >= 0, "Value must be non-negative")
+    #debugAssert((value < 100), "Value must be less than 100 in debug mode")
+
+    #printLn("#assert and #debugAssert passed for value: ", value)
+    #printLn()
+}
+
+// A helper function that showcases the #panic macro.
+func safeDivide(numerator: Int, denominator: Int) -> Int {
+    if denominator == 0 {
+        // #panic takes an optional String message, terminates the program, and does not return.
+        #panic("Division by zero inside safeDivide!")
+    }
+
+    return numerator / denominator
+}
+
+func main() -> Int {
+    #printLn("Demonstrating Rune Builtin Macros")
+    #printLn("=================================")
+    #printLn()
+
+    let layoutsOk = demonstrateLayout()
+    let namesOk = demonstrateNames()
+    demonstrateAssertions(42)
+
+    #printLn("=== Panic Macro ===")
+    let divisionResult = safeDivide(24, 6)
+    #printLn("safeDivide(24, 6) = ", divisionResult)
+    #printLn("To trigger a program panic, safeDivide(24, 0) can be called.")
+    #printLn()
+
+    if layoutsOk && namesOk && divisionResult == 4 {
+        #printLn("All macro demonstrations succeeded!")
+        return 0
+    }
+
+    #printLn("Macro demonstrations failed.")
+    return 1
+}

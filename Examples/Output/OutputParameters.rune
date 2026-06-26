@@ -1,0 +1,39 @@
+import Standard.*
+
+// Multiple output parameters via mutable references (&T).
+// Callers pass lvalues with &; the callee writes through the reference.
+
+func divmod(a: Int, b: Int, quotient: &Int, remainder: &Int) -> Void {
+    quotient^ = a / b
+    remainder^ = a % b
+}
+
+func splitRect(width: Int, height: Int, halfWidth: &Int, halfHeight: &Int) -> Bool {
+    if width <= 0 || height <= 0 {
+        return false
+    }
+
+    halfWidth^ = width / 2
+    halfHeight^ = height / 2
+    return true
+}
+
+func main() -> Int {
+    var quotient: Int = 0
+    var remainder: Int = 0
+    divmod(17, 5, &quotient, &remainder)
+    Console.printLine("divmod(17, 5) -> quotient=${quotient} remainder=${remainder}")
+
+    var halfWidth: Int = 0
+    var halfHeight: Int = 0
+    let ok = splitRect(
+        width: 14,
+        height: 10,
+        halfWidth: &halfWidth,
+        halfHeight: &halfHeight)
+    if ok {
+        Console.printLine("splitRect(14, 10) -> halfWidth=${halfWidth} halfHeight=${halfHeight}")
+    }
+
+    return 0
+}

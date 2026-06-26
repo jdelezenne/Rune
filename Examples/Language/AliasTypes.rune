@@ -1,0 +1,37 @@
+alias Celsius = Float64
+alias Fahrenheit = Float64
+alias SensorId = Int
+
+struct Reading {
+    var sensor: SensorId
+    var temperature: Celsius
+}
+
+func celsiusToFahrenheit(temp: Celsius) -> Fahrenheit {
+    return temp * 1.8 + 32.0
+}
+
+func normalize(reading: Reading) -> Fahrenheit {
+    return celsiusToFahrenheit(reading.temperature)
+}
+
+func main() -> Int {
+    let boiling: Celsius = 100.0
+    let freezing: Celsius = 0.0
+    let sample = Reading(sensor: 7, temperature: boiling)
+    let boilingF = celsiusToFahrenheit(boiling)
+    let freezingF = celsiusToFahrenheit(freezing)
+    if boilingF <= 210.0 || freezingF >= 35.0 {
+        return 1
+    }
+
+    if sample.sensor != 7 {
+        return 2
+    }
+
+    if normalize(reading: sample) <= 210.0 {
+        return 3
+    }
+
+    return 0
+}

@@ -1,0 +1,33 @@
+/// Opaque platform thread handle.
+public distinct ThreadHandle
+
+alias VoidHandler = () -> Void
+
+/// Joinable OS thread running Rune bytecode.
+///
+/// Each thread uses its own interpreter call stack while sharing module globals
+/// with other threads in the same process. Protect shared state with `Mutex`.
+@builtin
+public struct Thread {
+    /// Handle suitable for passing to native FFI callbacks.
+    public nativeHandle: *ThreadHandle? {
+        @runtime("rune_thread_native_handle")
+        get
+    }
+
+    /// Starts a new joinable platform thread running `body`.
+    @runtime("rune_vm_thread_spawn")
+    public init(body: VoidHandler)
+
+    /// Starts a new joinable platform thread running `body` with a debugger-visible name.
+    @runtime("rune_vm_thread_spawn_named")
+    public init(body: VoidHandler, name: String)
+
+    /// Waits for the thread to finish.
+    @runtime("rune_thread_join")
+    public mutating func join()
+
+    /// Releases the native handle without waiting for the thread to finish.
+    @runtime("rune_thread_detach")
+    public mutating func detach()
+}

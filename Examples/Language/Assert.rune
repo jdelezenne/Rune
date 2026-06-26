@@ -1,0 +1,19 @@
+func requirePositive(value: Int) -> Void {
+    #assert(value > 0, "value must be positive")
+}
+
+func requireSmall(value: Int) -> Void {
+    #debugAssert((value < 10), "value must be less than 10")
+}
+
+func failAssertExample() -> Void {
+    #assert(false, "intentional assertion failure")
+}
+
+func main() -> Int {
+    requirePositive(3)
+    requireSmall(7)
+
+    // failAssertExample()
+    return 0
+}

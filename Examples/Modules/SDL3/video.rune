@@ -1,0 +1,148 @@
+@symbol("SDL_Window")
+public distinct Window
+
+@flags
+
+public enum WindowFlags: UInt64 {
+    fullscreen = 1 // SDL_WINDOW_FULLSCREEN
+    opengl = 2 // SDL_WINDOW_OPENGL
+    occluded = 4 // SDL_WINDOW_OCCLUDED
+    hidden = 8 // SDL_WINDOW_HIDDEN
+    borderless = 16 // SDL_WINDOW_BORDERLESS
+    resizable = 32 // SDL_WINDOW_RESIZABLE
+    minimized = 64 // SDL_WINDOW_MINIMIZED
+    maximized = 128 // SDL_WINDOW_MAXIMIZED
+    mouseGrabbed = 256 // SDL_WINDOW_MOUSE_GRABBED
+    inputFocus = 512 // SDL_WINDOW_INPUT_FOCUS
+    mouseFocus = 1024 // SDL_WINDOW_MOUSE_FOCUS
+    external = 2048 // SDL_WINDOW_EXTERNAL
+    modal = 4096 // SDL_WINDOW_MODAL
+    highPixelDensity = 8192 // SDL_WINDOW_HIGH_PIXEL_DENSITY
+    mouseCapture = 16384 // SDL_WINDOW_MOUSE_CAPTURE
+    mouseRelativeMode = 32768 // SDL_WINDOW_MOUSE_RELATIVE_MODE
+    alwaysOnTop = 65536 // SDL_WINDOW_ALWAYS_ON_TOP
+    utility = 131072 // SDL_WINDOW_UTILITY
+    tooltip = 262144 // SDL_WINDOW_TOOLTIP
+    popupMenu = 524288 // SDL_WINDOW_POPUP_MENU
+    keyboardGrabbed = 1048576 // SDL_WINDOW_KEYBOARD_GRABBED
+    fillDocument = 2097152 // SDL_WINDOW_FILL_DOCUMENT
+    vulkan = 268435456 // SDL_WINDOW_VULKAN
+    metal = 536870912 // SDL_WINDOW_METAL
+    transparent = 1073741824 // SDL_WINDOW_TRANSPARENT
+    notFocusable = 2147483648 // SDL_WINDOW_NOT_FOCUSABLE
+}
+
+public enum SystemTheme: Int32 {
+    unknown = 0 // SDL_SYSTEM_THEME_UNKNOWN
+    light = 1 // SDL_SYSTEM_THEME_LIGHT
+    dark = 2 // SDL_SYSTEM_THEME_DARK
+}
+
+public const windowSurfaceVsyncDisabled: Int32 = 0 // SDL_WINDOW_SURFACE_VSYNC_DISABLED
+public const windowSurfaceVsyncAdaptive: Int32 = -1 // SDL_WINDOW_SURFACE_VSYNC_ADAPTIVE
+
+public enum FlashOperation: Int32 {
+    cancel = 0 // SDL_FLASH_CANCEL
+    briefly = 1 // SDL_FLASH_BRIEFLY
+    untilFocused = 2 // SDL_FLASH_UNTIL_FOCUSED
+}
+
+@include("SDL3/SDL_video.h")
+@link("SDL3")
+{
+    @symbol("SDL_CreateWindow")
+    public func createWindow(title: CStringSlice?, width: Int32, height: Int32, flags: WindowFlags) -> &Window?
+
+    @symbol("SDL_DestroyWindow")
+    public func destroyWindow(window: &Window?) -> Void
+
+    @symbol("SDL_GetWindowFlags")
+    public func getWindowFlags(window: &Window?) -> WindowFlags
+
+    @symbol("SDL_SetWindowTitle")
+    public func setWindowTitle(window: &Window?, title: CStringSlice?) -> Bool
+
+    @symbol("SDL_GetWindowSize")
+    public func getWindowSize(window: &Window?, width: &Int32, height: &Int32) -> Bool
+
+    @symbol("SDL_SetWindowSize")
+    public func setWindowSize(window: &Window?, width: Int32, height: Int32) -> Bool
+
+    @symbol("SDL_GetSystemTheme")
+    public func getSystemTheme() -> SystemTheme
+
+    @symbol("SDL_GetWindowPosition")
+    public func getWindowPosition(window: &Window?, x: &Int32, y: &Int32) -> Bool
+
+    @symbol("SDL_SetWindowPosition")
+    public func setWindowPosition(window: &Window?, x: Int32, y: Int32) -> Bool
+
+    @symbol("SDL_GetWindowPixelSize")
+    public func getWindowPixelSize(window: &Window?, width: &Int32, height: &Int32) -> Bool
+
+    @symbol("SDL_GetWindowDisplayScale")
+    public func getWindowDisplayScale(window: &Window?) -> Float32
+
+    @symbol("SDL_GetWindowPixelDensity")
+    public func getWindowPixelDensity(window: &Window?) -> Float32
+
+    @symbol("SDL_ShowWindow")
+    public func showWindow(window: &Window?) -> Bool
+
+    @symbol("SDL_HideWindow")
+    public func hideWindow(window: &Window?) -> Bool
+
+    @symbol("SDL_RaiseWindow")
+    public func raiseWindow(window: &Window?) -> Bool
+
+    @symbol("SDL_MaximizeWindow")
+    public func maximizeWindow(window: &Window?) -> Bool
+
+    @symbol("SDL_MinimizeWindow")
+    public func minimizeWindow(window: &Window?) -> Bool
+
+    @symbol("SDL_RestoreWindow")
+    public func restoreWindow(window: &Window?) -> Bool
+
+    @symbol("SDL_SetWindowFullscreen")
+    public func setWindowFullscreen(window: &Window?, fullscreen: Bool) -> Bool
+
+    @symbol("SDL_SyncWindow")
+    public func syncWindow(window: &Window?) -> Bool
+
+    @symbol("SDL_GetWindowFromID")
+    public func getWindowFromID(id: UInt32) -> &Window?
+
+    @symbol("SDL_GetWindowID")
+    public func getWindowID(window: &Window?) -> UInt32
+
+    @symbol("SDL_SetWindowMinimumSize")
+    public func setWindowMinimumSize(window: &Window?, minWidth: Int32, minHeight: Int32) -> Bool
+
+    @symbol("SDL_GetWindowMinimumSize")
+    public func getWindowMinimumSize(window: &Window?, width: &Int32, height: &Int32) -> Bool
+
+    @symbol("SDL_SetWindowMaximumSize")
+    public func setWindowMaximumSize(window: &Window?, maxWidth: Int32, maxHeight: Int32) -> Bool
+
+    @symbol("SDL_GetWindowMaximumSize")
+    public func getWindowMaximumSize(window: &Window?, width: &Int32, height: &Int32) -> Bool
+
+    @symbol("SDL_SetWindowBordered")
+    public func setWindowBordered(window: &Window?, bordered: Bool) -> Bool
+
+    @symbol("SDL_SetWindowResizable")
+    public func setWindowResizable(window: &Window?, resizable: Bool) -> Bool
+
+    @symbol("SDL_SetWindowAlwaysOnTop")
+    public func setWindowAlwaysOnTop(window: &Window?, onTop: Bool) -> Bool
+
+    @symbol("SDL_SetWindowOpacity")
+    public func setWindowOpacity(window: &Window?, opacity: Float32) -> Bool
+
+    @symbol("SDL_GetWindowOpacity")
+    public func getWindowOpacity(window: &Window?) -> Float32
+
+    @symbol("SDL_FlashWindow")
+    public func flashWindow(window: &Window?, operation: FlashOperation) -> Bool
+}

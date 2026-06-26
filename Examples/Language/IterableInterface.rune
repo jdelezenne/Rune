@@ -1,0 +1,45 @@
+struct CountdownIterator {
+    var current: Int
+}
+
+extension CountdownIterator implements Iterator {
+    public type Element = Int
+
+    public mutating func next() -> Int? {
+        if current <= 0 {
+            return nil
+        }
+
+        let value = current
+        current = current - 1
+        return value
+    }
+}
+
+struct Countdown {
+    var start: Int
+}
+
+extension Countdown implements Iterable {
+    public type Element = Int
+    public type Iter = CountdownIterator
+
+    public func makeIterator() -> CountdownIterator {
+        return CountdownIterator(current: start)
+    }
+}
+
+func main() -> Int {
+    let countdown = Countdown(start: 4)
+    var total = 0
+
+    for value in countdown {
+        total = total + value
+    }
+
+    if total != 10 {
+        return 1
+    }
+
+    return 0
+}

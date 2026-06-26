@@ -1,0 +1,76 @@
+// SDL3 MessageBox: minimal demo isolating the message box FFI calls.
+//
+// Shows two dialogs back to back:
+//   1. SDL_ShowSimpleMessageBox - the plain single-OK-button form.
+//   2. SDL_ShowMessageBox - a custom Yes/No dialog (see Breakout.rune's
+//      promptReplay for the same pattern).
+
+import Standard.*
+import SDL3
+
+func showOkMessageBox() throws(String) {
+    let titleC = CString("Rune SDL3")
+    let bodyC = CString("Hello from showOkMessageBox")
+    let ok = SDL3.showSimpleMessageBox(
+        SDL3.MessageBoxFlags.information,
+        titleC.asCStringSlice(),
+        bodyC.asCStringSlice(),
+        nil)
+
+    if !ok {
+        throw "SDL_ShowSimpleMessageBox failed: ${SDL3.getError()!}"
+    }
+}
+
+func showYesNoMessageBox() throws(String) {
+    let titleC = CString("Rune SDL3")
+    let bodyC = CString("Did the first dialog show up correctly?")
+    let noLabel = CString("No")
+    let yesLabel = CString("Yes")
+
+    var buttons: [SDL3.MessageBoxButtonData, 2] = [
+        SDL3.MessageBoxButtonData(
+            flags: SDL3.MessageBoxButtonFlags.escapeKeyDefault,
+            buttonId: 0,
+            text: noLabel.asCStringSlice()),
+        SDL3.MessageBoxButtonData(
+            flags: SDL3.MessageBoxButtonFlags.returnKeyDefault,
+            buttonId: 1,
+            text: yesLabel.asCStringSlice()),
+    ]
+
+    var data = SDL3.MessageBoxData(
+        flags: SDL3.MessageBoxFlags.information,
+        parentWindow: nil,
+        title: titleC.asCStringSlice(),
+        message: bodyC.asCStringSlice(),
+        numButtons: 2,
+        buttons: *buttons,
+        colorScheme: nil)
+
+    var buttonId: Int32 = -1
+    if !SDL3.showMessageBox(&data, &buttonId) {
+        throw "SDL_ShowMessageBox failed: ${SDL3.getError()!}"
+    }
+
+    if buttonId == 1 {
+        Console.printLine("Yes/No dialog answer: Yes")
+    }
+    else {
+        Console.printLine("Yes/No dialog answer: No")
+    }
+}
+
+func main() -> Int {
+    try {
+        showOkMessageBox()
+        showYesNoMessageBox()
+    }
+    catch let message {
+        Console.printLine(message)
+        return 1
+    }
+
+    Console.printLine("MessageBox finished.")
+    return 0
+}

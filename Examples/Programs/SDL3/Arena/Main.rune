@@ -1,0 +1,88 @@
+// Arena: minimalist SDL3 survival game using struct inheritance and overloads.
+
+import Standard.*
+import SDL3
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_Init failed")
+        } else {
+            Console.printLine("SDL_Init failed: ${message!}")
+        }
+
+        return 1
+    }
+
+    var window: &SDL3.Window? = nil
+    var renderer: &SDL3.Renderer? = nil
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Arena", SCREEN_W, SCREEN_H, 0, &window, &renderer) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_CreateWindowAndRenderer failed")
+        } else {
+            Console.printLine("SDL_CreateWindowAndRenderer failed: ${message!}")
+        }
+        SDL3.quit()
+        return 1
+    }
+
+    SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.blend)
+
+    var game = Game(
+        player: makePlayer(),
+        chasers: [],
+        dashers: [],
+        spinners: [],
+        energy: [],
+        shields: [],
+        sparks: [],
+        entities: [],
+        rng: Rng(state: 1),
+        score: 0,
+        combo: 1,
+        comboTimer: 0.0,
+        time: 0.0,
+        gameOver: false,
+        won: false)
+    game.reset(seed: UInt32(SDL3.getTicks()))
+
+    var input = InputState(
+        up: false,
+        down: false,
+        left: false,
+        right: false,
+        action: false,
+        restart: false,
+        escape: false)
+    var event = SDL3.Event()
+    var running = true
+    var lastCounter = SDL3.getPerformanceCounter()
+    let frequency = Float64(SDL3.getPerformanceFrequency())
+
+    Console.printLine("Arena: WASD/arrows move, Space/Shift dashes, collect energy, avoid enemies, R restarts.")
+
+    while running {
+        while SDL3.pollEvent(&event) {
+            if !handleEvent(event, &input) {
+                running = false
+            }
+        }
+
+        let now = SDL3.getPerformanceCounter()
+        var dt = Float32(Float64(now - lastCounter) / frequency)
+        lastCounter = now
+        dt = clampFloat(dt, 0.0, 0.033)
+
+        game.update(input: input, dt: dt)
+        drawWorld(renderer, &game)
+        SDL3.delay(1)
+    }
+
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    Console.printLine("Arena finished.")
+    return 0
+}

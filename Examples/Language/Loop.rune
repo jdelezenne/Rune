@@ -1,0 +1,24 @@
+func main() -> Int {
+    var value = 0
+    var total = 0
+
+    loop {
+        value = value + 1
+
+        if value == 2 {
+            continue
+        }
+
+        if value > 4 {
+            break
+        }
+
+        total = total + value
+    }
+
+    if total != 8 {
+        return 1
+    }
+
+    return 0
+}

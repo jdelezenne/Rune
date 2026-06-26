@@ -1,0 +1,18 @@
+public const RTLD_LAZY: Int32 = 1
+public const RTLD_NOW: Int32 = 2
+
+@include("dlfcn.h")
+@link("c")
+{
+    @symbol
+    public func dlopen(path: CStringSlice?, mode: Int32) -> &Byte?
+
+    @symbol
+    public func dlsym(handle: &Byte?, symbol: CStringSlice?) -> &Byte?
+
+    @symbol
+    public func dlclose(handle: &Byte?) -> Int32
+
+    @symbol
+    public func dlerror() -> CStringSlice?
+}

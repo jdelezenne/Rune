@@ -1,0 +1,212 @@
+import Standard.*
+import SDL3
+
+const MAX_DDA_STEPS: Int = 64
+const NEAR_CLIP: Float32 = 0.000001
+const FOG_DISTANCE: Float32 = 16.0
+const MINIMAP_CELL: Float32 = 5.0
+const MINIMAP_MARGIN: Float32 = 12.0
+
+func wallColor(tile: Int) -> (red: UInt8, green: UInt8, blue: UInt8) {
+    if tile == 1 { return (red: UInt8(150), green: UInt8(46), blue: UInt8(46)) }
+    if tile == 2 { return (red: UInt8(60), green: UInt8(120), blue: UInt8(190)) }
+    if tile == 3 { return (red: UInt8(70), green: UInt8(150), blue: UInt8(90)) }
+    if tile == 4 { return (red: UInt8(190), green: UInt8(150), blue: UInt8(60)) }
+    if tile == 9 { return (red: UInt8(250), green: UInt8(225), blue: UInt8(90)) }
+    return (red: UInt8(120), green: UInt8(120), blue: UInt8(120))
+}
+
+// Casts a single ray through the map using DDA and reports the hit tile, which
+// side of the cell was struck (0 = x-side, 1 = y-side), and the perpendicular
+// (fisheye-corrected) distance to the wall.
+func castColumn(level: Level, player: Player, column: Int32) -> (tile: Int, side: Int, distance: Float32) {
+    let cameraX = 2.0 * Float32(column) / Float32(SCREEN_W) - 1.0
+    var rayDirX = player.dirX + player.planeX * cameraX
+    var rayDirY = player.dirY + player.planeY * cameraX
+    if Math.abs(rayDirX) < NEAR_CLIP {
+        rayDirX = NEAR_CLIP
+    }
+    if Math.abs(rayDirY) < NEAR_CLIP {
+        rayDirY = NEAR_CLIP
+    }
+
+    var mapX = Int(Math.floor(player.x))
+    var mapY = Int(Math.floor(player.y))
+
+    let deltaDistX = Math.abs(1.0 / rayDirX)
+    let deltaDistY = Math.abs(1.0 / rayDirY)
+
+    var stepX = 1
+    var stepY = 1
+    var sideDistX: Float32 = 0.0
+    var sideDistY: Float32 = 0.0
+
+    if rayDirX < 0.0 {
+        stepX = -1
+        sideDistX = (player.x - Float32(mapX)) * deltaDistX
+    } else {
+        sideDistX = (Float32(mapX) + 1.0 - player.x) * deltaDistX
+    }
+
+    if rayDirY < 0.0 {
+        stepY = -1
+        sideDistY = (player.y - Float32(mapY)) * deltaDistY
+    } else {
+        sideDistY = (Float32(mapY) + 1.0 - player.y) * deltaDistY
+    }
+
+    var side = 0
+    var tile = 0
+    var steps = 0
+    while tile == 0 && steps < MAX_DDA_STEPS {
+        if sideDistX < sideDistY {
+            sideDistX = sideDistX + deltaDistX
+            mapX = mapX + stepX
+            side = 0
+        } else {
+            sideDistY = sideDistY + deltaDistY
+            mapY = mapY + stepY
+            side = 1
+        }
+
+        let hit = tileAt(level, mapX, mapY)
+        if isWallFace(hit) {
+            tile = hit
+        }
+        steps = steps + 1
+    }
+
+    var perpDist: Float32 = 0.0
+    if side == 0 {
+        perpDist = (Float32(mapX) - player.x + (1.0 - Float32(stepX)) / 2.0) / rayDirX
+    } else {
+        perpDist = (Float32(mapY) - player.y + (1.0 - Float32(stepY)) / 2.0) / rayDirY
+    }
+
+    return (tile: tile, side: side, distance: Math.max(perpDist, 0.05))
+}
+
+func shade(value: UInt8, fog: Float32) -> UInt8 {
+    return UInt8(clampFloat(Float32(value) * fog, 0.0, 255.0))
+}
+
+func drawColumn(renderer: &SDL3.Renderer?, level: Level, player: Player, column: Int32) {
+    let hit = castColumn(level, player, column)
+    let lineHeight = Int32(Float32(SCREEN_H) / hit.distance)
+
+    var drawStart = SCREEN_H / 2 - lineHeight / 2
+    if drawStart < 0 {
+        drawStart = 0
+    }
+    var drawEnd = SCREEN_H / 2 + lineHeight / 2
+    if drawEnd >= SCREEN_H {
+        drawEnd = SCREEN_H - 1
+    }
+
+    let base = wallColor(hit.tile)
+    var red = base.red
+    var green = base.green
+    var blue = base.blue
+    if hit.side == 1 {
+        red = shade(red, 0.7)
+        green = shade(green, 0.7)
+        blue = shade(blue, 0.7)
+    }
+
+    let fog = clampFloat(1.0 - hit.distance / FOG_DISTANCE, 0.3, 1.0)
+    red = shade(red, fog)
+    green = shade(green, fog)
+    blue = shade(blue, fog)
+
+    SDL3.setRenderDrawColor(renderer, red, green, blue, 255)
+    let x = Float32(column)
+    SDL3.renderLine(renderer, x, Float32(drawStart), x, Float32(drawEnd))
+}
+
+func drawBackground(renderer: &SDL3.Renderer?) {
+    SDL3.setRenderDrawColor(renderer, 40, 42, 52, 255)
+    var ceilingRect = SDL3.FRect(x: 0.0, y: 0.0, w: Float32(SCREEN_W), h: Float32(SCREEN_H) / 2.0)
+    SDL3.renderFillRect(renderer, &ceilingRect)
+
+    SDL3.setRenderDrawColor(renderer, 58, 50, 40, 255)
+    var floorRect = SDL3.FRect(x: 0.0, y: Float32(SCREEN_H) / 2.0, w: Float32(SCREEN_W), h: Float32(SCREEN_H) / 2.0)
+    SDL3.renderFillRect(renderer, &floorRect)
+}
+
+func drawMinimap(renderer: &SDL3.Renderer?, game: Game) {
+    let originX = MINIMAP_MARGIN
+    let originY = MINIMAP_MARGIN
+
+    SDL3.setRenderDrawColor(renderer, 10, 10, 14, 220)
+    var backdrop = SDL3.FRect(
+        x: originX - 2.0,
+        y: originY - 2.0,
+        w: Float32(LEVEL_W) * MINIMAP_CELL + 4.0,
+        h: Float32(LEVEL_H) * MINIMAP_CELL + 4.0)
+    SDL3.renderFillRect(renderer, &backdrop)
+
+    for y in 0..LEVEL_H {
+        for x in 0..LEVEL_W {
+            let tile = tileAt(game.level, x, y)
+            if tile > 0 {
+                let color = wallColor(tile)
+                SDL3.setRenderDrawColor(renderer, color.red, color.green, color.blue, 255)
+                var cell = SDL3.FRect(
+                    x: originX + Float32(x) * MINIMAP_CELL,
+                    y: originY + Float32(y) * MINIMAP_CELL,
+                    w: MINIMAP_CELL,
+                    h: MINIMAP_CELL)
+                SDL3.renderFillRect(renderer, &cell)
+            }
+        }
+    }
+
+    let lookX = game.player.x + game.player.dirX * 1.4
+    let lookY = game.player.y + game.player.dirY * 1.4
+    SDL3.setRenderDrawColor(renderer, 255, 255, 255, 255)
+    SDL3.renderLine(
+        renderer,
+        originX + game.player.x * MINIMAP_CELL,
+        originY + game.player.y * MINIMAP_CELL,
+        originX + lookX * MINIMAP_CELL,
+        originY + lookY * MINIMAP_CELL)
+
+    var playerDot = SDL3.FRect(
+        x: originX + game.player.x * MINIMAP_CELL - 1.5,
+        y: originY + game.player.y * MINIMAP_CELL - 1.5,
+        w: 3.0,
+        h: 3.0)
+    SDL3.renderFillRect(renderer, &playerDot)
+}
+
+func drawHud(renderer: &SDL3.Renderer?, game: Game) {
+    let hudX = Float32(LEVEL_W) * MINIMAP_CELL + MINIMAP_MARGIN * 2.0
+    SDL3.setRenderDrawColor(renderer, 230, 230, 235, 255)
+    SDL3.renderDebugText(renderer, hudX, 14.0, "RUNE RAYCASTER")
+    let levelName = CString(game.level.name)
+    SDL3.renderDebugText(renderer, hudX, 34.0, levelName.asCStringSlice())
+    SDL3.renderDebugText(renderer, 16.0, Float32(SCREEN_H) - 24.0, "WS MOVE  ARROWS TURN  AD STRAFE  SHIFT RUN  ESC QUIT")
+
+    if game.finished {
+        SDL3.setRenderDrawColor(renderer, 15, 15, 20, 210)
+        var overlay = SDL3.FRect(x: 0.0, y: 0.0, w: Float32(SCREEN_W), h: Float32(SCREEN_H))
+        SDL3.renderFillRect(renderer, &overlay)
+        SDL3.setRenderDrawColor(renderer, 250, 225, 90, 255)
+        SDL3.renderDebugText(renderer, Float32(SCREEN_W) / 2.0 - 90.0, Float32(SCREEN_H) / 2.0 - 8.0, "YOU ESCAPED THE MAZE")
+        SDL3.renderDebugText(renderer, Float32(SCREEN_W) / 2.0 - 60.0, Float32(SCREEN_H) / 2.0 + 12.0, "R TO PLAY AGAIN")
+    }
+}
+
+func drawWorld(renderer: &SDL3.Renderer?, game: Game) {
+    drawBackground(renderer)
+
+    var column: Int32 = 0
+    while column < SCREEN_W {
+        drawColumn(renderer, game.level, game.player, column)
+        column = column + 1
+    }
+
+    drawMinimap(renderer, game)
+    drawHud(renderer, game)
+    SDL3.renderPresent(renderer)
+}

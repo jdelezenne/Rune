@@ -1,0 +1,28 @@
+public const DT_UNKNOWN: Int32 = 0
+public const DT_FIFO: Int32 = 1
+public const DT_CHR: Int32 = 2
+public const DT_DIR: Int32 = 4
+public const DT_BLK: Int32 = 6
+public const DT_REG: Int32 = 8
+public const DT_LNK: Int32 = 10
+public const DT_SOCK: Int32 = 12
+public const DT_WHT: Int32 = 14
+
+@symbol("DIR")
+public distinct DIR
+
+@include("dirent.h")
+@link("c")
+{
+    @symbol
+    public func opendir(path: CStringSlice?) -> *DIR?
+
+    @symbol
+    public func readdir(dir: *DIR?) -> *dirent?
+
+    @symbol
+    public func closedir(dir: *DIR?) -> Int32
+
+    @symbol
+    public func rewinddir(dir: *DIR?) -> Void
+}

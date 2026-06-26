@@ -1,0 +1,79 @@
+struct Point {
+    var x: Int
+    var y: Int
+    var lifecycle: &Int
+
+    init(x: Int, y: Int, lifecycle: &Int) {
+        lifecycle^ = lifecycle^ + 5
+        self.lifecycle = lifecycle
+        self.x = x + 1
+        self.y = y + 1
+    }
+
+    final() {
+        self.lifecycle^ = self.lifecycle^ + self.sum()
+    }
+
+    func sum() -> Int {
+        return x + y
+    }
+}
+
+func main() -> Int {
+    if stackFunctionScore() != 14 {
+        return 1
+    }
+    if stackBranchScore(true) != 14 {
+        return 2
+    }
+    if stackLoopScore() != 14 {
+        return 3
+    }
+
+    return 0
+}
+
+func stackFunctionScore() -> Int {
+    var lifecycle = 0
+    let point = Point(x: 3, y: 4, lifecycle: &lifecycle)
+    if point.sum() != 9 {
+        return 0
+    }
+    if lifecycle != 5 {
+        return 0
+    }
+
+    return lifecycle
+}
+
+func stackBranchScore(flag: Bool) -> Int {
+    var lifecycle = 0
+    if flag {
+        let point = Point(x: 3, y: 4, lifecycle: &lifecycle)
+        if point.sum() != 9 {
+            return 0
+        }
+        if lifecycle != 5 {
+            return 0
+        }
+    }
+
+    return lifecycle
+}
+
+func stackLoopScore() -> Int {
+    var lifecycle = 0
+    var count = 0
+    while count < 1 {
+        let point = Point(x: 3, y: 4, lifecycle: &lifecycle)
+        if point.sum() != 9 {
+            return 0
+        }
+        if lifecycle != 5 {
+            return 0
+        }
+        count = count + 1
+    }
+
+    return lifecycle
+}

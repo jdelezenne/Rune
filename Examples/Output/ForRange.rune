@@ -1,0 +1,10 @@
+import Standard.*
+
+func main() -> Int {
+    var total = 0
+    for i in 1..=5 {
+        total = total + i
+    }
+    Console.printLine("sum 1..=5 = ${total}")
+    return 0
+}

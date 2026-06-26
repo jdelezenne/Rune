@@ -1,0 +1,16 @@
+struct Label {
+    var text: String
+    var count: Int
+}
+
+func buildLabel() -> Label {
+    return Label(text: "Rune", count: 4)
+}
+
+func main() -> Int {
+    const label = eval buildLabel()
+    if label.text == "Rune" && label.count == 4 {
+        return 0
+    }
+    return 1
+}

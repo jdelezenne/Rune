@@ -1,0 +1,17 @@
+func sum(values: [Int, 5]) -> Int {
+    var total = 0
+    for value in values {
+        total = total + value
+    }
+
+    return total
+}
+
+func main() -> Int {
+    let numbers: [Int, 5] = [1, 2, 3, 4, 5]
+    if sum(numbers) != 15 {
+        return 1
+    }
+
+    return 0
+}

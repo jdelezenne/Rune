@@ -1,0 +1,16 @@
+// Line comments can document declarations or individual statements.
+func main() -> Int {
+    var value = 40
+
+    /*
+       Block comments can span multiple lines.
+       They are ignored by the lexer before semantic analysis.
+    */
+    value = value + 2
+
+    if value != 42 {
+        return 1
+    }
+
+    return 0
+}

@@ -1,0 +1,72 @@
+/// Builtin Result type.
+/// The Result type represents the outcome of an operation that can either succeed or fail.
+/// Result<T, E> can be either:
+/// - ok(T) (contains a success value of type T)
+/// - error(E) (contains an error value of type E)
+///
+/// Result is automatically used when functions are declared with throws:
+/// func divide(a: Int, b: Int) throws(String) -> Int
+/// is equivalent to:
+/// func divide(a: Int, b: Int) -> Result<Int, String>
+///
+/// Example usage:
+/// let result = divide(10, 2)
+/// match result {
+///     .ok(value) => print("Success: \(value)")
+///     .error(err) => print("Error: \(err)")
+/// }
+///
+/// Or with try/catch:
+/// try {
+///     let value = divide(10, 0)  // Automatically unwraps Result
+/// }
+/// catch err {
+///     print("Error: \(err)")
+/// }
+public union Result<T, E> {
+    ok(T)
+    error(E)
+}
+
+public extension Result<T, E> {
+    /// Returns whether this result is `ok`.
+    public func isOk() -> Bool {
+        match self {
+            .ok(_) => return true
+            .error(_) => return false
+        }
+    }
+
+    /// Returns whether this result is `error`.
+    public func isError() -> Bool {
+        match self {
+            .ok(_) => return false
+            .error(_) => return true
+        }
+    }
+
+    /// Returns the success value, panicking if `error`.
+    public func unwrap() -> T {
+        match self {
+            .ok(value) => return value
+            .error(_) => #panic("Result.unwrap() called on error")
+        }
+    }
+
+    /// Returns the success value, or `defaultValue` if `error`.
+    /// @param defaultValue Value returned when this result is `error`.
+    public func unwrapOr(defaultValue: T) -> T {
+        match self {
+            .ok(value) => return value
+            .error(_) => return defaultValue
+        }
+    }
+
+    /// Returns the error value, panicking if `ok`.
+    public func unwrapError() -> E {
+        match self {
+            .ok(_) => #panic("Result.unwrapError() called on ok")
+            .error(err) => return err
+        }
+    }
+}

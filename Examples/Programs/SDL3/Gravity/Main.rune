@@ -1,0 +1,79 @@
+import Standard.*
+import SDL3
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_Init failed")
+        } else {
+            Console.printLine("SDL_Init failed: ${message!}")
+        }
+        return 1
+    }
+
+    var window: &SDL3.Window? = nil
+    var renderer: &SDL3.Renderer? = nil
+    if !SDL3.createWindowAndRenderer("Gravity", SCREEN_W, SCREEN_H, 0, &window, &renderer) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_CreateWindowAndRenderer failed")
+        } else {
+            Console.printLine("SDL_CreateWindowAndRenderer failed: ${message!}")
+        }
+        SDL3.quit()
+        return 1
+    }
+
+    SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.blend)
+
+    var rng = Rng(state: 1)
+    seedRng(rng: &rng, seed: UInt32(SDL3.getTicks()))
+
+    var game = Game(
+        ship: makeShip(x: START_X, y: START_Y),
+        camera: Camera(x: 0.0, y: 0.0),
+        particles: [],
+        rng: rng,
+        won: false,
+        pulse: 0.0)
+
+    var input = InputState(
+        left: false,
+        right: false,
+        thrust: false,
+        escape: false)
+
+    var event = SDL3.Event()
+    var running = true
+    var lastCounter = SDL3.getPerformanceCounter()
+    let frequency = Float64(SDL3.getPerformanceFrequency())
+
+    Console.printLine("Gravity: arrow keys / WASD to fly, R to restart.")
+
+    while running {
+        while SDL3.pollEvent(&event) {
+            if event.type == SDL3.EventType.keyDown && event.scancode == SDL3.Scancode.r {
+                resetGame(game: &game)
+                input = InputState(left: false, right: false, thrust: false, escape: false)
+            }
+            if !handleEvent(event, &input) {
+                running = false
+            }
+        }
+
+        let now = SDL3.getPerformanceCounter()
+        var dt = Float32(Float64(now - lastCounter) / frequency)
+        lastCounter = now
+        dt = clampFloat(dt, 0.0, 0.033)
+
+        updateGame(game: &game, input: input, dt: dt)
+        drawWorld(renderer, &game)
+        SDL3.delay(1)
+    }
+
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    return 0
+}

@@ -1,0 +1,30 @@
+import Standard.*
+
+var width: Int = 0
+var height: Int = 0
+
+func loadWidth() async -> Void {
+    Task.yield()
+    width = 10
+    Console.printLine("  width loaded")
+}
+
+func loadHeight() async -> Void {
+    Task.yield()
+    height = 4
+    Console.printLine("  height loaded")
+}
+
+func main() async -> Int {
+    Console.printLine("cooperative tasks:")
+
+    let widthTask = Task.spawn(body: loadWidth)
+    let heightTask = Task.spawn(body: loadHeight)
+
+    await Task.value(widthTask)
+    await Task.value(heightTask)
+
+    let area = width * height
+    Console.printLine("area = ${width} * ${height} = ${area}")
+    return area
+}

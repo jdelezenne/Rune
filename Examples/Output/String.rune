@@ -1,0 +1,7 @@
+import Standard.*
+
+func main() -> Int {
+    let greeting = "Hello" + ", " + "world"
+    Console.printLine(greeting)
+    return 0
+}

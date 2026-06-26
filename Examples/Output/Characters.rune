@@ -1,0 +1,19 @@
+import Standard.*
+
+/// Demonstrates UTF-8 scalar iteration: ASCII, kanji, and emoji in one string.
+func main() -> Int {
+    let text: String = "ABC漢字😀🎌"
+
+    Console.printLine("text: ${text}")
+    Console.printLine("bytes (length): ${text.length}")
+    Console.printLine("scalars (count): ${text.count}")
+    Console.printLine("characters:")
+
+    var index: Int = 0
+    for character in text {
+        Console.printLine("  [${index}] utf8=${character.utf8Length} codePoint=${character.codePoint}")
+        index = index + 1
+    }
+
+    return 0
+}

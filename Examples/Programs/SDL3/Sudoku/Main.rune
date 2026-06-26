@@ -1,0 +1,188 @@
+// SDL3 Sudoku — mouse-driven number puzzle with procedural board generation.
+//
+// Controls:
+//   Click              - select a cell
+//   1–9 / Numpad 1–9  - place digit in selected cell
+//   0 / Backspace / Delete / Numpad 0 - erase selected cell
+//   N                 - new puzzle
+//   Escape / close    - quit
+
+import Standard.*
+import SDL3
+
+// MARK: - Game state
+
+enum GamePhase: Int32 {
+    playing = 0
+    won = 1
+}
+
+struct Game {
+    var board: Board
+    var phase: GamePhase
+    var selRow: Int32
+    var selCol: Int32
+    var hasSelection: Bool
+    var rng: Rng
+    var timer: Float32
+}
+
+// MARK: - Input helpers
+
+func scancodeToDigit(sc: SDL3.Scancode) -> Int32 {
+    if sc == SDL3.Scancode.one   || sc == SDL3.Scancode.kp1 { return 1 }
+    if sc == SDL3.Scancode.two   || sc == SDL3.Scancode.kp2 { return 2 }
+    if sc == SDL3.Scancode.three || sc == SDL3.Scancode.kp3 { return 3 }
+    if sc == SDL3.Scancode.four  || sc == SDL3.Scancode.kp4 { return 4 }
+    if sc == SDL3.Scancode.five  || sc == SDL3.Scancode.kp5 { return 5 }
+    if sc == SDL3.Scancode.six   || sc == SDL3.Scancode.kp6 { return 6 }
+    if sc == SDL3.Scancode.seven || sc == SDL3.Scancode.kp7 { return 7 }
+    if sc == SDL3.Scancode.eight || sc == SDL3.Scancode.kp8 { return 8 }
+    if sc == SDL3.Scancode.nine  || sc == SDL3.Scancode.kp9 { return 9 }
+    return 0
+}
+
+func isEraseKey(sc: SDL3.Scancode) -> Bool {
+    return sc == SDL3.Scancode.backspace
+        || sc == SDL3.Scancode.delete
+        || sc == SDL3.Scancode.zero
+        || sc == SDL3.Scancode.kp0
+}
+
+// MARK: - Game actions
+
+func placeDigit(game: &Game, digit: Int32) {
+    if !game.hasSelection || game.phase == GamePhase.won {
+        return
+    }
+    let idx = Int(game.selRow) * 9 + Int(game.selCol)
+    if game.board.given[idx] {
+        return
+    }
+    game.board.cells[idx] = UInt8(digit)
+    if isBoardSolved(game.board) {
+        game.phase = GamePhase.won
+    }
+}
+
+func eraseCell(game: &Game) {
+    if !game.hasSelection || game.phase == GamePhase.won {
+        return
+    }
+    let idx = Int(game.selRow) * 9 + Int(game.selCol)
+    if game.board.given[idx] {
+        return
+    }
+    game.board.cells[idx] = 0
+}
+
+func newPuzzle(game: &Game) {
+    game.board = generateBoard(&game.rng)
+    game.phase = GamePhase.playing
+    game.hasSelection = false
+    game.timer = 0.0
+}
+
+// MARK: - Event handling
+
+func handleKey(game: &Game, sc: SDL3.Scancode, running: &Bool) {
+    if sc == SDL3.Scancode.escape {
+        running^ = false
+        return
+    }
+    if sc == SDL3.Scancode.n {
+        newPuzzle(game)
+        return
+    }
+    let digit = scancodeToDigit(sc)
+    if digit > 0 {
+        placeDigit(game, digit)
+        return
+    }
+    if isEraseKey(sc) {
+        eraseCell(game)
+    }
+}
+
+func handleClick(game: &Game, mx: Float32, my: Float32) {
+    let gx = mx - GRID_X
+    let gy = my - GRID_Y
+    if gx < 0.0 || gy < 0.0 || gx >= CELL * 9.0 || gy >= CELL * 9.0 {
+        game.hasSelection = false
+        return
+    }
+    game.selCol = Int32(gx / CELL)
+    game.selRow = Int32(gy / CELL)
+    game.hasSelection = true
+}
+
+// MARK: - Entry point
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    var window: &SDL3.Window? = nil
+    var renderer: &SDL3.Renderer? = nil
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Sudoku", SCREEN_W, SCREEN_H, 0, &window, &renderer) {
+        Console.printLine("SDL_CreateWindowAndRenderer failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    SDL3.setRenderVSync(renderer, 1)
+    SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.blend)
+
+    var rng = Rng(state: 1)
+    seedRng(&rng, UInt32(SDL3.getTicks()))
+
+    var game = Game(
+        board: generateBoard(&rng),
+        phase: GamePhase.playing,
+        selRow: 0,
+        selCol: 0,
+        hasSelection: false,
+        rng: rng,
+        timer: 0.0)
+
+    var event = SDL3.Event()
+    var running = true
+    var lastCounter = SDL3.getPerformanceCounter()
+    let perfFreq = Float32(SDL3.getPerformanceFrequency())
+
+    Console.printLine("Sudoku: click a cell, type 1-9 to place. N for new puzzle, Esc to quit.")
+
+    while running {
+        while SDL3.pollEvent(&event) {
+            if event.type == SDL3.EventType.quit {
+                running = false
+            }
+            if event.type == SDL3.EventType.keyDown && event.down {
+                handleKey(&game, event.scancode, &running)
+            }
+            if event.type == SDL3.EventType.mouseButtonDown {
+                var mx: Float32 = 0.0
+                var my: Float32 = 0.0
+                SDL3.getMouseState(&mx, &my)
+                handleClick(&game, mx, my)
+            }
+        }
+
+        let now = SDL3.getPerformanceCounter()
+        let dt = Float32(now - lastCounter) / perfFreq
+        lastCounter = now
+
+        if game.phase == GamePhase.playing {
+            game.timer = game.timer + dt
+        }
+
+        drawFrame(renderer, game.board, game.selRow, game.selCol, game.hasSelection, game.timer, game.phase == GamePhase.won)
+    }
+
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    return 0
+}

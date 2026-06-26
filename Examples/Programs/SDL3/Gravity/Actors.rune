@@ -1,0 +1,63 @@
+import Standard.*
+
+struct Ship {
+    var position: Vec2
+    var velocity: Vec2
+    var angle: Float32
+    var alive: Bool
+    var deadTimer: Float32
+    var thrustOn: Bool
+}
+
+const MAX_PARTICLES: Int = 80
+
+struct Particle {
+    var position: Vec2
+    var velocity: Vec2
+    var life: Float32
+    var red: UInt8
+    var green: UInt8
+    var blue: UInt8
+    var alive: Bool
+}
+
+struct InputState {
+    var left: Bool
+    var right: Bool
+    var thrust: Bool
+    var escape: Bool
+}
+
+func makeShip(x: Float32, y: Float32) -> Ship {
+    return Ship(
+        position: vec2(x, y),
+        velocity: vec2(0.0, 0.0),
+        angle: -PI_F * 0.5,
+        alive: true,
+        deadTimer: 0.0,
+        thrustOn: false)
+}
+
+func updateShip(ship: &Ship, input: InputState, dt: Float32) {
+    if !ship.alive {
+        ship.deadTimer = ship.deadTimer - dt
+        return
+    }
+
+    if input.left {
+        ship.angle = ship.angle - TURN_SPEED * dt
+    }
+    if input.right {
+        ship.angle = ship.angle + TURN_SPEED * dt
+    }
+
+    ship.thrustOn = input.thrust
+    if input.thrust {
+        let dir = vec2(Math.cos(ship.angle), Math.sin(ship.angle))
+        ship.velocity = add(ship.velocity, scale(dir, THRUST * dt))
+    }
+
+    ship.velocity.y = ship.velocity.y + GRAVITY * dt
+    ship.velocity = scale(ship.velocity, DAMPING)
+    ship.position = add(ship.position, scale(ship.velocity, dt))
+}

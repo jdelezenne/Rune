@@ -1,0 +1,12 @@
+/// Memory allocation interface.
+public interface Allocator {
+    /// Allocates a block of raw memory.
+    /// @param size Number of bytes to allocate.
+    /// @param alignment Required alignment in bytes.
+    /// @return Mutable reference to the allocated memory.
+    mutating func allocate(size: UInt, alignment: UInt) throws -> &Byte
+
+    /// Deallocates a block previously returned by `allocate`.
+    /// @param address Pointer to the memory to free.
+    mutating func deallocate(address: *Byte)
+}

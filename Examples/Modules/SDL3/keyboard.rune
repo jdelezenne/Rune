@@ -1,0 +1,48 @@
+@include("SDL3/SDL_keyboard.h")
+@link("SDL3")
+{
+    @symbol("SDL_GetKeyboardState")
+    public func getKeyboardState(numKeys: &Int32?) -> *Bool?
+
+    @symbol("SDL_GetKeyName")
+    public func getKeyName(key: Int32) -> CStringSlice?
+
+    @symbol("SDL_GetKeyFromName")
+    public func getKeyFromName(name: CStringSlice?) -> Int32
+
+    @symbol("SDL_GetScancodeName")
+    public func getScancodeName(scancode: Scancode) -> CStringSlice?
+
+    @symbol("SDL_GetScancodeFromName")
+    public func getScancodeFromName(name: CStringSlice?) -> Scancode
+
+    @symbol("SDL_GetKeyFromScancode")
+    public func getKeyFromScancode(scancode: Scancode, modstate: UInt16, keyEvent: Bool) -> Int32
+
+    @symbol("SDL_GetScancodeFromKey")
+    public func getScancodeFromKey(key: Int32, modstate: &UInt16?) -> Scancode
+
+    @symbol("SDL_HasKeyboard")
+    public func hasKeyboard() -> Bool
+
+    @symbol("SDL_ResetKeyboard")
+    public func resetKeyboard() -> Void
+
+    @symbol("SDL_StartTextInput")
+    public func startTextInput(window: &Window?) -> Bool
+
+    @symbol("SDL_StartTextInputWithProperties")
+    public func startTextInputWithProperties(window: &Window?, props: UInt32) -> Bool
+
+    @symbol("SDL_StopTextInput")
+    public func stopTextInput(window: &Window?) -> Bool
+
+    @symbol("SDL_ClearComposition")
+    public func clearComposition(window: &Window?) -> Bool
+
+    @symbol("SDL_TextInputActive")
+    public func textInputActive(window: &Window?) -> Bool
+
+    @symbol("SDL_SetTextInputArea")
+    public func setTextInputArea(window: &Window?, rect: *Rect?, cursor: Int32) -> Bool
+}

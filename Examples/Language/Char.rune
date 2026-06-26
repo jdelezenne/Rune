@@ -1,0 +1,21 @@
+func main() -> Int {
+    let letter: Char = 'A'
+    if letter.codePoint != 65 {
+        return 1
+    }
+
+    let text: String = "Rune"
+    let second: Char = text[1]
+    if second != 'u' {
+        return 2
+    }
+
+    let pair: String = "ab"
+    let total = pair[0].codePoint + pair[1].codePoint
+
+    if total != 195 {
+        return 3
+    }
+
+    return 0
+}

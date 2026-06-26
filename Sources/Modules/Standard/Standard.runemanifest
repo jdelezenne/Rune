@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "name": "Standard",
+  "kind": "library",
+  "sources": [
+    "Console.rune",
+    "Environment.rune",
+    "Math.rune",
+    "Queue.rune",
+    "Stack.rune",
+    "Mutex.rune",
+    "Thread.rune",
+    "Task.rune"
+  ],
+  "dependencies": [
+    "../Rune/Rune.runemanifest"
+  ]
+}

@@ -1,0 +1,23 @@
+import Standard.*
+
+// Option operators: force-unwrap !, nil-coalescing ??, and hasValue.
+
+func pick(primary: Int?, fallback: Int) -> Int {
+    return primary ?? fallback
+}
+
+func main() -> Int {
+    let present: Int? = 10
+    let missing: Int? = nil
+
+    Console.printLine("present! = ${present!}")
+    Console.printLine("missing ?? 99 = ${missing ?? 99}")
+    Console.printLine("pick(present, 0) = ${pick(present, 0)}")
+    Console.printLine("pick(missing, 0) = ${pick(missing, 0)}")
+
+    if present.hasValue() {
+        Console.printLine("present.unwrap() = ${present.unwrap()}")
+    }
+
+    return 0
+}

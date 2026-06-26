@@ -1,0 +1,25 @@
+import Standard.*
+
+func main() -> Int {
+    Console.printLine("Simple calculator (+ and -)")
+
+    Console.printLine("Enter first number:")
+    let left = toInt(Console.readLine())
+
+    Console.printLine("Enter operator (+ or -):")
+    let op = Console.readLine()
+
+    Console.printLine("Enter second number:")
+    let right = toInt(Console.readLine())
+
+    if op == "+" {
+        Console.printLine("result=${left + right}")
+    } else if op == "-" {
+        Console.printLine("result=${left - right}")
+    } else {
+        Console.printLine("unsupported operator")
+        return 1
+    }
+
+    return 0
+}

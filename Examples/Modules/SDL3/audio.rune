@@ -1,0 +1,87 @@
+    @symbol("SDL_AudioStream")
+    public distinct AudioStream
+public alias AudioStreamCallback = (&Byte?, &AudioStream?, Int32, Int32) -> Void
+
+public enum AudioFormat: Int32 {
+    unknown = 0 // SDL_AUDIO_UNKNOWN
+    u8 = 8 // SDL_AUDIO_U8
+    s8 = 32776 // SDL_AUDIO_S8
+    s16le = 32784 // SDL_AUDIO_S16LE
+    s16be = 36880 // SDL_AUDIO_S16BE
+    s32le = 32800 // SDL_AUDIO_S32LE
+    s32be = 36896 // SDL_AUDIO_S32BE
+    f32le = 33056 // SDL_AUDIO_F32LE
+    f32be = 37152 // SDL_AUDIO_F32BE
+    s16 = 32784 // SDL_AUDIO_S16
+    s32 = 32800 // SDL_AUDIO_S32
+    f32 = 33056 // SDL_AUDIO_F32
+}
+
+@layout(kind: c)
+public struct AudioSpec {
+    public var format: AudioFormat
+    public var channels: Int32
+    public var freq: Int32
+}
+
+public const defaultPlaybackDevice: UInt32 = 4294967295 // SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK
+public const defaultRecordingDevice: UInt32 = 4294967294 // SDL_AUDIO_DEVICE_DEFAULT_RECORDING
+
+@include("SDL3/SDL_audio.h")
+@link("SDL3")
+{
+    @symbol("SDL_OpenAudioDevice")
+    public func openAudioDevice(deviceId: UInt32, spec: *AudioSpec?) -> UInt32
+
+    @symbol("SDL_CloseAudioDevice")
+    public func closeAudioDevice(deviceId: UInt32)
+
+    @symbol("SDL_PauseAudioDevice")
+    public func pauseAudioDevice(deviceId: UInt32) -> Bool
+
+    @symbol("SDL_ResumeAudioDevice")
+    public func resumeAudioDevice(deviceId: UInt32) -> Bool
+
+    @symbol("SDL_CreateAudioStream")
+    public func createAudioStream(sourceSpec: *AudioSpec?, destinationSpec: *AudioSpec?) -> &AudioStream?
+
+    @symbol("SDL_DestroyAudioStream")
+    public func destroyAudioStream(stream: &AudioStream?)
+
+    @symbol("SDL_BindAudioStream")
+    public func bindAudioStream(deviceId: UInt32, stream: &AudioStream?) -> Bool
+
+    @symbol("SDL_UnbindAudioStream")
+    public func unbindAudioStream(stream: &AudioStream?)
+
+    @symbol("SDL_PutAudioStreamData")
+    public func putAudioStreamData(stream: &AudioStream?, buffer: *Byte?, length: Int32) -> Bool
+
+    @symbol("SDL_GetAudioStreamQueued")
+    public func getAudioStreamQueued(stream: &AudioStream?) -> Int32
+
+    @symbol("SDL_FlushAudioStream")
+    public func flushAudioStream(stream: &AudioStream?) -> Bool
+
+    @symbol("SDL_ClearAudioStream")
+    public func clearAudioStream(stream: &AudioStream?) -> Bool
+
+    @symbol("SDL_SetAudioStreamGetCallback")
+    public func setAudioStreamGetCallback(
+        stream: &AudioStream?,
+        callback: (&Byte?, &AudioStream?, Int32, Int32) -> Void,
+        userdata: &Byte?) -> Bool
+
+    @symbol("SDL_SetAudioStreamPutCallback")
+    public func setAudioStreamPutCallback(
+        stream: &AudioStream?,
+        callback: (&Byte?, &AudioStream?, Int32, Int32) -> Void,
+        userdata: &Byte?) -> Bool
+
+    @symbol("SDL_OpenAudioDeviceStream")
+    public func openAudioDeviceStream(
+        deviceId: UInt32,
+        spec: *AudioSpec?,
+        callback: &Byte?,
+        userdata: &Byte?) -> &AudioStream?
+}

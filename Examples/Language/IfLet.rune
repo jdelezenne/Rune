@@ -1,0 +1,17 @@
+func describe(value: Int?) -> Int {
+    if let number = value {
+        return number
+    } else {
+        return 0
+    }
+}
+
+func main() -> Int {
+    let total = describe(value: 42) + describe(value: nil)
+
+    if total == 42 {
+        return 0
+    }
+
+    return 1
+}

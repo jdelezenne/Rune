@@ -1,0 +1,40 @@
+func main() -> Int {
+    let small: Int8 = 7
+    let widened: Int = small as Int
+    if widened != 7 {
+        return 1
+    }
+
+    let representable: Int32 = 42
+    let maybeSmall: Int8? = representable as? Int8
+    if !maybeSmall.hasValue() {
+        return 2
+    }
+
+    if maybeSmall.unwrap() != 42 {
+        return 3
+    }
+
+    let tooLarge: Int32 = 300
+    let missingSmall: Int8? = tooLarge as? Int8
+    if missingSmall.hasValue() {
+        return 4
+    }
+
+    let forcedSmall: Int8 = representable as! Int8
+    if forcedSmall != 42 {
+        return 5
+    }
+
+    let initializedInt: Int = Int(forcedSmall)
+    if initializedInt != 42 {
+        return 6
+    }
+
+    let initializedByte: Int8 = Int8(representable)
+    if initializedByte != 42 {
+        return 7
+    }
+
+    return 0
+}

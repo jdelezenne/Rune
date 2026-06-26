@@ -1,0 +1,11 @@
+@include("unistd.h")
+@link("c")
+func getpid() -> Int32
+
+@include("unistd.h")
+@link("c")
+func getuid() -> UInt32
+
+func main() {
+    #printLn("POSIX data from C: pid=${getpid()}, uid=${getuid()}")
+}

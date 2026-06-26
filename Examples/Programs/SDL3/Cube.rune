@@ -1,0 +1,218 @@
+// Rotating 3D cube with six colored, shaded faces.
+
+import Standard.*
+import SDL3
+
+const WIDTH: Int32 = 640
+const HEIGHT: Int32 = 480
+const CENTER_X: Float32 = 320.0
+const CENTER_Y: Float32 = 240.0
+const SCALE: Float32 = 280.0
+const CAMERA_Z: Float32 = 3.5
+const AMBIENT: Float32 = 0.35
+const DIFFUSE: Float32 = 0.65
+const ROTATION_SPEED_X: Float32 = 0.55
+const ROTATION_SPEED_Y: Float32 = 0.90
+
+struct Vector3 {
+    var x: Float32
+    var y: Float32
+    var z: Float32
+}
+
+struct Face {
+    var vertex0: Int
+    var vertex1: Int
+    var vertex2: Int
+    var vertex3: Int
+    var normalX: Float32
+    var normalY: Float32
+    var normalZ: Float32
+    var red: Float32
+    var green: Float32
+    var blue: Float32
+}
+
+struct SortEntry {
+    var index: Int
+    var depth: Float32
+    var brightness: Float32
+}
+
+func cubeVertex(vertexIndex: Int) -> Vector3 {
+    if vertexIndex == 0 { return Vector3(x: -1.0, y: -1.0, z: -1.0) }
+    if vertexIndex == 1 { return Vector3(x:  1.0, y: -1.0, z: -1.0) }
+    if vertexIndex == 2 { return Vector3(x:  1.0, y:  1.0, z: -1.0) }
+    if vertexIndex == 3 { return Vector3(x: -1.0, y:  1.0, z: -1.0) }
+    if vertexIndex == 4 { return Vector3(x: -1.0, y: -1.0, z:  1.0) }
+    if vertexIndex == 5 { return Vector3(x:  1.0, y: -1.0, z:  1.0) }
+    if vertexIndex == 6 { return Vector3(x:  1.0, y:  1.0, z:  1.0) }
+    return Vector3(x: -1.0, y:  1.0, z:  1.0)
+}
+
+func rotateX(vector: Vector3, sinAngle: Float32, cosAngle: Float32) -> Vector3 {
+    return Vector3(
+        x: vector.x,
+        y: vector.y * cosAngle - vector.z * sinAngle,
+        z: vector.y * sinAngle + vector.z * cosAngle)
+}
+
+func rotateY(vector: Vector3, sinAngle: Float32, cosAngle: Float32) -> Vector3 {
+    return Vector3(
+        x: vector.x * cosAngle + vector.z * sinAngle,
+        y: vector.y,
+        z: -vector.x * sinAngle + vector.z * cosAngle)
+}
+
+func project(vector: Vector3) -> SDL3.FPoint {
+    let distance = vector.z + CAMERA_Z
+    return SDL3.FPoint(
+        x: vector.x / distance * SCALE + CENTER_X,
+        y: -vector.y / distance * SCALE + CENTER_Y)
+}
+
+func makeVertex(position: SDL3.FPoint, red: Float32, green: Float32, blue: Float32) -> SDL3.Vertex {
+    return SDL3.Vertex(
+        position: position,
+        color: SDL3.FColor(r: red, g: green, b: blue, a: 1.0),
+        texCoord: SDL3.FPoint(x: 0.0, y: 0.0))
+}
+
+func drawFace(
+    renderer: &SDL3.Renderer?,
+    corner0: SDL3.FPoint,
+    corner1: SDL3.FPoint,
+    corner2: SDL3.FPoint,
+    corner3: SDL3.FPoint,
+    red: Float32,
+    green: Float32,
+    blue: Float32) {
+    var vertices: [SDL3.Vertex, 6] = [
+        makeVertex(corner0, red, green, blue),
+        makeVertex(corner1, red, green, blue),
+        makeVertex(corner2, red, green, blue),
+        makeVertex(corner0, red, green, blue),
+        makeVertex(corner2, red, green, blue),
+        makeVertex(corner3, red, green, blue),
+    ]
+    SDL3.renderGeometry(renderer, nil, ((vertices.bytes) as &SDL3.Vertex), 6, nil, 0)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    var window: &SDL3.Window? = nil
+    var renderer: &SDL3.Renderer? = nil
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Rotating Cube", WIDTH, HEIGHT, 0, &window, &renderer) {
+        Console.printLine("SDL_CreateWindowAndRenderer failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    let faces: [Face] = [
+        Face(vertex0: 0, vertex1: 3, vertex2: 2, vertex3: 1, normalX:  0.0, normalY:  0.0, normalZ: -1.0, red: 0.95, green: 0.25, blue: 0.20),
+        Face(vertex0: 4, vertex1: 5, vertex2: 6, vertex3: 7, normalX:  0.0, normalY:  0.0, normalZ:  1.0, red: 0.25, green: 0.85, blue: 0.30),
+        Face(vertex0: 0, vertex1: 4, vertex2: 7, vertex3: 3, normalX: -1.0, normalY:  0.0, normalZ:  0.0, red: 0.25, green: 0.45, blue: 0.95),
+        Face(vertex0: 1, vertex1: 2, vertex2: 6, vertex3: 5, normalX:  1.0, normalY:  0.0, normalZ:  0.0, red: 0.95, green: 0.85, blue: 0.15),
+        Face(vertex0: 0, vertex1: 1, vertex2: 5, vertex3: 4, normalX:  0.0, normalY: -1.0, normalZ:  0.0, red: 0.15, green: 0.85, blue: 0.85),
+        Face(vertex0: 3, vertex1: 7, vertex2: 6, vertex3: 2, normalX:  0.0, normalY:  1.0, normalZ:  0.0, red: 0.85, green: 0.25, blue: 0.85),
+    ]
+
+    let lightX: Float32 = 0.577
+    let lightY: Float32 = 0.577
+    let lightZ: Float32 = -0.577
+
+    let performanceFrequency = SDL3.getPerformanceFrequency()
+    var lastCounter = SDL3.getPerformanceCounter()
+    var angleX: Float32 = 0.0
+    var angleY: Float32 = 0.0
+
+    Console.printLine("Rotating cube: press Escape to quit.")
+
+    var event = SDL3.Event()
+    var running = true
+    while running {
+        while SDL3.pollEvent(&event) {
+            if event.type == SDL3.EventType.quit {
+                running = false
+            } else if event.type == SDL3.EventType.keyDown and event.down {
+                if event.scancode == SDL3.Scancode.escape {
+                    running = false
+                }
+            }
+        }
+
+        let counter = SDL3.getPerformanceCounter()
+        var deltaTime = Float32(counter - lastCounter) / Float32(performanceFrequency)
+        lastCounter = counter
+        if deltaTime > 0.05 {
+            deltaTime = 0.05
+        }
+
+        angleX = angleX + ROTATION_SPEED_X * deltaTime
+        angleY = angleY + ROTATION_SPEED_Y * deltaTime
+
+        let sinAngleX = Math.sin(angleX)
+        let cosAngleX = Math.cos(angleX)
+        let sinAngleY = Math.sin(angleY)
+        let cosAngleY = Math.cos(angleY)
+
+        var transformed: [Vector3, 8] = []
+        for vertexIndex in 0..8 {
+            transformed[vertexIndex] = rotateX(rotateY(cubeVertex(vertexIndex), sinAngleY, cosAngleY), sinAngleX, cosAngleX)
+        }
+
+        var entries: [SortEntry, 6] = []
+        for faceIndex in 0..6 {
+            let face = faces[faceIndex]
+            let rotatedNormal = rotateX(
+                rotateY(Vector3(x: face.normalX, y: face.normalY, z: face.normalZ), sinAngleY, cosAngleY),
+                sinAngleX, cosAngleX)
+            let depth = (transformed[face.vertex0].z + transformed[face.vertex1].z +
+                         transformed[face.vertex2].z + transformed[face.vertex3].z) * 0.25
+            let lightDotProduct = rotatedNormal.x * lightX + rotatedNormal.y * lightY + rotatedNormal.z * lightZ
+            let brightness = AMBIENT + DIFFUSE * Math.max(0.0, lightDotProduct)
+            entries[faceIndex] = SortEntry(index: faceIndex, depth: depth, brightness: brightness)
+        }
+
+        for bubblePass in 0..5 {
+            for compareIndex in 0..(5 - bubblePass) {
+                if entries[compareIndex].depth < entries[compareIndex + 1].depth {
+                    let swappedEntry = entries[compareIndex]
+                    entries[compareIndex] = entries[compareIndex + 1]
+                    entries[compareIndex + 1] = swappedEntry
+                }
+            }
+        }
+
+        SDL3.setRenderDrawColor(renderer, 20, 20, 28, 255)
+        SDL3.renderClear(renderer)
+
+        for sortedEntryIndex in 0..6 {
+            let entry = entries[sortedEntryIndex]
+            let face = faces[entry.index]
+            let brightness = entry.brightness
+            drawFace(
+                renderer,
+                project(transformed[face.vertex0]),
+                project(transformed[face.vertex1]),
+                project(transformed[face.vertex2]),
+                project(transformed[face.vertex3]),
+                face.red * brightness,
+                face.green * brightness,
+                face.blue * brightness)
+        }
+
+        SDL3.renderPresent(renderer)
+        SDL3.delay(16)
+    }
+
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    Console.printLine("Rotating cube finished.")
+    return 0
+}

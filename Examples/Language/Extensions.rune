@@ -1,0 +1,12 @@
+extension Int {
+    func plus(delta: Int) -> Int {
+        return self + delta
+    }
+}
+
+func main() -> Int {
+    let number: Int = 21
+    let _ = number
+
+    return 0
+}

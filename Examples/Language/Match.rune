@@ -1,0 +1,60 @@
+func classifyNumber(value: Int) -> Int {
+    match value {
+        0 => return 10
+        1 => return 20
+        _ => return 30
+    }
+}
+
+func classifyText(value: String) -> Int {
+    match value {
+        "yes" => return 1
+        "no" => return 0
+        _ => return -1
+    }
+}
+
+func classifyFlag(value: Bool) -> Int {
+    match value {
+        true => return 7
+        false => return 3
+        _ => return -1
+    }
+}
+
+func main() -> Int {
+    let a = classifyNumber(0)
+    let b = classifyNumber(2)
+
+    let c = classifyText("yes")
+    let d = classifyText("maybe")
+
+    let e = classifyFlag(true)
+    let f = classifyFlag(false)
+
+    if a != 10 {
+        return 1
+    }
+
+    if b != 30 {
+        return 2
+    }
+
+    if c != 1 {
+        return 3
+    }
+
+    if d != -1 {
+        return 4
+    }
+
+    if e != 7 {
+        return 5
+    }
+
+    if f != 3 {
+        return 6
+    }
+
+    return 0
+}

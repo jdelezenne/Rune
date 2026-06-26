@@ -1,0 +1,75 @@
+@include("string.h")
+@link("c")
+{
+    @symbol
+    public func memset(dest: &Byte?, value: Int32, count: UInt) -> &Byte?
+
+    @symbol
+    public func memcpy(dest: &Byte?, src: *Byte?, count: UInt) -> &Byte?
+
+    @symbol
+    public func memmove(dest: &Byte?, src: *Byte?, count: UInt) -> &Byte?
+
+    @symbol
+    public func memcmp(left: *Byte?, right: *Byte?, count: UInt) -> Int32
+
+    @symbol
+    public func memchr(s: *Byte?, character: Int32, count: UInt) -> *Byte?
+
+    @symbol
+    public func strlen(s: CStringSlice) -> UInt
+
+    @symbol
+    public func strnlen(s: CStringSlice, maxLen: UInt) -> UInt
+
+    @symbol
+    public func strcpy(dest: &Byte?, src: CStringSlice) -> &Byte?
+
+    @symbol
+    public func strncpy(dest: &Byte?, src: CStringSlice, count: UInt) -> &Byte?
+
+    @symbol
+    public func strcat(dest: &Byte?, src: CStringSlice) -> &Byte?
+
+    @symbol
+    public func strncat(dest: &Byte?, src: CStringSlice, count: UInt) -> &Byte?
+
+    @symbol
+    public func strcmp(s1: CStringSlice, s2: CStringSlice) -> Int32
+
+    @symbol
+    public func strncmp(s1: CStringSlice, s2: CStringSlice, count: UInt) -> Int32
+
+    @symbol
+    public func strcoll(s1: CStringSlice, s2: CStringSlice) -> Int32
+
+    @symbol
+    public func strxfrm(dest: &Byte?, src: CStringSlice, count: UInt) -> UInt
+
+    @symbol
+    public func strchr(s: CStringSlice, character: Int32) -> CStringSlice?
+
+    @symbol
+    public func strrchr(s: CStringSlice, character: Int32) -> CStringSlice?
+
+    @symbol
+    public func strspn(s1: CStringSlice, s2: CStringSlice) -> UInt
+
+    @symbol
+    public func strcspn(s1: CStringSlice, s2: CStringSlice) -> UInt
+
+    @symbol
+    public func strpbrk(s1: CStringSlice, s2: CStringSlice) -> CStringSlice?
+
+    @symbol
+    public func strstr(haystack: CStringSlice, needle: CStringSlice) -> CStringSlice?
+
+    @symbol
+    public func strdup(s: CStringSlice) -> &Byte?
+
+    @symbol
+    public func strndup(s: CStringSlice, count: UInt) -> &Byte?
+
+    @symbol
+    public func strerror(errnum: Int32) -> CStringSlice
+}

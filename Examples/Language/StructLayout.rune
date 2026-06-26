@@ -1,0 +1,53 @@
+struct RuneRecord {
+    var tag: UInt8
+    var value: UInt32
+}
+
+@layout(kind: c)
+struct CRecord {
+    var tag: UInt8
+    var value: UInt32
+}
+
+@layout(kind: packed)
+struct PackedRecord {
+    var tag: UInt8
+    var value: UInt32
+}
+
+@layout(kind: packed, alignment: 8)
+struct CacheSlot {
+    var tag: UInt8
+    var value: UInt32
+}
+
+func printLayout(name: String, size: UInt, alignment: UInt, stride: UInt) -> Void {
+    #printLn(name)
+    #printLn("  size=", size, " alignment=", alignment, " stride=", stride)
+}
+
+func main() -> Int {
+    #printLn("=== Struct Layout ===")
+    printLayout(
+        name: "Rune default",
+        size: #sizeOf<RuneRecord>(),
+        alignment: #alignmentOf<RuneRecord>(),
+        stride: #strideOf<RuneRecord>())
+    printLayout(
+        name: "C ABI",
+        size: #sizeOf<CRecord>(),
+        alignment: #alignmentOf<CRecord>(),
+        stride: #strideOf<CRecord>())
+    printLayout(
+        name: "Packed",
+        size: #sizeOf<PackedRecord>(),
+        alignment: #alignmentOf<PackedRecord>(),
+        stride: #strideOf<PackedRecord>())
+    printLayout(
+        name: "Packed with explicit alignment",
+        size: #sizeOf<CacheSlot>(),
+        alignment: #alignmentOf<CacheSlot>(),
+        stride: #strideOf<CacheSlot>())
+
+    return 0
+}

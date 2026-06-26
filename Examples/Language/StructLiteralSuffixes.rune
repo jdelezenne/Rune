@@ -1,0 +1,32 @@
+// Custom literal suffixes that unpack a packed 32-bit color (RRGGBBAA) into a struct.
+
+struct Rgba {
+    var red: UInt8
+    var green: UInt8
+    var blue: UInt8
+    var alpha: UInt8
+}
+
+extension UInt32 {
+    literal rgba: Rgba => Rgba(
+        red: UInt8((self >> 24) & 0xFF),
+        green: UInt8((self >> 16) & 0xFF),
+        blue: UInt8((self >> 8) & 0xFF),
+        alpha: UInt8(self & 0xFF)
+    )
+}
+
+func main() -> Int {
+    let opaque: Rgba = 0xFF112233_rgba
+    let translucent: Rgba = 0x80706050_rgba
+
+    if opaque.red != 0xFF || opaque.green != 0x11 || opaque.blue != 0x22 || opaque.alpha != 0x33 {
+        return 1
+    }
+
+    if translucent.red != 0x80 || translucent.green != 0x70 || translucent.blue != 0x60 || translucent.alpha != 0x50 {
+        return 2
+    }
+
+    return 0
+}

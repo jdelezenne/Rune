@@ -1,0 +1,242 @@
+import Standard.*
+
+open struct Entity {
+    var position: Vec2
+    var velocity: Vec2
+    var radius: Float32
+    var alive: Bool
+
+    mutating open func update(game: &Game, input: InputState, dt: Float32) {
+        self.move(dt)
+    }
+
+    mutating func move(dt: Float32) {
+        self.position = add(self.position, scale(self.velocity, dt))
+        self.velocity = scale(self.velocity, 0.985)
+        wrapPosition(&self.position)
+    }
+
+    func overlaps(other: *Entity) -> Bool {
+        return circlesOverlap(self.position, self.radius, other.position, other.radius)
+    }
+
+    mutating func push(direction: Vec2, force: Float32) {
+        self.velocity = add(self.velocity, scale(direction, force))
+    }
+}
+
+open struct Enemy extends Entity {
+    var heat: Float32
+
+    mutating func struck(from: Vec2) {
+        self.velocity = add(self.velocity, scale(from, -90.0))
+        self.heat = self.heat + 1.0
+    }
+}
+
+open struct Pickup extends Entity {
+    var pulse: Float32
+
+    mutating func tick(dt: Float32, speed: Float32) {
+        self.pulse = self.pulse + dt * speed
+    }
+}
+
+struct Player extends Entity {
+    var shield: Float32
+    var invulnerable: Float32
+    var dashCooldown: Float32
+    var dashFlash: Float32
+
+    mutating override func update(game: &Game, input: InputState, dt: Float32) {
+        var move = vec2(0.0, 0.0)
+        if input.up {
+            move.y = move.y - 1.0
+        }
+        if input.down {
+            move.y = move.y + 1.0
+        }
+        if input.left {
+            move.x = move.x - 1.0
+        }
+        if input.right {
+            move.x = move.x + 1.0
+        }
+
+        let direction = normalize(move)
+        self.velocity = add(self.velocity, scale(direction, 430.0 * dt))
+        if input.action && self.dashCooldown <= 0.0 && lengthSquared(direction) > 0.0 {
+            self.velocity = add(self.velocity, scale(direction, 330.0))
+            self.dashCooldown = 0.72
+            self.dashFlash = 0.20
+            self.invulnerable = Math.max(self.invulnerable, 0.18)
+            game.burst(position: self.position, red: 170, green: 230, blue: 255)
+        }
+
+        self.velocity = scale(self.velocity, 0.91)
+        self.dashCooldown = Math.max(0.0, self.dashCooldown - dt)
+        self.dashFlash = Math.max(0.0, self.dashFlash - dt)
+        self.invulnerable = Math.max(0.0, self.invulnerable - dt)
+        self.move(dt)
+    }
+
+    mutating func damage(amount: Float32) {
+        self.shield = Math.max(0.0, self.shield - amount)
+        if self.shield <= 0.0 {
+            self.alive = false
+        }
+    }
+
+    mutating func recharge(amount: Float32) {
+        self.shield = Math.min(100.0, self.shield + amount)
+    }
+}
+
+struct Chaser extends Enemy {
+    var force: Float32
+
+    mutating override func update(game: &Game, input: InputState, dt: Float32) {
+        let toward = normalize(sub(game.player.position, self.position))
+        self.velocity = add(self.velocity, scale(toward, self.force * dt))
+        self.heat = self.heat + dt * 5.0
+        self.move(dt)
+    }
+}
+
+struct Dasher extends Enemy {
+    var timer: Float32
+    var direction: Vec2
+
+    mutating override func update(game: &Game, input: InputState, dt: Float32) {
+        self.timer = self.timer - dt
+        if self.timer <= 0.0 {
+            self.direction = normalize(sub(game.player.position, self.position))
+            self.velocity = scale(self.direction, 260.0)
+            self.timer = 1.4
+        }
+
+        self.velocity = scale(self.velocity, 0.992)
+        self.heat = self.heat + dt * 7.0
+        self.move(dt)
+    }
+}
+
+struct Spinner extends Enemy {
+    var center: Vec2
+    var angle: Float32
+    var distance: Float32
+
+    mutating override func update(game: &Game, input: InputState, dt: Float32) {
+        self.center = add(self.center, scale(normalize(sub(game.player.position, self.center)), 24.0 * dt))
+        wrapPosition(&self.center)
+        self.angle = self.angle + dt * 2.3
+        self.position = add(self.center, scale(vec2(Math.cos(self.angle), Math.sin(self.angle)), self.distance))
+        self.heat = self.heat + dt * 4.0
+    }
+}
+
+struct Energy extends Pickup {
+    var value: Int32
+
+    mutating override func update(game: &Game, input: InputState, dt: Float32) {
+        self.tick(dt: dt, speed: 3.0)
+    }
+}
+
+struct Shield extends Pickup {
+    var amount: Float32
+
+    mutating override func update(game: &Game, input: InputState, dt: Float32) {
+        self.tick(dt: dt, speed: 2.4)
+    }
+}
+
+struct Spark extends Entity {
+    var life: Float32
+    var red: UInt8
+    var green: UInt8
+    var blue: UInt8
+
+    mutating override func update(game: &Game, input: InputState, dt: Float32) {
+        self.life = self.life - dt
+        if self.life <= 0.0 {
+            self.alive = false
+        }
+        self.move(dt)
+    }
+}
+
+struct InputState {
+    var up: Bool
+    var down: Bool
+    var left: Bool
+    var right: Bool
+    var action: Bool
+    var restart: Bool
+    var escape: Bool
+}
+
+func makePlayer() -> Player {
+    return Player(
+        position: vec2(WORLD_W * 0.5, WORLD_H * 0.5),
+        velocity: vec2(0.0, 0.0),
+        radius: 13.0,
+        alive: true,
+        shield: 100.0,
+        invulnerable: 0.0,
+        dashCooldown: 0.0,
+        dashFlash: 0.0)
+}
+
+func makeChaser(x: Float32, y: Float32, force: Float32) -> Chaser {
+    return Chaser(
+        position: vec2(x, y),
+        velocity: vec2(0.0, 0.0),
+        radius: 15.0,
+        alive: true,
+        heat: 0.0,
+        force: force)
+}
+
+func makeDasher(x: Float32, y: Float32, dx: Float32, dy: Float32) -> Dasher {
+    return Dasher(
+        position: vec2(x, y),
+        velocity: vec2(0.0, 0.0),
+        radius: 17.0,
+        alive: true,
+        heat: 0.0,
+        timer: 0.7,
+        direction: normalize(vec2(dx, dy)))
+}
+
+func makeSpinner(x: Float32, y: Float32, distance: Float32) -> Spinner {
+    return Spinner(
+        position: vec2(x + distance, y),
+        velocity: vec2(0.0, 0.0),
+        radius: 14.0,
+        alive: true,
+        heat: 0.0,
+        center: vec2(x, y),
+        angle: 0.0,
+        distance: distance)
+}
+
+func makeEnergy(x: Float32, y: Float32, value: Int32) -> Energy {
+    return Energy(
+        position: vec2(x, y),
+        velocity: vec2(0.0, 0.0),
+        radius: 10.0,
+        alive: true,
+        pulse: 0.0,
+        value: value)
+}
+
+func makeShield(x: Float32, y: Float32, amount: Float32) -> Shield {
+    return Shield(
+        position: vec2(x, y),
+        velocity: vec2(0.0, 0.0),
+        radius: 12.0,
+        alive: true,
+        pulse: 0.0,
+        amount: amount)
+}

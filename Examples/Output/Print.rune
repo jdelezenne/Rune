@@ -1,0 +1,8 @@
+import Standard.*
+
+func main() -> Int {
+    Console.print("one")
+    Console.print(" two")
+    Console.printLine(" three")
+    return 0
+}

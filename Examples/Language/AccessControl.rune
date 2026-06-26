@@ -1,0 +1,24 @@
+public struct PublicCounter {
+    public var value: Int
+
+    public init(value: Int) {
+        self.value = value
+    }
+}
+
+internal func makeCounter(value: Int) -> PublicCounter {
+    return PublicCounter(value: value)
+}
+
+private func hiddenOffset() -> Int {
+    return 2
+}
+
+func main() -> Int {
+    let counter = makeCounter(value: 40)
+    if counter.value + hiddenOffset() != 42 {
+        return 1
+    }
+
+    return 0
+}

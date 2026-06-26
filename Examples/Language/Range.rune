@@ -1,0 +1,43 @@
+func main() -> Int {
+    // Half-open range [2, 7): contains 2 3 4 5 6
+    let r: Range<Int> = 2..7
+    // Inclusive range [1, 4]: contains 1 2 3 4
+    let ri: RangeInclusive<Int> = 1..=4
+
+    // count: number of elements
+    if r.count != 5 {
+        return 1
+    }
+
+    if ri.count != 4 {
+        return 2
+    }
+
+    // isEmpty: true when the range has no elements
+    let empty: Range<Int> = 3..3
+    if not empty.isEmpty {
+        return 3
+    }
+
+    // Iterate to verify the elements: 2 + 3 + 4 + 5 + 6 = 20
+    var sumR = 0
+    for i in r {
+        sumR = sumR + i
+    }
+
+    if sumR != 20 {
+        return 4
+    }
+
+    // Iterate inclusive range: 1 + 2 + 3 + 4 = 10
+    var sumRi = 0
+    for i in ri {
+        sumRi = sumRi + i
+    }
+
+    if sumRi != 10 {
+        return 5
+    }
+
+    return 0
+}

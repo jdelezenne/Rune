@@ -1,0 +1,9 @@
+public const S_IFMT: Int32 = 61440
+public const S_IFREG: Int32 = 32768
+public const S_IFDIR: Int32 = 16384
+public const S_IFLNK: Int32 = 40960
+
+public const S_IRUSR: Int32 = 256
+public const S_IWUSR: Int32 = 128
+public const S_IXUSR: Int32 = 64
+public const S_IRWXU: Int32 = 448

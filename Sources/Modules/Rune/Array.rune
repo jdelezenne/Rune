@@ -1,0 +1,147 @@
+/// Dynamically-sized ordered collection of elements of type `T`.
+///
+/// Backend: C runtime (`rune_array_*` family).
+@builtin
+public struct Array<T> {
+    /// Creates an empty array.
+    public init() {
+        initialize(elementSize: #sizeOf<T>())
+    }
+
+    /// Releases the backing allocation.
+    @runtime("rune_array_destroy")
+    final()
+
+    /// Creates an empty array with pre-allocated capacity.
+    public init(capacity: Int) {
+        initializeWithCapacity(elementSize: #sizeOf<T>(), capacity: capacity)
+    }
+
+    @runtime("rune_runtime_array_initialize")
+    private mutating func initialize(elementSize: UInt)
+
+    @runtime("rune_runtime_array_initialize_with_capacity")
+    private mutating func initializeWithCapacity(elementSize: UInt, capacity: Int)
+
+}
+
+public extension Array<T> {
+    /// Creates an array with `count` copies of `repeating`.
+    public init(repeating: T, count: Int) {
+        reserveCapacity(minimumCapacity: count)
+
+        var index = 0
+        while index < count {
+            append(element: repeating)
+            index = index + 1
+        }
+    }
+}
+
+public extension Array<T> implements RangeReplaceableCollection, MutableIndexable {
+    public type Index = Int
+    public type Element = T
+    public type IndexedValue = T
+    public type Iter = ArrayIterator<T>
+
+    /// Returns a forward iterator over the elements.
+    @runtime("rune_runtime_array_iterator_create")
+    public func makeIterator() -> ArrayIterator<T>
+
+    /// Number of elements.
+    public count: Int {
+        @runtime("rune_array_count")
+        get
+    }
+
+    /// `true` when the array contains no elements.
+    public isEmpty: Bool {
+        @runtime("rune_array_is_empty")
+        get
+    }
+
+    /// Returns the element at `index` (fatal trap on out-of-bounds).
+    @runtime("rune_array_get")
+    public operator [](index: Int) -> T
+
+    /// Replaces the element at `index` with `value`.
+    @runtime("rune_array_set_element")
+    public mutating operator []=(index: Int, value: T)
+
+    /// Appends `element` to the end of the array.
+    @runtime("rune_array_append")
+    public mutating func append(element: T)
+
+    /// Inserts `element` before the element at `index`.
+    @runtime("rune_array_insert_element")
+    public mutating func insert(element: T, at: Int)
+
+    /// Removes and returns the element at `index`.
+    public mutating func remove(at: Int) -> T {
+        let removed = removePointer(at: at)
+        return removed^
+    }
+
+    @runtime("rune_runtime_array_remove")
+    private mutating func removePointer(at: Int) -> *T
+
+    /// Removes all elements, retaining allocated storage.
+    @runtime("rune_array_remove_all")
+    public mutating func removeAll()
+
+    /// First element, or `nil` if empty.
+    public first: T? {
+        get {
+            let value = firstPointer()
+            if value == nil {
+                return nil
+            }
+
+            return value!^
+        }
+    }
+
+    @runtime("rune_runtime_array_first")
+    private func firstPointer() -> *T?
+
+    /// Last element, or `nil` if empty.
+    public last: T? {
+        get {
+            let value = lastPointer()
+            if value == nil {
+                return nil
+            }
+
+            return value!^
+        }
+    }
+
+    @runtime("rune_runtime_array_last")
+    private func lastPointer() -> *T?
+
+    /// Returns `true` if the array contains `element`.
+    @runtime("rune_array_contains_element")
+    public func contains(element: T) -> Bool
+
+    /// Returns the index of `element`, or `nil` if not found.
+    @runtime("rune_array_index_of")
+    public func indexOf(element: T) -> Int?
+
+    /// Ensures at least `minimumCapacity` elements can be stored without reallocation.
+    @runtime("rune_array_reserve")
+    public mutating func reserveCapacity(minimumCapacity: Int)
+
+    /// Replaces this array's contents with a copy of `source`.
+    @runtime("rune_array_copy")
+    public mutating func copyFrom(source: Array<T>)
+
+}
+
+public extension Array<T> implements ArrayLiteralConvertible {
+    public init(elements: T...) {
+        self.initializeWithElements(elements: ...elements)
+    }
+
+    @runtime("rune_runtime_array_initialize_with_elements")
+    private mutating func initializeWithElements(elements: T...)
+}

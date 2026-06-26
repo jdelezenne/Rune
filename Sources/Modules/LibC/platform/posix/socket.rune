@@ -1,0 +1,46 @@
+public const AF_UNIX: Int32 = 1
+public const AF_INET: Int32 = 2
+public const SOCK_STREAM: Int32 = 1
+public const SOCK_DGRAM: Int32 = 2
+public const IPPROTO_TCP: Int32 = 6
+public const INADDR_ANY: UInt32 = 0
+
+@include("sys/socket.h")
+@link("c")
+{
+    @symbol
+    public func socket(domain: Int32, socketType: Int32, protocol: Int32) -> Int32
+
+    @symbol
+    public func bind(socketFd: Int32, address: *Byte?, addressLen: UInt32) -> Int32
+
+    @symbol
+    public func connect(socketFd: Int32, address: *Byte?, addressLen: UInt32) -> Int32
+
+    @symbol
+    public func listen(socketFd: Int32, backlog: Int32) -> Int32
+
+    @symbol
+    public func accept(socketFd: Int32, address: *Byte?, addressLen: &UInt32?) -> Int32
+
+    @symbol
+    public func send(socketFd: Int32, buffer: *Byte?, length: UInt, sendFlags: Int32) -> Int64
+
+    @symbol
+    public func recv(socketFd: Int32, buffer: &Byte?, length: UInt, recvFlags: Int32) -> Int64
+
+    @symbol
+    public func shutdown(socketFd: Int32, how: Int32) -> Int32
+
+    @symbol
+    public func htons(value: Int16) -> Int16
+
+    @symbol
+    public func htonl(value: Int32) -> Int32
+
+    @symbol
+    public func ntohs(value: Int16) -> Int16
+
+    @symbol
+    public func ntohl(value: Int32) -> Int32
+}

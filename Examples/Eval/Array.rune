@@ -1,0 +1,16 @@
+func buildNumbers() -> Array<Int> {
+    var numbers: Array<Int> = [1, 2, 3]
+    numbers.append(40)
+    return numbers
+}
+
+func main() -> Int {
+    const numbers = eval buildNumbers()
+    if numbers.count != 4 {
+        return 1
+    }
+    if numbers[0] + numbers[1] + numbers[2] + numbers[3] != 46 {
+        return 1
+    }
+    return 0
+}

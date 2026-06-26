@@ -1,0 +1,11 @@
+import Standard.*
+
+func main() -> Int {
+    let ids: HashSet<Int> = [1, 2, 3]
+    Console.printLine("count=${ids.count}")
+    if ids.contains(element: 2) {
+        Console.printLine("contains 2")
+    }
+
+    return 0
+}

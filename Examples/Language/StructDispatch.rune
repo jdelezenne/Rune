@@ -1,0 +1,55 @@
+open struct Shape {
+    var color: Int
+
+    open func area() -> Int
+
+    open func scaledArea(scale: Int) -> Int
+}
+
+struct Circle extends Shape {
+    var radius: Int
+
+    override func area() -> Int {
+        return radius * radius
+    }
+
+    override func scaledArea(scale: Int) -> Int {
+        return self.area() * scale
+    }
+}
+
+struct Rectangle extends Shape {
+    var width: Int
+    var height: Int
+
+    override func area() -> Int {
+        return width * height
+    }
+
+    override func scaledArea(scale: Int) -> Int {
+        return self.area() * scale
+    }
+}
+
+func score(shape: *Shape) -> Int {
+    return shape.area()
+}
+
+func weightedScore(shape: *Shape, scale: Int) -> Int {
+    return shape.scaledArea(scale: scale)
+}
+
+func main() -> Int {
+    var circle = Circle(color: 1, radius: 3)
+    var rect = Rectangle(color: 2, width: 6, height: 4)
+    if circle.area() != 9 || rect.area() != 24 {
+        return 1
+    }
+    if score(*circle) != 9 || score(*rect) != 24 {
+        return 1
+    }
+    if weightedScore(shape: *circle, scale: 3) != 27 || weightedScore(shape: *rect, scale: 2) != 48 {
+        return 1
+    }
+    return 0
+}

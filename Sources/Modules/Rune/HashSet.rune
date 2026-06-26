@@ -1,0 +1,94 @@
+/// Unordered hash-table set of unique elements.
+///
+/// Backend: C runtime (`rune_hashset_*` family).
+/// Elements must conform to `Hashable`.
+/// Allocation: uses the ambient allocator.
+///
+/// Conforms to `Set<T>`.
+
+/// Iterator over the elements of a `HashSet<T>`.
+public struct HashSetIterator<T extends Hashable> {
+    @runtime("rune_hashset_iterator_create")
+    public init(set: HashSet<T>)
+}
+
+public extension HashSetIterator<T extends Hashable> implements Iterator {
+    public type Element = T
+
+    @runtime("rune_hashset_iterator_next")
+    public mutating func next() -> T?
+}
+
+/// Unordered set of unique hashable elements.
+@builtin
+public struct HashSet<T extends Hashable> {
+    /// Creates an empty set using the ambient allocator.
+    public init() {
+        initialize(elementSize: #sizeOf<T>())
+    }
+
+    /// Creates an empty set with pre-allocated capacity.
+    public init(capacity: Int) {
+        initialize(elementSize: #sizeOf<T>())
+        reserveCapacity(minimumCapacity: capacity)
+    }
+
+    @runtime("rune_runtime_hashset_initialize")
+    private mutating func initialize(elementSize: UInt)
+
+    /// Releases the backing storage.
+    @runtime("rune_hashset_destroy")
+    final()
+}
+
+public extension HashSet<T extends Hashable> implements Set {
+    public type Element = T
+    public type Iter = HashSetIterator<T>
+
+    /// Returns an iterator over all elements.
+    @runtime("rune_hashset_iterator_create")
+    public func makeIterator() -> HashSetIterator<T>
+
+    /// Number of elements.
+    public count: Int {
+        @runtime("rune_hashset_count")
+        get
+    }
+
+    /// `true` when the set contains no elements.
+    public isEmpty: Bool {
+        @runtime("rune_hashset_is_empty")
+        get
+    }
+
+    /// Inserts `element` if not already present.
+    @runtime("rune_hashset_insert")
+    public mutating func insert(element: T)
+
+    /// Removes `element` if present.
+    @runtime("rune_hashset_remove")
+    public mutating func remove(element: T)
+
+    /// Returns `true` if the set contains `element`.
+    @runtime("rune_hashset_contains")
+    public func contains(element: T) -> Bool
+
+    /// Removes all elements, retaining allocated storage.
+    @runtime("rune_hashset_remove_all")
+    public mutating func removeAll()
+
+    /// Ensures at least `minimumCapacity` elements can be stored without rehashing.
+    @runtime("rune_hashset_reserve")
+    public mutating func reserveCapacity(minimumCapacity: Int)
+}
+
+public extension HashSet<T extends Hashable> implements ArrayLiteralConvertible {
+    public init(elements: T...) {
+        initialize(elementSize: #sizeOf<T>())
+        reserveCapacity(minimumCapacity: elements.count)
+
+        for element in elements {
+            insert(element: element)
+        }
+    }
+}

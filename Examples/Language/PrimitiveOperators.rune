@@ -1,0 +1,49 @@
+func signedIntegerOperators() -> Bool {
+    let zero: Int = 0
+    let twelve: Int = 12
+    let negative = zero - twelve
+    let negated = -twelve
+
+    return negated == negative && negated != zero && negated >= negative && negative <= negated
+}
+
+func unsignedIntegerOperators() -> Bool {
+    let numerator: UInt = 12
+    let divisor: UInt = 3
+    let modulus: UInt = 5
+    let shift: UInt = 1
+
+    let quotient = numerator / divisor
+    let remainder = numerator % modulus
+    let shifted = numerator >> shift
+
+    return quotient == 4 && remainder == 2 && shifted == 6
+}
+
+func floatOperators() -> Bool {
+    let zero: Float = 0.0
+    let twelve: Float = 12.0
+    let three: Float = 3.0
+    let quotient = twelve / three
+    let negated = -twelve
+
+    return quotient == 4.0 && quotient < 5.0 && quotient <= 4.0 && negated < zero
+}
+
+func float64Operators() -> Bool {
+    let zero: Float64 = 0.0
+    let twelve: Float64 = 12.0
+    let three: Float64 = 3.0
+    let quotient = twelve / three
+    let negated = -twelve
+
+    return quotient == 4.0 && quotient < 5.0 && quotient <= 4.0 && negated < zero
+}
+
+func main() -> Int {
+    if !(signedIntegerOperators() && unsignedIntegerOperators() && floatOperators() && float64Operators()) {
+        return 1
+    }
+
+    return 0
+}

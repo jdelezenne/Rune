@@ -1,0 +1,287 @@
+import Standard.*
+import SDL3
+
+const MAX_CHASERS: Int = 4
+const MAX_DASHERS: Int = 3
+const MAX_SPINNERS: Int = 3
+const MAX_ENERGY: Int = 8
+const MAX_SHIELDS: Int = 3
+const MAX_SPARKS: Int = 80
+const MAX_ENTITIES: Int = 22
+
+struct Game {
+    var player: Player
+    var chasers: [Chaser, MAX_CHASERS]
+    var dashers: [Dasher, MAX_DASHERS]
+    var spinners: [Spinner, MAX_SPINNERS]
+    var energy: [Energy, MAX_ENERGY]
+    var shields: [Shield, MAX_SHIELDS]
+    var sparks: [Spark, MAX_SPARKS]
+    var entities: [&Entity, MAX_ENTITIES]
+    var rng: Rng
+    var score: Int32
+    var combo: Int32
+    var comboTimer: Float32
+    var time: Float32
+    var gameOver: Bool
+    var won: Bool
+
+    mutating func reset(seed: UInt32) {
+        self.player = makePlayer()
+        self.chasers = [
+            makeChaser(110.0, 100.0, 120.0),
+            makeChaser(790.0, 520.0, 110.0),
+            makeChaser(760.0, 130.0, 96.0),
+            makeChaser(130.0, 500.0, 90.0),
+        ]
+        self.dashers = [
+            makeDasher(450.0, 72.0, 0.0, 1.0),
+            makeDasher(820.0, 310.0, -1.0, 0.0),
+            makeDasher(80.0, 310.0, 1.0, 0.0),
+        ]
+        self.spinners = [
+            makeSpinner(238.0, 202.0, 54.0),
+            makeSpinner(662.0, 414.0, 62.0),
+            makeSpinner(450.0, 310.0, 82.0),
+        ]
+        self.energy = [
+            makeEnergy(80.0, 80.0, 80),
+            makeEnergy(220.0, 540.0, 90),
+            makeEnergy(355.0, 160.0, 100),
+            makeEnergy(525.0, 478.0, 100),
+            makeEnergy(684.0, 112.0, 120),
+            makeEnergy(818.0, 238.0, 140),
+            makeEnergy(732.0, 558.0, 150),
+            makeEnergy(428.0, 72.0, 160),
+        ]
+        self.shields = [
+            makeShield(150.0, 310.0, 24.0),
+            makeShield(450.0, 550.0, 28.0),
+            makeShield(750.0, 310.0, 24.0),
+        ]
+        self.sparks = []
+        self.entities = [
+            &self.player,
+            &self.chasers[0],
+            &self.chasers[1],
+            &self.chasers[2],
+            &self.chasers[3],
+            &self.dashers[0],
+            &self.dashers[1],
+            &self.dashers[2],
+            &self.spinners[0],
+            &self.spinners[1],
+            &self.spinners[2],
+            &self.energy[0],
+            &self.energy[1],
+            &self.energy[2],
+            &self.energy[3],
+            &self.energy[4],
+            &self.energy[5],
+            &self.energy[6],
+            &self.energy[7],
+            &self.shields[0],
+            &self.shields[1],
+            &self.shields[2],
+        ]
+        seedRng(&self.rng, seed)
+        self.score = 0
+        self.combo = 1
+        self.comboTimer = 0.0
+        self.time = 90.0
+        self.gameOver = false
+        self.won = false
+    }
+
+    mutating func spawnSpark(position: Vec2, red: UInt8, green: UInt8, blue: UInt8) {
+        for i in 0..self.sparks.count {
+            if !self.sparks[i].alive {
+                let angle = randomFloat(&self.rng, 0.0, PI_F * 2.0)
+                let speed = randomFloat(&self.rng, 45.0, 155.0)
+                self.sparks[i] = Spark(
+                    position: position,
+                    velocity: scale(vec2(Math.cos(angle), Math.sin(angle)), speed),
+                    radius: 2.0,
+                    alive: true,
+                    life: randomFloat(&self.rng, 0.25, 0.75),
+                    red: red,
+                    green: green,
+                    blue: blue)
+                return
+            }
+        }
+    }
+
+    mutating func burst(position: Vec2, red: UInt8, green: UInt8, blue: UInt8) {
+        for i in 0..12 {
+            self.spawnSpark(position: position, red: red, green: green, blue: blue)
+        }
+    }
+
+    mutating func update(input: InputState, dt: Float32) {
+        if input.restart && self.gameOver {
+            self.reset(seed: nextRandom(&self.rng))
+            return
+        }
+
+        if self.gameOver {
+            return
+        }
+
+        self.time = Math.max(0.0, self.time - dt)
+        if self.time <= 0.0 {
+            self.gameOver = true
+            self.won = false
+        }
+
+        self.comboTimer = Math.max(0.0, self.comboTimer - dt)
+        if self.comboTimer <= 0.0 {
+            self.combo = 1
+        }
+
+        for i in 0..self.entities.count {
+            if self.entities[i].alive {
+                self.entities[i].update(game: &self, input: input, dt: dt)
+            }
+        }
+
+        for i in 0..self.chasers.count {
+            if self.chasers[i].alive {
+                if self.player.overlaps(other: *self.chasers[i]) {
+                    collide(&self.player, &self.chasers[i], &self)
+                }
+            }
+        }
+
+        for i in 0..self.dashers.count {
+            if self.dashers[i].alive {
+                if self.player.overlaps(other: *self.dashers[i]) {
+                    collide(&self.player, &self.dashers[i], &self)
+                }
+            }
+        }
+
+        for i in 0..self.spinners.count {
+            if self.spinners[i].alive {
+                if self.player.overlaps(other: *self.spinners[i]) {
+                    collide(&self.player, &self.spinners[i], &self)
+                }
+            }
+        }
+
+        for i in 0..self.energy.count {
+            if self.energy[i].alive {
+                if self.player.overlaps(other: *self.energy[i]) {
+                    collide(&self.player, &self.energy[i], &self)
+                }
+            }
+        }
+
+        for i in 0..self.shields.count {
+            if self.shields[i].alive {
+                if self.player.overlaps(other: *self.shields[i]) {
+                    collide(&self.player, &self.shields[i], &self)
+                }
+            }
+        }
+
+        for i in 0..self.sparks.count {
+            if self.sparks[i].alive {
+                self.sparks[i].update(game: &self, input: input, dt: dt)
+            }
+        }
+
+        if self.remainingEnergy() == 0 {
+            self.gameOver = true
+            self.won = true
+        }
+    }
+
+    func remainingEnergy() -> Int32 {
+        var count: Int32 = 0
+        for i in 0..self.energy.count {
+            if self.energy[i].alive {
+                count = count + 1
+            }
+        }
+
+        return count
+    }
+}
+
+func setKey(input: &InputState, scancode: SDL3.Scancode, pressed: Bool) {
+    if scancode == SDL3.Scancode.w || scancode == SDL3.Scancode.up {
+        input.up = pressed
+    } else if scancode == SDL3.Scancode.s || scancode == SDL3.Scancode.down {
+        input.down = pressed
+    } else if scancode == SDL3.Scancode.a || scancode == SDL3.Scancode.left {
+        input.left = pressed
+    } else if scancode == SDL3.Scancode.d || scancode == SDL3.Scancode.right {
+        input.right = pressed
+    } else if scancode == SDL3.Scancode.space || scancode == SDL3.Scancode.lshift || scancode == SDL3.Scancode.rshift {
+        input.action = pressed
+    } else if scancode == SDL3.Scancode.r {
+        input.restart = pressed
+    } else if scancode == SDL3.Scancode.escape {
+        input.escape = pressed
+    }
+}
+
+func handleEvent(event: SDL3.Event, input: &InputState) -> Bool {
+    if event.type == SDL3.EventType.quit {
+        return false
+    }
+
+    if event.type == SDL3.EventType.keyDown && event.down {
+        setKey(input, event.scancode, true)
+        if event.scancode == SDL3.Scancode.escape {
+            return false
+        }
+    } else if event.type == SDL3.EventType.keyUp {
+        setKey(input, event.scancode, false)
+    }
+
+    return true
+}
+
+func collide(player: &Player, enemy: &Enemy, game: &Game) {
+    if player.invulnerable > 0.0 || !enemy.alive {
+        return
+    }
+
+    player.damage(amount: 22.0)
+    player.invulnerable = 0.75
+    let away = normalize(sub(player.position, enemy.position))
+    player.push(direction: away, force: 210.0)
+    enemy.struck(from: away)
+    game.burst(position: player.position, red: 255, green: 110, blue: 90)
+    if !player.alive {
+        game.gameOver = true
+        game.won = false
+    }
+}
+
+func collide(player: &Player, energy: &Energy, game: &Game) {
+    if !energy.alive {
+        return
+    }
+
+    energy.alive = false
+    game.score = game.score + energy.value * game.combo
+    game.combo = Math.min(9, game.combo + 1)
+    game.comboTimer = 4.0
+    game.time = Math.min(99.0, game.time + 5.0)
+    game.burst(position: energy.position, red: 130, green: 245, blue: 170)
+}
+
+func collide(player: &Player, shield: &Shield, game: &Game) {
+    if !shield.alive {
+        return
+    }
+
+    shield.alive = false
+    player.recharge(amount: shield.amount)
+    player.invulnerable = Math.max(player.invulnerable, 1.2)
+    game.comboTimer = Math.max(game.comboTimer, 2.5)
+    game.burst(position: shield.position, red: 100, green: 190, blue: 255)
+}

@@ -1,0 +1,35 @@
+import Standard.*
+
+func main() -> Int {
+    var values: Stack<Int> = [10, 20, 30]
+
+    if values.count != 3 {
+        return 1
+    }
+
+    if values.capacity < values.count {
+        return 2
+    }
+
+    if values.peek() != 30 {
+        return 3
+    }
+
+    if values.pop() != 30 {
+        return 4
+    }
+
+    if values.pop() != 20 {
+        return 5
+    }
+
+    if values.pop() != 10 {
+        return 6
+    }
+
+    if !values.isEmpty {
+        return 7
+    }
+
+    return 0
+}

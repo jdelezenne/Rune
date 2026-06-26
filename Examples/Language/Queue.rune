@@ -1,0 +1,81 @@
+import Standard.*
+
+func main() -> Int {
+    var values: Queue<Int> = [10, 20, 30]
+
+    if values.count != 3 {
+        return 1
+    }
+
+    if values.capacity < values.count {
+        return 2
+    }
+
+    if values.peek() != 10 {
+        return 3
+    }
+
+    values.ensureCapacity(capacity: 8)
+    if values.capacity < 8 {
+        return 4
+    }
+
+    let first = values.dequeue()
+    if first != 10 {
+        return 5
+    }
+
+    if values.peek() != 20 {
+        return 6
+    }
+
+    values.enqueue(40)
+    values.enqueue(50)
+    values.enqueue(60)
+    values.enqueue(70)
+    values.enqueue(80)
+    values.enqueue(90)
+
+    if values.count != 8 {
+        return 7
+    }
+
+    if values.dequeue() != 20 {
+        return 8
+    }
+
+    if values.dequeue() != 30 {
+        return 9
+    }
+
+    if values.dequeue() != 40 {
+        return 10
+    }
+
+    if values.dequeue() != 50 {
+        return 11
+    }
+
+    if values.dequeue() != 60 {
+        return 12
+    }
+
+    if values.dequeue() != 70 {
+        return 13
+    }
+
+    if values.dequeue() != 80 {
+        return 14
+    }
+
+    if values.dequeue() != 90 {
+        return 15
+    }
+
+    values.clear()
+    if !values.isEmpty {
+        return 16
+    }
+
+    return 0
+}

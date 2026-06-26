@@ -1,0 +1,87 @@
+struct PlainValue {
+    var value: Int
+
+    init(value: Int) {
+        self.value = value
+    }
+}
+
+struct NakedCheckedValue {
+    var value: Int
+
+    init(value: Int) throws {
+        if value < 0 {
+            throw
+        }
+
+        self.value = value
+    }
+}
+
+struct TypedCheckedValue {
+    var value: Int
+
+    init(value: Int) throws(String) {
+        if value < 0 {
+            throw "negative"
+        }
+
+        self.value = value
+    }
+}
+
+func buildNaked() throws -> NakedCheckedValue {
+    return try NakedCheckedValue(7)
+}
+
+func buildTyped() throws(String) -> TypedCheckedValue {
+    return try TypedCheckedValue(11)
+}
+
+func optionalScore() -> Int {
+    let missingNaked = try? NakedCheckedValue(-1)
+    let missingTyped = try? TypedCheckedValue(-1)
+
+    var score = 0
+    if missingNaked == nil {
+        score = score + 3
+    }
+    if missingTyped == nil {
+        score = score + 5
+    }
+
+    return score
+}
+
+func forcedScore() -> Int {
+    let naked = try! NakedCheckedValue(13)
+    let typed = try! TypedCheckedValue(17)
+    return naked.value + typed.value
+}
+
+func main() -> Int {
+    let plain = PlainValue(1)
+
+    let naked = try? buildNaked()
+    if naked == nil {
+        return 1
+    }
+
+    let typed = try? buildTyped()
+    if typed == nil {
+        return 1
+    }
+
+    let total =
+        plain.value +
+        naked!.value +
+        typed!.value +
+        optionalScore() +
+        forcedScore()
+
+    if total == 57 {
+        return 0
+    }
+
+    return 1
+}

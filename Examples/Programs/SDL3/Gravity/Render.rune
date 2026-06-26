@@ -1,0 +1,213 @@
+import Standard.*
+import SDL3
+
+func setColor(renderer: &SDL3.Renderer?, r: UInt8, g: UInt8, b: UInt8, a: UInt8) {
+    SDL3.setRenderDrawColor(renderer, r, g, b, a)
+}
+
+func drawLine(renderer: &SDL3.Renderer?, x1: Float32, y1: Float32, x2: Float32, y2: Float32) {
+    SDL3.renderLine(renderer, x1, y1, x2, y2)
+}
+
+func makeVert(x: Float32, y: Float32, r: Float32, g: Float32, b: Float32) -> SDL3.Vertex {
+    return SDL3.Vertex(
+        position: SDL3.FPoint(x: x, y: y),
+        color: SDL3.FColor(r: r, g: g, b: b, a: 1.0),
+        texCoord: SDL3.FPoint(x: 0.0, y: 0.0))
+}
+
+func fillTri(renderer: &SDL3.Renderer?, x1: Float32, y1: Float32, x2: Float32, y2: Float32, x3: Float32, y3: Float32, r: Float32, g: Float32, b: Float32) {
+    var verts: [SDL3.Vertex, 3] = [
+        makeVert(x1, y1, r, g, b),
+        makeVert(x2, y2, r, g, b),
+        makeVert(x3, y3, r, g, b),
+    ]
+    SDL3.renderGeometry(renderer, nil, ((verts.bytes) as &SDL3.Vertex), 3, nil, 0)
+}
+
+func drawCave(renderer: &SDL3.Renderer?, cam: Camera) {
+    let camX = cam.x
+    let camY = cam.y
+
+    let colMin = Int(camX) / TILE
+    let colMax = Int(camX + SCREEN_WF) / TILE + 2
+    let rowMin = Int(camY) / TILE
+    let rowMax = Int(camY + SCREEN_HF) / TILE + 2
+
+    // Rock and void colors as float (for renderGeometry vertex colors)
+    let rockR: Float32 = 22.0 / 255.0
+    let rockG: Float32 = 32.0 / 255.0
+    let rockB: Float32 = 22.0 / 255.0
+    let voidR: Float32 = 2.0 / 255.0
+    let voidG: Float32 = 4.0 / 255.0
+    let voidB: Float32 = 2.0 / 255.0
+
+    // Pass 1: fill solid tiles with rock color, then fix diagonal staircase corners
+    setColor(renderer, 22, 32, 22, 255)
+    for row in rowMin..=rowMax {
+        for col in colMin..=colMax {
+            if tileAt(col: col, row: row) != 0 {
+                let sx = Float32(col) * TILE_F - camX
+                let sy = Float32(row) * TILE_F - camY
+                let T = TILE_F
+                var rect = SDL3.FRect(x: sx, y: sy, w: T, h: T)
+                SDL3.renderFillRect(renderer, &rect)
+
+                // Right-wall staircase: left-edge diagonal — clear the open-side triangle (TL-BL-BR)
+                if tileAt(col: col - 1, row: row) == 0 && tileAt(col: col, row: row + 1) == 0 && tileAt(col: col + 1, row: row + 1) != 0 {
+                    fillTri(renderer, sx, sy, sx, sy+T, sx+T, sy+T, voidR, voidG, voidB)
+                }
+
+                // Left-wall staircase: right-edge diagonal — fill missing corner triangle in adjacent open cell
+                if tileAt(col: col + 1, row: row) == 0 && tileAt(col: col, row: row + 1) != 0 && tileAt(col: col + 1, row: row + 1) != 0 && tileAt(col: col + 2, row: row + 1) == 0 {
+                    fillTri(renderer, sx+T, sy, sx+T, sy+T, sx+T+T, sy+T, rockR, rockG, rockB)
+                }
+            }
+        }
+    }
+
+    // Pass 2: draw bright edges at solid/open boundaries with diagonal staircase substitution
+    setColor(renderer, 60, 220, 90, 255)
+    let T = TILE_F
+    for row in rowMin..=rowMax {
+        for col in colMin..=colMax {
+            if tileAt(col: col, row: row) != 0 {
+                let sx = Float32(col) * TILE_F - camX
+                let sy = Float32(row) * TILE_F - camY
+                if tileAt(col: col + 1, row: row) == 0 {
+                    if tileAt(col: col, row: row + 1) != 0 && tileAt(col: col + 1, row: row + 1) != 0 && tileAt(col: col + 2, row: row + 1) == 0 {
+                        drawLine(renderer, sx + T, sy, sx + T + T, sy + T)
+                    } else {
+                        drawLine(renderer, sx + T, sy, sx + T, sy + T)
+                    }
+                }
+                if tileAt(col: col, row: row - 1) == 0 {
+                    if tileAt(col: col - 1, row: row - 1) != 0 && tileAt(col: col - 1, row: row) != 0 && tileAt(col: col + 1, row: row - 1) == 0 {
+                        // suppressed — staircase horizontal step
+                    } else {
+                        drawLine(renderer, sx, sy, sx + T, sy)
+                    }
+                }
+                if tileAt(col: col - 1, row: row) == 0 {
+                    if tileAt(col: col, row: row + 1) == 0 && tileAt(col: col + 1, row: row + 1) != 0 {
+                        drawLine(renderer, sx, sy, sx + T, sy + T)
+                    } else {
+                        drawLine(renderer, sx, sy, sx, sy + T)
+                    }
+                }
+                if tileAt(col: col, row: row + 1) == 0 {
+                    if tileAt(col: col - 1, row: row) == 0 && tileAt(col: col - 1, row: row + 1) == 0 && tileAt(col: col + 1, row: row + 1) != 0 {
+                        // suppressed — staircase horizontal step
+                    } else {
+                        drawLine(renderer, sx, sy + T, sx + T, sy + T)
+                    }
+                }
+            }
+        }
+    }
+}
+
+func drawPadShape(renderer: &SDL3.Renderer?, sx: Float32, sy: Float32, padW: Float32, r: UInt8, g: UInt8, b: UInt8) {
+    setColor(renderer, r, g, b, 240)
+    var surface = SDL3.FRect(x: sx, y: sy, w: padW, h: 4.0)
+    SDL3.renderFillRect(renderer, &surface)
+
+    setColor(renderer, 255, 255, 180, 220)
+    var light1 = SDL3.FRect(x: sx + 8.0, y: sy - 3.0, w: 4.0, h: 4.0)
+    SDL3.renderFillRect(renderer, &light1)
+    var light2 = SDL3.FRect(x: sx + padW - 12.0, y: sy - 3.0, w: 4.0, h: 4.0)
+    SDL3.renderFillRect(renderer, &light2)
+
+    setColor(renderer, r, g, b, 180)
+    drawLine(renderer, sx + 12.0, sy + 4.0, sx + 8.0, sy + 20.0)
+    drawLine(renderer, sx + padW - 12.0, sy + 4.0, sx + padW - 8.0, sy + 20.0)
+    drawLine(renderer, sx + 8.0, sy + 20.0, sx + 2.0, sy + 20.0)
+    drawLine(renderer, sx + padW - 8.0, sy + 20.0, sx + padW - 2.0, sy + 20.0)
+}
+
+func drawStartPad(renderer: &SDL3.Renderer?, cam: Camera) {
+    let sx = PAD_START_X - cam.x
+    let sy = PAD_START_Y - cam.y
+    drawPadShape(renderer, sx, sy, PAD_START_W, 40, 160, 255)
+    setColor(renderer, 40, 160, 255, 200)
+    SDL3.renderDebugText(renderer, sx + 6.0, sy - 18.0, "BASE")
+}
+
+func drawEndPad(renderer: &SDL3.Renderer?, cam: Camera, pulse: Float32) {
+    let sx = PAD_END_X - cam.x
+    let sy = PAD_END_Y - cam.y
+    let bright = UInt8(180 + Int32(Math.abs(Math.sin(pulse)) * 60.0))
+    drawPadShape(renderer, sx, sy, PAD_END_W, 255, 200, 40)
+    setColor(renderer, 255, bright, 40, 220)
+    SDL3.renderDebugText(renderer, sx + 6.0, sy - 18.0, "END")
+}
+
+func drawShip(renderer: &SDL3.Renderer?, ship: Ship, cam: Camera) {
+    if !ship.alive {
+        return
+    }
+
+    let sx = ship.position.x - cam.x
+    let sy = ship.position.y - cam.y
+
+    let nose = vec2(sx + Math.cos(ship.angle) * 16.0, sy + Math.sin(ship.angle) * 16.0)
+    let left = vec2(sx + Math.cos(ship.angle + 2.45) * 12.0, sy + Math.sin(ship.angle + 2.45) * 12.0)
+    let right = vec2(sx + Math.cos(ship.angle - 2.45) * 12.0, sy + Math.sin(ship.angle - 2.45) * 12.0)
+
+    setColor(renderer, 210, 235, 255, 255)
+    drawLine(renderer, nose.x, nose.y, left.x, left.y)
+    drawLine(renderer, left.x, left.y, right.x, right.y)
+    drawLine(renderer, right.x, right.y, nose.x, nose.y)
+
+    if ship.thrustOn {
+        let tail = vec2(sx + Math.cos(ship.angle + PI_F) * 20.0, sy + Math.sin(ship.angle + PI_F) * 20.0)
+        setColor(renderer, 255, 150, 30, 200)
+        drawLine(renderer, left.x, left.y, tail.x, tail.y)
+        drawLine(renderer, right.x, right.y, tail.x, tail.y)
+    }
+}
+
+func drawParticles(renderer: &SDL3.Renderer?, game: &Game) {
+    for i in 0..game.particles.count {
+        if game.particles[i].alive {
+            let p = game.particles[i]
+            let sx = p.position.x - game.camera.x
+            let sy = p.position.y - game.camera.y
+            let alpha = UInt8(clampFloat(p.life * 220.0, 0.0, 220.0))
+            setColor(renderer, p.red, p.green, p.blue, alpha)
+            var rect = SDL3.FRect(x: sx - 1.5, y: sy - 1.5, w: 3.0, h: 3.0)
+            SDL3.renderFillRect(renderer, &rect)
+        }
+    }
+}
+
+func drawHud(renderer: &SDL3.Renderer?, game: &Game) {
+    if game.won {
+        setColor(renderer, 255, 230, 60, 255)
+        SDL3.renderDebugText(renderer, 360.0, 300.0, "GOAL REACHED!   R to restart")
+        return
+    }
+
+    if !game.ship.alive {
+        setColor(renderer, 220, 80, 60, 255)
+        SDL3.renderDebugText(renderer, 390.0, 300.0, "DESTROYED   respawning...")
+        return
+    }
+
+    setColor(renderer, 80, 160, 80, 180)
+    SDL3.renderDebugText(renderer, 14.0, 14.0, "GRAVITY  |  UP thrust   LEFT/RIGHT rotate   R restart")
+}
+
+func drawWorld(renderer: &SDL3.Renderer?, game: &Game) {
+    setColor(renderer, 2, 4, 2, 255)
+    SDL3.renderClear(renderer)
+
+    drawCave(renderer, game.camera)
+    drawStartPad(renderer, game.camera)
+    drawEndPad(renderer, game.camera, game.pulse)
+    drawParticles(renderer, game)
+    drawShip(renderer, game.ship, game.camera)
+    drawHud(renderer, game)
+
+    SDL3.renderPresent(renderer)
+}

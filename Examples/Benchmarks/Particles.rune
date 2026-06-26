@@ -1,0 +1,153 @@
+// Headless particle workload modeled after the SDL3 Fireworks demo.
+//
+// This benchmark keeps the same core pressure points without opening a window:
+// arena-backed particle allocation, Array<&Particle>, per-frame particle field
+// updates, and mutable iteration over active bursts.
+
+import Standard.*
+
+const BURST_COUNT: Int = 4
+const PARTICLES_PER_BURST: Int = 1000
+const FRAME_COUNT: Int = 120
+const GRAVITY: Float32 = 220.0
+
+struct ArenaAllocator implements Allocator {
+    let storage: &Byte
+    let capacity: UInt
+    var offset: UInt = 0
+
+    init(capacity: UInt) {
+        self.capacity = capacity
+        self.offset = 0
+        self.storage = try! Memory.systemAllocate(size: capacity)
+    }
+
+    public mutating func allocate(size: UInt, alignment: UInt) throws -> &Byte {
+        let start = Memory.alignUp(value: self.offset, alignment: alignment)
+        let end = start + size
+        if end > self.capacity {
+            throw
+        }
+        self.offset = end
+        return (Int(self.storage) + Int(start)) as &Byte
+    }
+
+    public mutating func deallocate(address: *Byte) {
+    }
+
+    public mutating func release() {
+        Memory.systemDeallocate(address: self.storage)
+    }
+}
+
+struct Particle {
+    var x: Float32
+    var y: Float32
+    var vx: Float32
+    var vy: Float32
+    var life: Float32
+    var maxLife: Float32
+}
+
+struct Burst {
+    var arena: ArenaAllocator
+    var particles: [&Particle]
+}
+
+struct Rng {
+    var state: UInt32
+}
+
+func randUnit(rng: &Rng) -> Float32 {
+    rng.state = rng.state * 1664525 + 1013904223
+    return Float32(rng.state) / 4294967295.0
+}
+
+func randRange(rng: &Rng, low: Float32, high: Float32) -> Float32 {
+    return low + randUnit(rng) * (high - low)
+}
+
+func spawnBurst(x: Float32, y: Float32, rng: &Rng) -> Burst {
+    let stride = Memory.alignUp(value: #sizeOf<Particle>(), alignment: #alignmentOf<Particle>())
+    let capacity = stride * UInt(PARTICLES_PER_BURST) + UInt(#alignmentOf<Particle>())
+    var arena = ArenaAllocator(capacity: capacity)
+    var particles: [&Particle] = []
+
+    for _ in 0..PARTICLES_PER_BURST {
+        let angle = randRange(rng, 0.0, Float32(Math.TAU))
+        let speed = randRange(rng, 40.0, 220.0)
+        let particle = make!(arena) Particle(
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: randRange(rng, 0.6, 1.4),
+            maxLife: randRange(rng, 0.6, 1.4))
+        particles.append(particle)
+    }
+
+    return Burst(arena: arena, particles: particles)
+}
+
+func updateBurst(burst: &Burst, dt: Float32) -> Int {
+    var aliveCount = 0
+    for particle in burst.particles {
+        if particle.life <= 0.0 {
+            continue
+        }
+
+        particle.vy = particle.vy + GRAVITY * dt
+        particle.x = particle.x + particle.vx * dt
+        particle.y = particle.y + particle.vy * dt
+        particle.life = particle.life - dt
+
+        if particle.life > 0.0 {
+            aliveCount = aliveCount + 1
+        }
+    }
+
+    return aliveCount
+}
+
+func checksumBurst(burst: &Burst) -> Int {
+    var checksum = 0
+    for particle in burst.particles {
+        checksum = checksum + Int(particle.x)
+        checksum = checksum + Int(particle.y)
+        checksum = checksum + Int(particle.life * 1000.0)
+    }
+    return checksum
+}
+
+func main() -> Int {
+    var rng = Rng(state: UInt32(0xC0FFEE) | 1)
+    var bursts: [Burst] = []
+
+    for burstIndex in 0..BURST_COUNT {
+        let x = Float32(80.0) + Float32(burstIndex) * Float32(120.0)
+        let y = Float32(80.0) + Float32(burstIndex) * Float32(20.0)
+        bursts.append(spawnBurst(x: x, y: y, rng: &rng))
+    }
+
+    var liveParticleTotal = 0
+    var checksum = 0
+    for _ in 0..FRAME_COUNT {
+        for burst in &bursts {
+            liveParticleTotal = liveParticleTotal + updateBurst(burst, 0.016)
+        }
+    }
+
+    for burst in &bursts {
+        checksum = checksum + checksumBurst(burst)
+        burst.arena.release()
+    }
+
+    Console.printLine(
+        "particles benchmark: bursts=${BURST_COUNT} particles=${PARTICLES_PER_BURST} frames=${FRAME_COUNT} liveTotal=${liveParticleTotal} checksum=${checksum}")
+
+    if liveParticleTotal <= 0 {
+        return 1
+    }
+
+    return 0
+}

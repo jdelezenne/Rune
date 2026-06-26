@@ -1,0 +1,66 @@
+import Standard.*
+
+func printVariable(name: String) -> Void {
+    let value = Environment.getVariable(name)
+    if value == nil {
+        Console.printLine("  ${name}=(unset)")
+    } else {
+        Console.printLine("  ${name}=${value!}")
+    }
+}
+
+func main() -> Int {
+    Console.printLine("=== process ===")
+    Console.printLine("name: ${Environment.processName}")
+    Console.printLine("pid: ${Environment.processId}")
+    Console.printLine("exe: ${Environment.executablePath}")
+    Console.printLine("cwd: ${Environment.currentDirectory}")
+
+    Console.printLine("=== argv ===")
+    if Environment.arguments.isEmpty {
+        Console.printLine("(no arguments)")
+    } else {
+        var index: Int64 = 0
+        for arg in Environment.arguments {
+            Console.printLine("[${index}] ${arg}")
+            index = index + 1
+        }
+    }
+
+    Console.printLine("=== host / os ===")
+    Console.printLine("host: ${Environment.hostName}")
+    Console.printLine("os: ${Environment.operatingSystemName} ${Environment.operatingSystemVersion}")
+    Console.printLine("cpus: ${Environment.processorCount}")
+    Console.printLine("memory: ${Environment.physicalMemory} bytes")
+
+    Console.printLine("=== user ===")
+    Console.printLine("user: ${Environment.userName}")
+    Console.printLine("full name: ${Environment.fullUserName}")
+
+    Console.printLine("=== environment map ===")
+    Console.printLine("count: ${Environment.variables.count}")
+
+    Console.printLine("=== getenv ===")
+    printVariable("HOME")
+    printVariable("USER")
+    printVariable("SHELL")
+    printVariable("PATH")
+    printVariable("PWD")
+
+    Console.printLine("=== set / get / unset ===")
+    Environment.setVariable("RUNE_ENV_DEMO", "hello", true)
+    printVariable("RUNE_ENV_DEMO")
+    Environment.unsetVariable("RUNE_ENV_DEMO")
+    printVariable("RUNE_ENV_DEMO")
+
+    Console.printLine("=== change directory ===")
+    let before = Environment.currentDirectory
+    match Environment.changeCurrentDirectory("..") {
+        .ok(_) => {
+            Console.printLine("parent: ${before} -> ${Environment.currentDirectory}")
+        }
+        .error(message) => Console.printLine("failed: ${message}")
+    }
+
+    return 0
+}

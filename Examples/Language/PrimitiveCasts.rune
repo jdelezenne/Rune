@@ -1,0 +1,46 @@
+func integerCasts() -> Bool {
+    let source: Int = 42
+    let narrow: Int8 = source as! Int8
+    let wide: Int64 = narrow as! Int64
+    let unsigned: UInt8 = source as! UInt8
+
+    return narrow == 42 && wide == 42 && unsigned == 42
+}
+
+func floatCasts() -> Bool {
+    let integer: Int = 7
+    let asFloat: Float = integer as! Float
+    let asDouble: Float64 = asFloat as! Float64
+    let backToInteger: Int = asDouble as! Int
+
+    return asFloat == 7.0 && asDouble == 7.0 && backToInteger == 7
+}
+
+func namedConversions() -> Bool {
+    let high: Int32 = 300
+    let low: Int32 = -4
+    let truncated = UInt8.truncating(high)
+    let clampedHigh = UInt8.clamping(high)
+    let clampedLow = UInt8.clamping(low)
+
+    return truncated == 44 && clampedHigh == 255 && clampedLow == 0
+}
+
+func literalInitializers() -> Bool {
+    let small: Int8 = 12
+    let large: Int64 = 12
+    let floatValue: Float32 = 3.5
+    let doubleValue: Float64 = 3.5
+    let flag: Bool = true
+    let letter: Char = 'A'
+
+    return small == 12 && large == 12 && floatValue == 3.5 && doubleValue == 3.5 && flag && letter == 'A'
+}
+
+func main() -> Int {
+    if !(integerCasts() && floatCasts() && namedConversions() && literalInitializers()) {
+        return 1
+    }
+
+    return 0
+}

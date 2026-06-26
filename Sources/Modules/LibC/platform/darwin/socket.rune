@@ -1,0 +1,13 @@
+@layout(kind: c)
+public struct in_addr {
+    public var s_addr: UInt32
+}
+
+@layout(kind: c)
+public struct sockaddr_in {
+    public var sin_len: Int8
+    public var sin_family: Int8
+    public var sin_port: Int16
+    public var sin_addr: in_addr
+    public var sin_zero: [UInt8, 8]
+}

@@ -1,0 +1,24 @@
+static GameRules {
+    func clampHealth(value: Int) -> Int {
+        if value < 0 {
+            return 0
+        }
+
+        if value > 100 {
+            return 100
+        }
+
+        return value
+    }
+}
+
+func main() -> Int {
+    if GameRules.clampHealth(value: 140) != 100 {
+        return 1
+    }
+
+    if GameRules.clampHealth(value: -10) != 0 {
+        return 2
+    }
+    return 0
+}

@@ -1,0 +1,68 @@
+@flags
+public enum MessageBoxFlags: UInt32 {
+    error = 16 // SDL_MESSAGEBOX_ERROR
+    warning = 32 // SDL_MESSAGEBOX_WARNING
+    information = 64 // SDL_MESSAGEBOX_INFORMATION
+    buttonsLeftToRight = 128 // SDL_MESSAGEBOX_BUTTONS_LEFT_TO_RIGHT
+    buttonsRightToLeft = 256 // SDL_MESSAGEBOX_BUTTONS_RIGHT_TO_LEFT
+}
+
+@flags
+
+public enum MessageBoxButtonFlags: UInt32 {
+    returnKeyDefault = 1 // SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT
+    escapeKeyDefault = 2 // SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT
+}
+
+@layout(kind: c)
+public struct MessageBoxButtonData {
+    public var flags: MessageBoxButtonFlags
+    public var buttonId: Int32
+    public var text: CStringSlice?
+}
+
+public enum MessageBoxColorType: Int32 {
+    background = 0 // SDL_MESSAGEBOX_COLOR_BACKGROUND
+    text = 1 // SDL_MESSAGEBOX_COLOR_TEXT
+    buttonBorder = 2 // SDL_MESSAGEBOX_COLOR_BUTTON_BORDER
+    buttonBackground = 3 // SDL_MESSAGEBOX_COLOR_BUTTON_BACKGROUND
+    buttonSelected = 4 // SDL_MESSAGEBOX_COLOR_BUTTON_SELECTED
+    count = 5 // SDL_MESSAGEBOX_COLOR_COUNT
+}
+
+@layout(kind: c)
+public struct MessageBoxColor {
+    public var r: UInt8
+    public var g: UInt8
+    public var b: UInt8
+}
+
+@layout(kind: c)
+public struct MessageBoxColorScheme {
+    public var colors: [MessageBoxColor, MessageBoxColorType.count]
+}
+
+@layout(kind: c)
+public struct MessageBoxData {
+    public var flags: MessageBoxFlags
+    public var parentWindow: &Window?
+    public var title: CStringSlice?
+    public var message: CStringSlice?
+    public var numButtons: Int32
+    public var buttons: *MessageBoxButtonData?
+    public var colorScheme: *MessageBoxColorScheme?
+}
+
+@include("SDL3/SDL_messagebox.h")
+@link("SDL3")
+{
+    @symbol("SDL_ShowSimpleMessageBox")
+    public func showSimpleMessageBox(
+        flags: MessageBoxFlags,
+        title: CStringSlice?,
+        message: CStringSlice?,
+        window: &Window?) -> Bool
+
+    @symbol("SDL_ShowMessageBox")
+    public func showMessageBox(data: *MessageBoxData?, buttonId: &Int32) -> Bool
+}

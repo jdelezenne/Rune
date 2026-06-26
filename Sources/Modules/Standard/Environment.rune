@@ -1,0 +1,104 @@
+/// Process environment: command-line arguments, environment variables, and process metadata.
+public static Environment {
+    /// Command-line arguments passed to the Rune program.
+    public arguments: Array<String> {
+        @runtime("rune_environment_get_arguments")
+        get
+    }
+
+    /// Current working directory of the process.
+    public currentDirectory: String {
+        @runtime("rune_environment_get_current_directory")
+        get
+    }
+
+    /// Executable path of the hosting process.
+    public executablePath: String {
+        @runtime("rune_environment_get_executable_path")
+        get
+    }
+
+    /// Environment variables visible to the process.
+    public variables: HashMap<String, String> {
+        @runtime("rune_environment_get_variables")
+        get
+    }
+
+    /// Looks up a single environment variable by name.
+    /// @param name Variable name to query.
+    /// @return The value if set, otherwise `nil`.
+    @runtime("rune_environment_get_variable")
+    public func getVariable(name: String) -> String?
+
+    /// Sets an environment variable for the lifetime of the process.
+    /// @param name Variable name.
+    /// @param value Value to assign.
+    /// @param overwrite When `false`, does not overwrite an existing value.
+    @runtime("rune_environment_set_variable")
+    public func setVariable(name: String, value: String, overwrite: Bool) -> Void
+
+    /// Removes an environment variable from the process environment.
+    /// @param name Variable name to remove.
+    @runtime("rune_environment_unset_variable")
+    public func unsetVariable(name: String) -> Void
+
+    /// Process name (typically the executable file name).
+    public processName: String {
+        @runtime("rune_environment_get_process_name")
+        get
+    }
+
+    /// Process identifier (PID).
+    public processId: Int {
+        @runtime("rune_environment_get_process_id")
+        get
+    }
+
+    /// Host name of the machine running the process.
+    public hostName: String {
+        @runtime("rune_environment_get_host_name")
+        get
+    }
+
+    /// Name of the operating system (e.g. "macOS", "Linux", "Windows").
+    public operatingSystemName: String {
+        @runtime("rune_environment_get_operating_system_name")
+        get
+    }
+
+    /// Human-readable operating system version string.
+    public operatingSystemVersion: String {
+        @runtime("rune_environment_get_operating_system_version")
+        get
+    }
+
+    /// Number of logical processors available to the process.
+    public processorCount: Int {
+        @runtime("rune_environment_get_processor_count")
+        get
+    }
+
+    /// Total physical memory installed on the machine, in bytes.
+    public physicalMemory: UInt64 {
+        @runtime("rune_environment_get_physical_memory")
+        get
+    }
+
+    /// Login name of the current user.
+    public userName: String {
+        @runtime("rune_environment_get_user_name")
+        get
+    }
+
+    /// Full display name of the current user, when available.
+    public fullUserName: String {
+        @runtime("rune_environment_get_full_user_name")
+        get
+    }
+
+    /// Changes the current working directory of the process.
+    /// @param path Target directory path.
+    /// @return `ok` on success, or `error` with a message on failure.
+    @runtime("rune_environment_change_current_directory")
+    public func changeCurrentDirectory(path: String) -> Result<Void, String>
+}

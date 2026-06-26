@@ -1,0 +1,24 @@
+/// Borrowed null-terminated UTF-8 bytes for C interoperability.
+///
+/// CStringSlice never owns or frees the pointed-to bytes. Use CString when Rune
+/// must allocate and own a null-terminated copy.
+@builtin
+public struct CStringSlice {
+    /// Borrows a raw pointer to a null-terminated UTF-8 byte sequence.
+    @runtime("rune_cstring_slice_from_ptr")
+    public init(borrowed: *Byte)
+
+    /// Returns a non-owning view over this slice's UTF-8 bytes. Zero-copy.
+    @runtime("rune_runtime_cstring_slice_as_string_slice")
+    public func asSlice() -> StringSlice
+}
+
+public extension CStringSlice implements CustomStringConvertible {
+    @runtime("rune_runtime_string_from_cstring_slice")
+    public func toString() -> String
+}
+
+public extension CStringSlice implements StringLiteralConvertible {
+    @intrinsic
+    public init(stringLiteral: StringLiteral)
+}
