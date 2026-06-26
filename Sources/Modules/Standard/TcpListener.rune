@@ -1,0 +1,88 @@
+/// A TCP server socket that accepts incoming byte streams.
+public struct TcpListener {
+    var _socket: Socket
+
+    /// Binds and listens on `address`.
+    public static func bind(address: SocketAddress, backlog: Int32 = 128) throws(String) -> TcpListener {
+        var socket = Socket()
+        var error = ""
+        if !socket.listen(host: address.host, port: address.port, backlog: backlog, error: &error) {
+            throw error
+        }
+
+        return TcpListener(socket: socket)
+    }
+
+    /// Binds and listens on `host`:`port`.
+    public static func bind(host: String, port: UInt16, backlog: Int32 = 128) throws(String) -> TcpListener {
+        var socket = Socket()
+        var error = ""
+        if !socket.listen(host: host, port: port, backlog: backlog, error: &error) {
+            throw error
+        }
+
+        return TcpListener(socket: socket)
+    }
+
+    /// Takes ownership of an already-listening socket.
+    public init(socket: Socket) {
+        _socket = socket
+    }
+
+    /// Whether the listener currently owns an open socket handle.
+    public isOpen: Bool {
+        return _socket.isOpen
+    }
+
+    /// Native platform socket handle, or -1 when closed.
+    public nativeHandle: *SocketHandle? {
+        return _socket.nativeHandle
+    }
+
+    /// Local listening endpoint formatted by the runtime.
+    public localAddress: String {
+        return _socket.localAddress
+    }
+
+    /// Blocks until a connection arrives.
+    public mutating func accept() throws(String) -> TcpStream {
+        var error = ""
+        let socket = _socket.accept(error: &error)
+        if !socket.isOpen {
+            throw error
+        }
+
+        return TcpStream(socket: socket)
+    }
+
+    /// Attempts to accept a connection without blocking.
+    /// @return A stream when a connection is ready, or nil when the listener would block.
+    public mutating func acceptAvailable() throws(String) -> TcpStream? {
+        var wouldBlock = false
+        var error = ""
+        let socket = _socket.acceptAvailable(wouldBlock: &wouldBlock, error: &error)
+        if wouldBlock {
+            return nil
+        }
+        if !socket.isOpen {
+            throw error
+        }
+
+        return TcpStream(socket: socket)
+    }
+
+    /// Closes the listener.
+    public mutating func close() {
+        _socket.close()
+    }
+
+    /// Sets whether this listener performs blocking or non-blocking I/O.
+    public mutating func setNonblocking(enabled: Bool) -> Bool {
+        return _socket.setNonblocking(enabled: enabled)
+    }
+
+    /// Sets `SO_REUSEADDR`.
+    public mutating func setReuseAddress(enabled: Bool) -> Bool {
+        return _socket.setReuseAddress(enabled: enabled)
+    }
+}

@@ -1,0 +1,35 @@
+import Standard.*
+
+var mutex = Mutex()
+var condition = ConditionVariable()
+var ready = false
+var observed = 0
+
+func waitForReady() {
+    mutex.withLock(body: (mutexGuard: &MutexGuard) -> Void {
+        condition.waitUntil(mutexGuard: mutexGuard, condition: {
+            ready
+        })
+        observed = observed + 1
+    })
+}
+
+func main() -> Int {
+    var waiter = Thread(body: waitForReady)
+
+    mutex.withLock(body: (mutexGuard: &MutexGuard) -> Void {
+        ready = true
+        condition.notifyOne()
+    })
+
+    waiter.join()
+
+    if condition.nativeHandle == nil {
+        return 1
+    }
+    if observed != 1 {
+        return 2
+    }
+
+    return 0
+}

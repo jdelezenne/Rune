@@ -1,0 +1,304 @@
+// SDL3 Asteroids: procedural vector arcade with phosphor trails, particles, and sfx.
+//
+// Controls:
+//   Left/Right or A/D     - rotate ship
+//   Up / W                - thrust
+//   Space / gamepad South - fire
+//   Shift / gamepad East  - hyperspace (cooldown)
+//   P                     - pause
+//   Escape / close        - quit
+
+import Standard.*
+import SDL3
+
+func openFirstGamepad() -> &SDL3.Gamepad? {
+    var count: Int32 = 0
+    let ids = SDL3.getGamepads(&count)
+    if ids == nil || count <= 0 {
+        return nil
+    }
+
+    let list = Slice<SDL3.JoystickId>(elements: ids!, count: Int(count))
+    let firstId = list[0]
+    SDL3.free(ids)
+    return SDL3.openGamepad(firstId)
+}
+
+func handleEvent(
+    event: SDL3.Event,
+    input: &InputState,
+    gamepad: &SDL3.Gamepad?) -> (running: Bool, gamepad: &SDL3.Gamepad?) {
+    var gp = gamepad
+    if event.type == SDL3.EventType.quit {
+        return (running: false, gamepad: gp)
+    }
+
+    if event.type == SDL3.EventType.keyDown && event.down {
+        if event.scancode == SDL3.Scancode.escape {
+            return (running: false, gamepad: gp)
+        }
+        if event.scancode == SDL3.Scancode.p {
+            input.pause = true
+        }
+    }
+
+    if event.type == SDL3.EventType.gamepadAdded {
+        if gp == nil {
+            gp = SDL3.openGamepad(event.windowId)
+        }
+    } else if event.type == SDL3.EventType.gamepadRemoved {
+        if gp != nil {
+            SDL3.closeGamepad(gp)
+            gp = nil
+        }
+    }
+
+    return (running: true, gamepad: gp)
+}
+
+func promptReplay(window: &SDL3.Window?, score: Int32) -> Bool {
+    let title = CString("Asteroids")
+    let body = CString("Final score: ${score}. Play again?")
+    let noLabel = CString("No")
+    let yesLabel = CString("Yes")
+
+    var buttons: [SDL3.MessageBoxButtonData, 2] = [
+        SDL3.MessageBoxButtonData(
+            flags: SDL3.MessageBoxButtonFlags.escapeKeyDefault,
+            buttonId: 0,
+            text: noLabel.asCStringSlice()),
+        SDL3.MessageBoxButtonData(
+            flags: SDL3.MessageBoxButtonFlags.returnKeyDefault,
+            buttonId: 1,
+            text: yesLabel.asCStringSlice()),
+    ]
+
+    var data = SDL3.MessageBoxData(
+        flags: SDL3.MessageBoxFlags.information,
+        parentWindow: window,
+        title: title.asCStringSlice(),
+        message: body.asCStringSlice(),
+        numButtons: 2,
+        buttons: *buttons[0],
+        colorScheme: nil)
+
+    var buttonId: Int32 = -1
+    if SDL3.showMessageBox(&data, &buttonId) {
+        return buttonId == 1
+    }
+
+    return false
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video | SDL3.InitFlags.audio | SDL3.InitFlags.gamepad) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    var window: &SDL3.Window? = nil
+    var renderer: &SDL3.Renderer? = nil
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Asteroids", WIDTH, HEIGHT, 0, &window, &renderer) {
+        Console.printLine("SDL_CreateWindowAndRenderer failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.setRenderVSync(renderer, 1) {
+        Console.printLine("SDL_SetRenderVSync failed: ${SDL3.getError()!}")
+    }
+
+    var trailTexture: &SDL3.Texture? = nil
+    if TRAILS_ENABLED {
+        trailTexture = SDL3.createTexture(
+            renderer,
+            SDL3.PixelFormat.rgba8888,
+            SDL3.TextureAccess.target,
+            WIDTH,
+            HEIGHT)
+        if trailTexture == nil {
+            Console.printLine("SDL_CreateTexture failed: ${SDL3.getError()!}")
+            SDL3.destroyRenderer(renderer)
+            SDL3.destroyWindow(window)
+            SDL3.quit()
+            return 1
+        }
+
+        if !SDL3.setTextureBlendMode(trailTexture, SDL3.BlendMode.blend) {
+            Console.printLine("SDL_SetTextureBlendMode failed: ${SDL3.getError()!}")
+        }
+    }
+
+    var spec = SDL3.AudioSpec(format: SDL3.AudioFormat.s16, channels: 1, freq: AUDIO_RATE)
+    let device = SDL3.openAudioDevice(SDL3.defaultPlaybackDevice, &spec)
+    if device == 0 {
+        Console.printLine("SDL_OpenAudioDevice failed: ${SDL3.getError()!}")
+        SDL3.destroyTexture(trailTexture)
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        return 1
+    }
+
+    let stream = SDL3.createAudioStream(&spec, &spec)
+    if stream == nil {
+        Console.printLine("SDL_CreateAudioStream failed: ${SDL3.getError()!}")
+        SDL3.closeAudioDevice(device)
+        SDL3.destroyTexture(trailTexture)
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.bindAudioStream(device, stream) {
+        Console.printLine("SDL_BindAudioStream failed: ${SDL3.getError()!}")
+        SDL3.destroyAudioStream(stream)
+        SDL3.closeAudioDevice(device)
+        SDL3.destroyTexture(trailTexture)
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        return 1
+    }
+
+    var playback = AudioPlayback(started: false)
+    var game = Game(
+        ship: Ship(
+            x: Float32(WIDTH) * 0.5,
+            y: Float32(HEIGHT) * 0.5,
+            vx: 0.0,
+            vy: 0.0,
+            angle: 0.0,
+            alive: true,
+            invuln: 0.0,
+            fireTimer: 0.0,
+            hyperspaceTimer: 0.0,
+            thrusting: false),
+        bullets: [],
+        asteroids: [],
+        particles: [],
+        stars: [],
+        score: 0,
+        lives: 3,
+        wave: 1,
+        pendingWave: false,
+        paused: false,
+        gameOver: false,
+        rng: Rng(state: 1),
+        trailPrimed: false)
+    resetGame(&game)
+
+    var gamepad = openFirstGamepad()
+    var running = true
+    var event = SDL3.Event()
+    let perfFreq = SDL3.getPerformanceFrequency()
+    var lastCounter = SDL3.getPerformanceCounter()
+
+    Console.printLine("Asteroids: Arrows/WASD thrust & turn, Space fire, Shift hyperspace, P pause.")
+
+    while running {
+        while SDL3.pollEvent(&event) {
+            var edgeInput = InputState(
+                rotateLeft: false,
+                rotateRight: false,
+                thrust: false,
+                fire: false,
+                hyperspace: false,
+                pause: false,
+                quit: false)
+            let outcome = handleEvent(event, &edgeInput, gamepad)
+            gamepad = outcome.gamepad
+            if !outcome.running {
+                running = false
+            }
+
+            if edgeInput.pause {
+                game.paused = !game.paused
+            }
+        }
+
+        let counter = SDL3.getPerformanceCounter()
+        var deltaTime = Float32(counter - lastCounter) / Float32(perfFreq)
+        lastCounter = counter
+        if deltaTime > 0.05 {
+            deltaTime = 0.05
+        }
+
+        var input = InputState(
+            rotateLeft: false,
+            rotateRight: false,
+            thrust: false,
+            fire: false,
+            hyperspace: false,
+            pause: false,
+            quit: false)
+        readKeyboard(&input, SDL3.getKeyboardState(nil))
+        applyGamepad(&input, gamepad)
+
+        if !game.paused && !game.gameOver {
+            updateStars(&game, deltaTime)
+            updateShip(&game, input, deltaTime, stream, device, &playback)
+            updateBullets(&game, deltaTime)
+            updateAsteroids(&game, deltaTime)
+            updateParticles(&game, deltaTime)
+            resolveCollisions(&game, stream, device, &playback)
+
+            if livingAsteroidCount(*game) == 0 {
+                game.wave = game.wave + 1
+                spawnWave(&game)
+            }
+        }
+
+        SDL3.setRenderDrawColor(renderer, 4, 6, 12, 255)
+        SDL3.renderClear(renderer)
+        drawStars(renderer, *game)
+
+        if TRAILS_ENABLED {
+            SDL3.setRenderTarget(renderer, trailTexture)
+            fadeTrail(renderer, &game)
+            drawWorld(renderer, *game)
+            SDL3.setRenderTarget(renderer, nil)
+
+            SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.add)
+            var dest = SDL3.FRect(x: 0.0, y: 0.0, w: Float32(WIDTH), h: Float32(HEIGHT))
+            SDL3.renderTexture(renderer, trailTexture, nil, &dest)
+            SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.none)
+        } else {
+            drawWorld(renderer, *game)
+        }
+
+        drawHud(renderer, *game)
+        if game.paused {
+            drawPausedOverlay(renderer)
+        }
+        if game.gameOver {
+            drawGameOverOverlay(renderer, game.score)
+        }
+
+        SDL3.renderPresent(renderer)
+
+        if game.gameOver {
+            let replay = promptReplay(window, game.score)
+            if replay {
+                resetGame(&game)
+            } else {
+                running = false
+            }
+        }
+    }
+
+    if gamepad != nil {
+        SDL3.closeGamepad(gamepad)
+    }
+    SDL3.destroyAudioStream(stream)
+    SDL3.closeAudioDevice(device)
+    if trailTexture != nil {
+        SDL3.destroyTexture(trailTexture)
+    }
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    Console.printLine("Asteroids finished.")
+    return 0
+}

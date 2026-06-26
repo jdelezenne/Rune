@@ -1,0 +1,19 @@
+@layout(kind: c)
+@symbol("struct timeval")
+public struct timeval {
+    public var tv_sec: Int64
+    public var tv_usec: Int32
+    public var _pad: Int32
+}
+
+public const CLOCK_REALTIME: Int32 = 0
+public const CLOCK_MONOTONIC: Int32 = 6
+
+@symbol
+public func nanosleep(request: *timespec?, remaining: *timespec?) -> Int32
+
+@symbol
+public func clock_gettime(clockId: Int32, tp: &timespec?) -> Int32
+
+@symbol
+public func gettimeofday(tv: &timeval?, tz: *Byte?) -> Int32

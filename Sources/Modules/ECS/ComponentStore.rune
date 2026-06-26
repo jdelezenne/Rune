@@ -1,0 +1,73 @@
+public struct ComponentStore<T> {
+    var entityIds: Array<UInt64>
+    var components: Array<T>
+
+    public init() {
+        entityIds = Array<UInt64>()
+        components = Array<T>()
+    }
+
+    public count: Int {
+        get {
+            return entityIds.count
+        }
+    }
+
+    public func has(entity: Entity) -> Bool {
+        return indexOf(entity: entity) >= 0
+    }
+
+    public func get(entity: Entity) -> T {
+        let index = indexOf(entity: entity)
+        if index < 0 {
+            #panic("ECS component is missing")
+        }
+
+        return components[index]
+    }
+
+    public mutating func set(entity: Entity, component: T) -> Bool {
+        let index = indexOf(entity: entity)
+        if index < 0 {
+            return false
+        }
+
+        components[index] = component
+        return true
+    }
+
+    public mutating func add(entity: Entity, component: T) -> Bool {
+        let index = indexOf(entity: entity)
+        if index >= 0 {
+            components[index] = component
+            return false
+        }
+
+        entityIds.append(entity.id)
+        components.append(component)
+        return true
+    }
+
+    public mutating func remove(entity: Entity) -> Bool {
+        let index = indexOf(entity: entity)
+        if index < 0 {
+            return false
+        }
+
+        entityIds.remove(at: index)
+        components.remove(at: index)
+        return true
+    }
+
+    func indexOf(entity: Entity) -> Int {
+        var index = 0
+        while index < entityIds.count {
+            if entityIds[index] == entity.id {
+                return index
+            }
+            index += 1
+        }
+
+        return -1
+    }
+}

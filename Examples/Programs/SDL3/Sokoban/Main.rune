@@ -1,0 +1,748 @@
+import Standard.*
+import SDL3
+
+enum Screen: Int32 {
+    mainMenu = 0
+    levelMenu = 1
+    game = 2
+}
+
+enum RepeatAction: Int32 {
+    none = 0
+    up = 1
+    right = 2
+    down = 3
+    left = 4
+    undo = 5
+}
+
+const MOVE_REPEAT_DELAY: UInt64 = 220
+const MOVE_REPEAT_INTERVAL: UInt64 = 75
+const UNDO_REPEAT_DELAY: UInt64 = 300
+const UNDO_REPEAT_INTERVAL: UInt64 = 140
+const MENU_REPEAT_DELAY: UInt64 = 280
+const MENU_REPEAT_INTERVAL: UInt64 = 120
+const WALK_STEP_INTERVAL: UInt64 = 55
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var game = makeGame()
+var records = makeRecords()
+var statusMessage: String? = nil
+var running = true
+var screen = Screen.mainMenu
+var mainMenuSelection = 0
+var levelMenuSelection = 0
+var levelMenuCheatIndex = 0
+var allLevelsSelectable = false
+var saveAvailable = false
+var repeatAction = RepeatAction.none
+var repeatScreen = Screen.mainMenu
+var nextRepeatTick: UInt64 = 0
+var repeatInterval: UInt64 = 0
+var lastTimerTick: UInt64 = 0
+var timerRemainder: UInt64 = 0
+var walkPath: [Int32] = []
+var walkIndex = 0
+var nextWalkTick: UInt64 = 0
+
+func repeatActionFor(scancode: SDL3.Scancode) -> RepeatAction {
+    if scancode == SDL3.Scancode.up || scancode == SDL3.Scancode.k {
+        return .up
+    }
+    if scancode == SDL3.Scancode.right || scancode == SDL3.Scancode.l {
+        return .right
+    }
+    if scancode == SDL3.Scancode.down || scancode == SDL3.Scancode.j {
+        return .down
+    }
+    if scancode == SDL3.Scancode.left || scancode == SDL3.Scancode.h {
+        return .left
+    }
+    if scancode == SDL3.Scancode.u {
+        return .undo
+    }
+    return .none
+}
+
+func stopRepeating() {
+    repeatAction = .none
+    nextRepeatTick = 0
+    repeatInterval = 0
+}
+
+func beginRepeating(scancode: SDL3.Scancode) {
+    let action = repeatActionFor(scancode)
+    if action == RepeatAction.none {
+        return
+    }
+    if screen != Screen.game && action == RepeatAction.undo {
+        return
+    }
+
+    repeatAction = action
+    repeatScreen = screen
+    if screen == Screen.game && action == RepeatAction.undo {
+        nextRepeatTick = SDL3.getTicks() + UNDO_REPEAT_DELAY
+        repeatInterval = UNDO_REPEAT_INTERVAL
+    } else if screen == Screen.game {
+        nextRepeatTick = SDL3.getTicks() + MOVE_REPEAT_DELAY
+        repeatInterval = MOVE_REPEAT_INTERVAL
+    } else {
+        nextRepeatTick = SDL3.getTicks() + MENU_REPEAT_DELAY
+        repeatInterval = MENU_REPEAT_INTERVAL
+    }
+}
+
+// MARK: - Click-to-walk
+
+func stopWalking() {
+    walkPath = []
+    walkIndex = 0
+}
+
+func startWalking(path: [Int32]) {
+    walkPath = path
+    walkIndex = 0
+    nextWalkTick = SDL3.getTicks()
+}
+
+// Replay the queued walk one step per tick so the trip is visible. Any
+// blocked step (the board changed under the route) abandons the rest.
+func updateWalking() {
+    if walkIndex >= walkPath.count {
+        return
+    }
+    if screen != Screen.game || game.complete {
+        stopWalking()
+        return
+    }
+
+    let now = SDL3.getTicks()
+    while walkIndex < walkPath.count && now >= nextWalkTick {
+        let direction = walkPath[walkIndex]
+        walkIndex = walkIndex + 1
+        var moved = false
+        if direction == 0 {
+            moved = game.applyMove(0, -1, true)
+        }
+        else if direction == 1 {
+            moved = game.applyMove(1, 0, true)
+        }
+        else if direction == 2 {
+            moved = game.applyMove(0, 1, true)
+        }
+        else {
+            moved = game.applyMove(-1, 0, true)
+        }
+        afterMove()
+        if !moved {
+            stopWalking()
+            return
+        }
+        nextWalkTick = nextWalkTick + WALK_STEP_INTERVAL
+    }
+    if walkIndex >= walkPath.count {
+        stopWalking()
+    }
+}
+
+func applicationDirectory() -> String? {
+    return SDL3.getPrefPath("Rune", "Sokoban")
+}
+
+func refreshSaveAvailability() {
+    let directory = applicationDirectory()
+    if directory == nil {
+        saveAvailable = false
+        return
+    }
+    do {
+        let available = try saveContainsBoard(directory!)
+        saveAvailable = available
+    }
+    catch {
+        saveAvailable = false
+    }
+}
+
+func restorePersistedProgress() {
+    let directory = applicationDirectory()
+    if directory == nil {
+        return
+    }
+    do {
+        let restored = try restoreRecords(&records, directory!)
+        if !restored {
+            return
+        }
+    }
+    catch {
+        statusMessage = "PROGRESS LOAD FAILED"
+    }
+}
+
+func persistProgress() {
+    let directory = applicationDirectory()
+    if directory == nil {
+        statusMessage = "PERSISTENCE UNAVAILABLE"
+        return
+    }
+    do {
+        try saveProgressWithoutBoard(&records, directory!)
+        saveAvailable = false
+    }
+    catch let error {
+        statusMessage = "PROGRESS SAVE FAILED: ${error}"
+    }
+}
+
+func saveNow(message: String) {
+    if game.complete {
+        persistProgress()
+        statusMessage = "PROGRESS SAVED"
+        return
+    }
+    let directory = applicationDirectory()
+    if directory == nil {
+        statusMessage = "PERSISTENCE UNAVAILABLE"
+        return
+    }
+    do {
+        try saveProgress(&game, &records, directory!)
+        let path = saveFilePath(directory!)
+        if !Storage.FileSystem.exists(path: path) {
+            statusMessage = "SAVE FAILED: FILE WAS NOT CREATED"
+        } else {
+            statusMessage = message
+            saveAvailable = true
+        }
+    }
+    catch let error {
+        statusMessage = "SAVE FAILED: ${error}"
+    }
+}
+
+func loadNow() {
+    let directory = applicationDirectory()
+    if directory == nil {
+        statusMessage = "PERSISTENCE UNAVAILABLE"
+        return
+    }
+    do {
+        if try restoreProgress(&game, &records, directory!) {
+            timerRemainder = 0
+            statusMessage = "GAME RESTORED"
+            screen = Screen.game
+        } else {
+            statusMessage = "NO SAVED GAME"
+        }
+    }
+    catch let error {
+        statusMessage = "LOAD FAILED: ${error}"
+    }
+}
+
+func afterMove() {
+    statusMessage = ""
+    if game.complete {
+        records.recordCompletion(&game)
+        persistProgress()
+    }
+}
+
+func loadLevel(level: Int, message: String) -> Bool {
+    do {
+        try game.load(level)
+        timerRemainder = 0
+        statusMessage = message
+        return true
+    }
+    catch let error {
+        statusMessage = "LEVEL LOAD FAILED: ${error}"
+        return false
+    }
+}
+
+func undoMove() {
+    do {
+        try game.undo()
+        statusMessage = ""
+    }
+    catch let error {
+        statusMessage = "UNDO FAILED: ${error}"
+    }
+}
+
+func advanceLevel() {
+    do {
+        try game.nextLevel()
+        timerRemainder = 0
+        statusMessage = ""
+    }
+    catch let error {
+        statusMessage = "LEVEL LOAD FAILED: ${error}"
+    }
+}
+
+func mainMenuItemCount() -> Int {
+    var itemCount = 3 // New Game, Select Level, Quit.
+    if records.unlockedLevel > 0 {
+        itemCount = itemCount + 1
+    }
+    if saveAvailable {
+        itemCount = itemCount + 1
+    }
+    return itemCount
+}
+
+func activateMainMenuItem(selection: Int) {
+    var item = 0
+    if records.unlockedLevel > 0 {
+        if selection == item {
+            if loadLevel(records.unlockedLevel, "") {
+                screen = Screen.game
+            }
+            return
+        }
+        item = item + 1
+    }
+    if selection == item {
+        if loadLevel(0, "") {
+            screen = Screen.game
+        }
+        return
+    }
+    item = item + 1
+    if selection == item {
+        levelMenuSelection = game.level
+        if levelMenuSelection > records.unlockedLevel {
+            levelMenuSelection = records.unlockedLevel
+        }
+        screen = Screen.levelMenu
+        return
+    }
+    item = item + 1
+    if saveAvailable {
+        if selection == item {
+            loadNow()
+            return
+        }
+        item = item + 1
+    }
+    running = false
+}
+
+func handleMainMenuKey(scancode: SDL3.Scancode) {
+    let maximumSelection = mainMenuItemCount() - 1
+    if scancode == SDL3.Scancode.up || scancode == SDL3.Scancode.k {
+        mainMenuSelection = mainMenuSelection - 1
+        if mainMenuSelection < 0 {
+            mainMenuSelection = maximumSelection
+        }
+    }
+    else if scancode == SDL3.Scancode.down || scancode == SDL3.Scancode.j {
+        mainMenuSelection = mainMenuSelection + 1
+        if mainMenuSelection > maximumSelection {
+            mainMenuSelection = 0
+        }
+    }
+    else if scancode == SDL3.Scancode.returnKey {
+        activateMainMenuItem(mainMenuSelection)
+    }
+    else if scancode == SDL3.Scancode.escape || scancode == SDL3.Scancode.q {
+        running = false
+    }
+}
+
+func handleLevelMenuKey(scancode: SDL3.Scancode) {
+    let maximumLevel = if allLevelsSelectable {
+        LEVEL_COUNT - 1
+    } else {
+        records.unlockedLevel
+    }
+    if scancode == SDL3.Scancode.left || scancode == SDL3.Scancode.h {
+        levelMenuSelection = levelMenuSelection - 1
+        if levelMenuSelection < 0 {
+            levelMenuSelection = maximumLevel
+        }
+    }
+    else if scancode == SDL3.Scancode.right || scancode == SDL3.Scancode.l {
+        levelMenuSelection = levelMenuSelection + 1
+        if levelMenuSelection > maximumLevel {
+            levelMenuSelection = 0
+        }
+    }
+    else if scancode == SDL3.Scancode.up || scancode == SDL3.Scancode.k {
+        if levelMenuSelection >= 10 {
+            levelMenuSelection = levelMenuSelection - 10
+        }
+    }
+    else if scancode == SDL3.Scancode.down || scancode == SDL3.Scancode.j {
+        if levelMenuSelection + 10 <= maximumLevel {
+            levelMenuSelection = levelMenuSelection + 10
+        }
+    }
+    else if scancode == SDL3.Scancode.returnKey {
+        if loadLevel(levelMenuSelection, "") {
+            screen = Screen.game
+        }
+    }
+    else if scancode == SDL3.Scancode.escape || scancode == SDL3.Scancode.q {
+        screen = Screen.mainMenu
+    }
+}
+
+func observeLevelMenuCheat(scancode: SDL3.Scancode) {
+    if screen != Screen.levelMenu || allLevelsSelectable {
+        return
+    }
+
+    var matches = false
+    if levelMenuCheatIndex < 2 {
+        matches = scancode == SDL3.Scancode.up
+    }
+    else if levelMenuCheatIndex < 4 {
+        matches = scancode == SDL3.Scancode.down
+    }
+    else if levelMenuCheatIndex < 6 {
+        matches = scancode == SDL3.Scancode.left
+    }
+    else {
+        matches = scancode == SDL3.Scancode.right
+    }
+
+    if matches {
+        levelMenuCheatIndex = levelMenuCheatIndex + 1
+        if levelMenuCheatIndex == 8 {
+            allLevelsSelectable = true
+        }
+    } else {
+        levelMenuCheatIndex = if scancode == SDL3.Scancode.up {
+            1
+        } else {
+            0
+        }
+    }
+}
+
+// MARK: - Mouse
+
+// Menu rows share the geometry drawMainMenu uses: 50 px apart from y 225,
+// with a 300x30 highlight box starting at x 210.
+func mainMenuItemAt(x: Float32, y: Float32) -> Int {
+    if x < 210.0 || x >= 510.0 {
+        return -1
+    }
+    let count = mainMenuItemCount()
+    for item in 0..count {
+        let top: Float32 = 217.0 + Float32(item) * 50.0
+        if y >= top && y < top + 30.0 {
+            return item
+        }
+    }
+    return -1
+}
+
+// Level grid geometry from drawLevelMenu: 58x52 pitch with a 48x29
+// highlight box.
+func levelMenuItemAt(x: Float32, y: Float32) -> Int {
+    for level in 0..LEVEL_COUNT {
+        let col = level % 10
+        let row = level / 10
+        let left: Float32 = 76.0 + Float32(col) * 58.0
+        let top: Float32 = 136.0 + Float32(row) * 52.0
+        if x >= left && x < left + 48.0 && y >= top && y < top + 29.0 {
+            return level
+        }
+    }
+    return -1
+}
+
+// Board cell under a screen point as row * BOARD_COLS + col, or -1 when
+// the point misses the board.
+func boardCellAt(x: Float32, y: Float32) -> Int {
+    let boardLeft = (Float32(WIDTH) - Float32(game.boardCols) * CELL) * 0.5
+    if x < boardLeft || y < BOARD_TOP {
+        return -1
+    }
+    let col = Int((x - boardLeft) / CELL)
+    let row = Int((y - BOARD_TOP) / CELL)
+    if col >= game.boardCols || row >= game.boardRows {
+        return -1
+    }
+    return row * BOARD_COLS + col
+}
+
+// A click beside the player steps (or pushes); anywhere further away walks
+// there along a route that leaves every packet untouched.
+func handleGameClick(x: Float32, y: Float32) {
+    if game.complete {
+        if x >= 210.0 && x < 510.0 && y >= 688.0 && y < 730.0 {
+            advanceLevel()
+        }
+        return
+    }
+
+    let cell = boardCellAt(x, y)
+    if cell < 0 {
+        return
+    }
+    let col = cell % BOARD_COLS
+    let row = cell / BOARD_COLS
+
+    stopWalking()
+    let dx = col - game.playerCol
+    let dy = row - game.playerRow
+    if dx == 0 && dy == 0 {
+        return
+    }
+
+    if dx * dx + dy * dy == 1 {
+        game.move(dx, dy)
+        afterMove()
+        return
+    }
+
+    let path = findWalkPath(&game, col, row)
+    if path.count > 0 {
+        startWalking(path)
+    }
+}
+
+func handleMouseDown(x: Float32, y: Float32) {
+    if screen == Screen.mainMenu {
+        let item = mainMenuItemAt(x, y)
+        if item >= 0 {
+            mainMenuSelection = item
+            activateMainMenuItem(item)
+        }
+    }
+    else if screen == Screen.levelMenu {
+        let maximumLevel = if allLevelsSelectable {
+            LEVEL_COUNT - 1
+        } else {
+            records.unlockedLevel
+        }
+        let level = levelMenuItemAt(x, y)
+        if level >= 0 && level <= maximumLevel {
+            levelMenuSelection = level
+            if loadLevel(level, "") {
+                screen = Screen.game
+            }
+        }
+    }
+    else {
+        handleGameClick(x, y)
+    }
+}
+
+// Hovering tracks the keyboard selection so both inputs stay in step.
+func handleMouseHover(x: Float32, y: Float32) {
+    if screen == Screen.mainMenu {
+        let item = mainMenuItemAt(x, y)
+        if item >= 0 {
+            mainMenuSelection = item
+        }
+    }
+    else if screen == Screen.levelMenu {
+        let maximumLevel = if allLevelsSelectable {
+            LEVEL_COUNT - 1
+        } else {
+            records.unlockedLevel
+        }
+        let level = levelMenuItemAt(x, y)
+        if level >= 0 && level <= maximumLevel {
+            levelMenuSelection = level
+        }
+    }
+}
+
+func handleGameKey(scancode: SDL3.Scancode) {
+    stopWalking()
+    if scancode == SDL3.Scancode.up || scancode == SDL3.Scancode.k {
+        game.move(0, -1)
+        afterMove()
+    }
+    else if scancode == SDL3.Scancode.right || scancode == SDL3.Scancode.l {
+        game.move(1, 0)
+        afterMove()
+    }
+    else if scancode == SDL3.Scancode.down || scancode == SDL3.Scancode.j {
+        game.move(0, 1)
+        afterMove()
+    }
+    else if scancode == SDL3.Scancode.left || scancode == SDL3.Scancode.h {
+        game.move(-1, 0)
+        afterMove()
+    }
+    else if scancode == SDL3.Scancode.u {
+        undoMove()
+    }
+    else if scancode == SDL3.Scancode.r {
+        _ = loadLevel(game.level, "LEVEL RESET")
+    }
+    else if scancode == SDL3.Scancode.s {
+        saveNow("GAME SAVED")
+    }
+    else if scancode == SDL3.Scancode.o {
+        loadNow()
+    }
+    else if scancode == SDL3.Scancode.n && game.level < records.unlockedLevel {
+        advanceLevel()
+    }
+    else if scancode == SDL3.Scancode.returnKey && game.complete {
+        advanceLevel()
+    }
+    else if scancode == SDL3.Scancode.escape || scancode == SDL3.Scancode.q {
+        screen = Screen.mainMenu
+    }
+}
+
+func handleKey(scancode: SDL3.Scancode) {
+    if screen == Screen.mainMenu {
+        handleMainMenuKey(scancode)
+    }
+    else if screen == Screen.levelMenu {
+        handleLevelMenuKey(scancode)
+    }
+    else {
+        handleGameKey(scancode)
+    }
+}
+
+func repeatCurrentAction() {
+    if repeatAction == RepeatAction.up {
+        handleKey(SDL3.Scancode.up)
+    }
+    else if repeatAction == RepeatAction.right {
+        handleKey(SDL3.Scancode.right)
+    }
+    else if repeatAction == RepeatAction.down {
+        handleKey(SDL3.Scancode.down)
+    }
+    else if repeatAction == RepeatAction.left {
+        handleKey(SDL3.Scancode.left)
+    }
+    else if repeatAction == RepeatAction.undo {
+        handleKey(SDL3.Scancode.u)
+    }
+}
+
+func updateRepeating() {
+    if repeatAction == RepeatAction.none {
+        return
+    }
+    if repeatScreen != screen {
+        stopRepeating()
+        return
+    }
+
+    let now = SDL3.getTicks()
+    while now >= nextRepeatTick {
+        repeatCurrentAction()
+        if repeatScreen != screen {
+            stopRepeating()
+            return
+        }
+        nextRepeatTick = nextRepeatTick + repeatInterval
+    }
+}
+
+func updatePlayTime() {
+    let now = SDL3.getTicks()
+    if lastTimerTick != 0 && screen == Screen.game && !game.complete {
+        timerRemainder = timerRemainder + now - lastTimerTick
+        while timerRemainder >= 1000 {
+            game.addElapsedSecond()
+            timerRemainder = timerRemainder - 1000
+        }
+    }
+    lastTimerTick = now
+}
+
+func shutdown() {
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+}
+
+func mainLoop() {
+    var event = SDL3.Event()
+    while SDL3.pollEvent(&event) {
+        if event.type == SDL3.EventType.quit {
+            running = false
+        }
+        else if event.type == SDL3.EventType.keyDown && event.down && !event.repeat {
+            observeLevelMenuCheat(event.scancode)
+            handleKey(event.scancode)
+            beginRepeating(event.scancode)
+        }
+        else if event.type == SDL3.EventType.keyUp && !event.down && repeatActionFor(event.scancode) == repeatAction {
+            stopRepeating()
+        }
+        else if event.type == SDL3.EventType.mouseButtonDown {
+            let mouse = SDL3.mouseButtonEvent(&event)
+            if mouse.button == SDL3.MouseButtonId.left {
+                handleMouseDown(mouse.x, mouse.y)
+            }
+        }
+        else if event.type == SDL3.EventType.mouseMotion {
+            let motion = SDL3.mouseMotionEvent(&event)
+            handleMouseHover(motion.x, motion.y)
+        }
+    }
+    updateRepeating()
+    updateWalking()
+    updatePlayTime()
+    if !running {
+        shutdown()
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+    if screen == Screen.mainMenu {
+        drawMainMenu(renderer, mainMenuSelection, records.unlockedLevel > 0, saveAvailable, statusMessage)
+    }
+    else if screen == Screen.levelMenu {
+        let selectableLevel = if allLevelsSelectable {
+            LEVEL_COUNT - 1
+        } else {
+            records.unlockedLevel
+        }
+        drawLevelMenu(renderer, levelMenuSelection, selectableLevel)
+    }
+    else {
+        drawGame(renderer, *game, *records, statusMessage)
+    }
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+    if !SDL3.createWindowAndRenderer("Rune SDL3 - Sokoban", WIDTH, HEIGHT, 0, &window, &renderer) {
+        Console.printLine("SDL_CreateWindowAndRenderer failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+    _ = SDL3.setRenderVSync(renderer, 1)
+    lastTimerTick = SDL3.getTicks()
+    game = makeGame()
+    records = makeRecords()
+    refreshSaveAvailability()
+    restorePersistedProgress()
+    // Prepare Level000, but begin at the main menu. Loading saved progress is explicit.
+    _ = loadLevel(0, "")
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    }
+    else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

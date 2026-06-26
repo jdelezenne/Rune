@@ -1,0 +1,34 @@
+struct Box {
+    var value: Int
+    var lifecycle: &Int
+
+    init(value: Int, lifecycle: &Int) {
+        lifecycle^ = lifecycle^ + 3
+        self.lifecycle = lifecycle
+        self.value = value + 1
+    }
+
+    final() {
+        self.lifecycle^ = self.lifecycle^ + self.value
+    }
+}
+
+func main() -> Int {
+    var lifecycle = 0
+    let box = make! Box(lifecycle: &lifecycle, value: 42)
+    if lifecycle != 3 {
+        dispose box
+        return 1
+    }
+
+    let result = box.value
+    dispose box
+    if result != 43 {
+        return 1
+    }
+    if lifecycle != 46 {
+        return 1
+    }
+
+    return 0
+}

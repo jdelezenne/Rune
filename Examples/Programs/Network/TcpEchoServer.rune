@@ -1,0 +1,55 @@
+// TCP echo server.
+//
+// Run:
+//   rune run Examples/Programs/Network/TcpEchoServer.rune
+//
+// Then run Examples/Programs/Network/TcpEchoClient.rune in another terminal.
+
+import Standard.*
+
+const HOST: String = "0.0.0.0"
+const PORT: UInt16 = 9100
+const BUFFER_SIZE: UInt = 4096
+
+func handleClient(stream: &TcpStream, buffer: &Byte) throws(String) -> Int64 {
+    var total: Int64 = 0
+
+    while true {
+        let received = try stream.read(buffer: buffer, length: BUFFER_SIZE)
+        if received == 0 {
+            return total
+        }
+
+        _ = try stream.writeAll(data: buffer, length: UInt(received))
+        total = total + received
+        Console.printLine("echoed ${received} bytes to ${stream.peerAddress} (${total} total)")
+    }
+}
+
+func runServer() throws(String) -> Int {
+    var listener = try TcpListener.bind(host: HOST, port: PORT, backlog: 8)
+    let buffer = try! Memory.systemAllocate(size: BUFFER_SIZE)
+
+    Console.printLine("TCP echo server listening on ${listener.localAddress}")
+
+    while true {
+        var stream = try listener.accept()
+        Console.printLine("client connected: ${stream.peerAddress}")
+
+        let total = try handleClient(stream: &stream, buffer: buffer)
+        Console.printLine("client disconnected: echoed ${total} bytes")
+        stream.close()
+    }
+
+    return 0
+}
+
+func main() -> Int {
+    do {
+        return runServer()
+    }
+    catch let error {
+        Console.printLine("tcp echo server error: ${error}")
+        return 1
+    }
+}

@@ -1,0 +1,57 @@
+#pragma once
+
+#include <rune/atomic.h>
+#include <rune/allocator.h>
+#include <rune/allocators/arena.h>
+#include <rune/allocators/pool.h>
+#include <rune/allocators/system.h>
+#include <rune/allocators/tracking.h>
+#include <rune/allocators/virtual.h>
+#include <rune/array.h>
+#include <rune/buffer.h>
+#include <rune/char.h>
+#include <rune/condition_variable.h>
+#include <rune/console.h>
+#include <rune/conversions.h>
+#include <rune/cstring.h>
+#include <rune/environment.h>
+#include <rune/file.h>
+#include <rune/filesystem.h>
+#include <rune/forward.h>
+#include <rune/hashmap.h>
+#include <rune/hashset.h>
+#include <rune/hashing.h>
+#include <rune/inlinearray.h>
+#include <rune/iterator.h>
+#include <rune/limits.h>
+#include <rune/libc.h>
+#include <rune/math.h>
+#include <rune/memory.h>
+#include <rune/mutex.h>
+#include <rune/mutex_guard.h>
+#include <rune/option.h>
+#include <rune/path.h>
+#include <rune/process.h>
+#include <rune/random.h>
+#include <rune/range.h>
+#include <rune/read_write_mutex.h>
+#include <rune/result.h>
+#include <rune/shared_library.h>
+#include <rune/simd.h>
+#include <rune/stream.h>
+#include <rune/slice.h>
+#include <rune/sortedmap.h>
+#include <rune/sortedset.h>
+#include <rune/stringbuilder.h>
+#include <rune/stringslice.h>
+#include <rune/terminal.h>
+#include <rune/thread.h>
+#include <rune/time.h>
+#include <rune/types.h>
+#include <rune/utf8.h>
+
+typedef struct RuneFunction
+{
+    void* context;
+    void* invoke;
+} RuneFunction;

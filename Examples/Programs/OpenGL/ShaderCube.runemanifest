@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "name": "ShaderCube",
+  "kind": "executable",
+  "unsafe": true,
+  "sources": [
+    "ShaderCube.rune"
+  ],
+  "dependencies": [
+    "../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../Modules/SDL3/SDL3.runemanifest",
+    "../../Modules/OpenGL/OpenGL.runemanifest"
+  ]
+}

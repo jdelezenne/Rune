@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "name": "PuzzleBobble",
+  "kind": "executable",
+  "sources": [
+    "Math.rune",
+    "World.rune",
+    "Render.rune",
+    "Main.rune"
+  ],
+  "dependencies": [
+    "../../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../../Modules/SDL3/SDL3.runemanifest"
+  ]
+}

@@ -1,0 +1,225 @@
+// Track: playfield geometry and the course book for a vertical-scrolling
+// checkpoint racer in the classic Road Fighter mould - a fixed car row near
+// the bottom of the road viewport, a road that bends and narrows as it
+// scrolls past, and an instrument panel on the right. All geometry constants
+// live here so the simulation and the renderer agree on where the road runs
+// at any distance along a course.
+//
+// A course is a list of segments (length in metres, target centre offset,
+// target half width). Driving through a segment eases the road from the
+// previous segment's targets to its own with a smoothstep, which gives the
+// gentle S-bends and narrowing bridges of the original.
+
+import Standard.*
+
+// MARK: - Screen geometry (road viewport on the left, instruments on the right)
+
+const WIDTH: Int32 = 672
+const HEIGHT: Int32 = 720
+
+const ROAD_VIEW_W: Float32 = 448.0
+const ROAD_VIEW_CX: Float32 = 224.0
+const PANEL_X: Float32 = 448.0
+const PANEL_W: Float32 = 224.0
+
+// World scale: screen pixels per metre of road.
+const PX_PER_M: Float32 = 3.6
+
+// The player's car sits on a fixed screen row; the world scrolls past it.
+const PLAYER_SCREEN_Y: Float32 = 600.0
+
+// Enemies and roadside items spawn this many metres ahead of the player,
+// just above the top edge of the viewport.
+const SPAWN_AHEAD_M: Float32 = 190.0
+
+// MARK: - Car metrics (screen px, half extents)
+
+const CAR_HALF_W: Float32 = 13.0
+const CAR_HALF_H: Float32 = 21.0
+const TRUCK_HALF_W: Float32 = 16.0
+const TRUCK_HALF_H: Float32 = 39.0
+
+// MARK: - Lanes
+
+// Lane centres as fractions of the road half width. Wide road: four lanes;
+// narrow bridge sections drop to two.
+const LANE_COUNT: Int = 4
+const LANE_FRACTIONS: [Float32, 4] = [-0.72, -0.24, 0.24, 0.72]
+const NARROW_LANE_FRACTIONS: [Float32, 2] = [-0.42, 0.42]
+const NARROW_HALF_WIDTH: Float32 = 100.0
+
+// MARK: - Courses
+
+const COURSE_COUNT: Int = 4
+
+const SEG_STRIDE: Int = 3
+
+// Course 1 - GRASSLAND. Wide and forgiving: long straights and gentle
+// S-bends between green fields.
+const COURSE_1_SEG_COUNT: Int = 11
+const COURSE_1_SEGS: [Float32, _] = [
+    900.0, 0.0, 168.0,
+    700.0, -50.0, 168.0,
+    700.0, 50.0, 168.0,
+    600.0, 0.0, 168.0,
+    800.0, -55.0, 160.0,
+    800.0, 55.0, 160.0,
+    700.0, 0.0, 168.0,
+    900.0, -50.0, 160.0,
+    900.0, 50.0, 160.0,
+    700.0, 0.0, 168.0,
+    300.0, 0.0, 168.0,
+]
+
+// Course 2 - SEASIDE. The road crosses open water twice on narrow bridges.
+const COURSE_2_SEG_COUNT: Int = 13
+const COURSE_2_SEGS: [Float32, _] = [
+    700.0, 0.0, 160.0,
+    700.0, -60.0, 150.0,
+    600.0, 0.0, 112.0,
+    900.0, 0.0, 84.0,
+    600.0, 60.0, 150.0,
+    800.0, -70.0, 150.0,
+    800.0, 70.0, 150.0,
+    700.0, 0.0, 112.0,
+    900.0, -40.0, 84.0,
+    700.0, -60.0, 150.0,
+    900.0, 60.0, 150.0,
+    400.0, 0.0, 160.0,
+    300.0, 0.0, 168.0,
+]
+
+// Course 3 - MOUNTAIN. Relentless switchbacks on a narrower forest road.
+const COURSE_3_SEG_COUNT: Int = 16
+const COURSE_3_SEGS: [Float32, _] = [
+    600.0, 0.0, 160.0,
+    500.0, -80.0, 140.0,
+    500.0, 80.0, 140.0,
+    500.0, -80.0, 140.0,
+    600.0, 90.0, 126.0,
+    600.0, -90.0, 126.0,
+    700.0, 80.0, 140.0,
+    700.0, -80.0, 140.0,
+    600.0, 0.0, 112.0,
+    800.0, 100.0, 112.0,
+    800.0, -100.0, 112.0,
+    700.0, 0.0, 140.0,
+    900.0, 80.0, 140.0,
+    900.0, -80.0, 140.0,
+    300.0, 0.0, 154.0,
+    300.0, 0.0, 168.0,
+]
+
+// Course 4 - NIGHT CITY. The longest run: fast sweepers, a narrow underpass
+// and late hairpins under the street lights.
+const COURSE_4_SEG_COUNT: Int = 18
+const COURSE_4_SEGS: [Float32, _] = [
+    700.0, 0.0, 168.0,
+    600.0, -66.0, 154.0,
+    600.0, 66.0, 154.0,
+    500.0, -60.0, 126.0,
+    700.0, 60.0, 112.0,
+    800.0, 0.0, 84.0,
+    600.0, -80.0, 140.0,
+    600.0, 80.0, 140.0,
+    500.0, -95.0, 126.0,
+    500.0, 95.0, 126.0,
+    700.0, 0.0, 112.0,
+    800.0, -110.0, 112.0,
+    800.0, 110.0, 112.0,
+    700.0, -80.0, 140.0,
+    700.0, 80.0, 140.0,
+    800.0, 0.0, 126.0,
+    400.0, 0.0, 154.0,
+    300.0, 0.0, 168.0,
+]
+
+// Total metres per course (sum of the segment lengths above).
+const COURSE_LENGTHS: [Float32, 4] = [8000.0, 9000.0, 10000.0, 11300.0]
+
+func courseLength(course: Int) -> Float32 {
+    return COURSE_LENGTHS[course]
+}
+
+func segmentCount(course: Int) -> Int {
+    if course == 0 {
+        return COURSE_1_SEG_COUNT
+    }
+    if course == 1 {
+        return COURSE_2_SEG_COUNT
+    }
+    if course == 2 {
+        return COURSE_3_SEG_COUNT
+    }
+    return COURSE_4_SEG_COUNT
+}
+
+func segmentValue(course: Int, seg: Int, field: Int) -> Float32 {
+    let index = seg * SEG_STRIDE + field
+    if course == 0 {
+        return COURSE_1_SEGS[index]
+    }
+    if course == 1 {
+        return COURSE_2_SEGS[index]
+    }
+    if course == 2 {
+        return COURSE_3_SEGS[index]
+    }
+    return COURSE_4_SEGS[index]
+}
+
+// MARK: - Road sampling
+
+struct RoadPoint {
+    var center: Float32
+    var halfWidth: Float32
+}
+
+// Road centre line and half width at distance `d` along the course. Each
+// segment eases from the previous segment's targets to its own; past the
+// last segment the road runs straight (the goal straight).
+func roadAt(course: Int, d: Float32) -> RoadPoint {
+    var dd = d
+    if dd < 0.0 {
+        dd = 0.0
+    }
+
+    var start: Float32 = 0.0
+    var prevOffset = segmentValue(course, 0, 1)
+    var prevHalf = segmentValue(course, 0, 2)
+    let count = segmentCount(course)
+
+    for seg in 0..count {
+        let length = segmentValue(course, seg, 0)
+        let targetOffset = segmentValue(course, seg, 1)
+        let targetHalf = segmentValue(course, seg, 2)
+        if dd <= start + length {
+            var t = (dd - start) / length
+            t = Math.clamp(t, 0.0, 1.0)
+            let ease: Float32 = 3.0 - 2.0 * t
+            let s = t * t * ease
+            return RoadPoint(
+                center: ROAD_VIEW_CX + prevOffset + (targetOffset - prevOffset) * s,
+                halfWidth: prevHalf + (targetHalf - prevHalf) * s)
+        }
+        start = start + length
+        prevOffset = targetOffset
+        prevHalf = targetHalf
+    }
+
+    return RoadPoint(center: ROAD_VIEW_CX + prevOffset, halfWidth: prevHalf)
+}
+
+func laneCenterX(road: RoadPoint, laneF: Float32) -> Float32 {
+    return road.center + laneF * road.halfWidth
+}
+
+// MARK: - Distance <-> screen row
+
+func screenYForDistance(playerDist: Float32, d: Float32) -> Float32 {
+    return PLAYER_SCREEN_Y - (d - playerDist) * PX_PER_M
+}
+
+func distanceForScreenY(playerDist: Float32, y: Float32) -> Float32 {
+    return playerDist + (PLAYER_SCREEN_Y - y) / PX_PER_M
+}

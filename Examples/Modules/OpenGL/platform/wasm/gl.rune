@@ -1,0 +1,51 @@
+// WebGL exposes the OpenGL ES 2 core entry points through Emscripten.
+@symbol("glGetError")
+public func getError() -> GLenum
+
+@symbol("glGetString")
+public func getString(name: GLenum) -> *Int8?
+
+@symbol("glFlush")
+public func flush() -> Void
+
+@symbol("glFinish")
+public func finish() -> Void
+
+@symbol("glEnable")
+public func enable(cap: GLenum) -> Void
+
+@symbol("glDisable")
+public func disable(cap: GLenum) -> Void
+
+@symbol("glClearColor")
+public func clearColor(red: GLfloat, green: GLfloat, blue: GLfloat, alpha: GLfloat) -> Void
+
+@symbol("glClearDepthf")
+public func clearDepth(depth: GLfloat) -> Void
+
+@symbol("glClear")
+public func clear(mask: GLbitfield) -> Void
+
+@symbol("glViewport")
+public func viewport(x: GLint, y: GLint, width: GLsizei, height: GLsizei) -> Void
+
+@symbol("glDepthFunc")
+public func depthFunc(func_: GLenum) -> Void
+
+@symbol("glDepthMask")
+public func depthMask(flag: GLboolean) -> Void
+
+@symbol("glCullFace")
+public func cullFace(mode: GLenum) -> Void
+
+@symbol("glFrontFace")
+public func frontFace(mode: GLenum) -> Void
+
+@symbol("glDrawArrays")
+public func drawArrays(mode: GLenum, first: GLint, count: GLsizei) -> Void
+
+@symbol("glDrawElements")
+public func drawElements(mode: GLenum, count: GLsizei, type: GLenum, indices: *Byte?) -> Void
+
+@symbol("glPixelStorei")
+public func pixelStorei(pname: GLenum, param: GLint) -> Void

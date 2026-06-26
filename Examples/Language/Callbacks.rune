@@ -1,0 +1,39 @@
+// Pure Rune callbacks: pass named functions to higher-order functions.
+
+alias IntBinaryOperation = (Int, Int) -> Int
+alias IntCallback = (Int) -> Void
+
+func add(lhs: Int, rhs: Int) -> Int {
+    return lhs + rhs
+}
+
+func subtract(lhs: Int, rhs: Int) -> Int {
+    return lhs - rhs
+}
+
+func applyOperation(x: Int, y: Int, op: IntBinaryOperation) -> Int {
+    return op(x, y)
+}
+
+var trace = 0
+
+func record(value: Int) {
+    trace = trace + value
+}
+
+func registerCallback(callback: IntCallback) {
+    callback(10)
+    callback(1)
+}
+
+func main() -> Int {
+    let sum = applyOperation(x: 20, y: 4, op: add)
+    let diff = applyOperation(x: 20, y: 4, op: subtract)
+
+    registerCallback(callback: record)
+
+    if sum != 24 || diff != 16 || trace != 11 {
+        return 1
+    }
+    return 0
+}

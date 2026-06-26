@@ -1,0 +1,489 @@
+// Full-duplex TCP chat server with an interactive admin terminal.
+//
+// Run:
+//   rune run Examples/Programs/Network/TcpChatServer.rune
+//
+// Then run Examples/Programs/Network/TcpChatClient.rune in other terminals.
+
+import Standard.*
+
+const HOST: String = "0.0.0.0"
+const PORT: UInt16 = 9102
+const BUFFER_SIZE: UInt = 4096
+
+struct ChatClient {
+    var id: Int
+    var stream: TcpStream
+    var address: String
+    var active: Bool
+}
+
+struct ServerState {
+    var clients: Array<ChatClient>
+    var log: Array<String>
+    var input: String
+    var cursor: Int
+    var running: Bool
+    var nextClientId: Int
+}
+
+func writeAt(row: UInt32, column: UInt32, value: String) {
+    Terminal.moveCursor(row: row, column: column)
+    Terminal.write(value: value)
+}
+
+func repeatCell(cell: String, count: UInt32) -> String {
+    var result = ""
+    var index: UInt32 = 0
+    while index < count {
+        result = result + cell
+        index = index + 1
+    }
+    return result
+}
+
+func clip(value: String, width: Int) -> String {
+    if width <= 0 {
+        return ""
+    }
+    if value.count <= width {
+        return value
+    }
+    if width <= 1 {
+        return value.substring(start: 0, end: width)
+    }
+    return value.substring(start: 0, end: width - 1) + "\u{2026}"
+}
+
+func color(code: UInt8, value: String) {
+    Terminal.foreground(color: code)
+    Terminal.write(value: value)
+    Terminal.reset()
+}
+
+func quiet(value: String) {
+    Terminal.dim()
+    color(code: 245, value: value)
+}
+
+func strong(value: String) {
+    Terminal.bold()
+    color(code: 231, value: value)
+}
+
+func clearRow(row: UInt32) {
+    writeAt(row: row, column: 1, value: "\u{1b}[2K")
+}
+
+func separator(row: UInt32, columns: UInt32) {
+    writeAt(row: row, column: 1, value: "")
+    color(code: 238, value: repeatCell(cell: "\u{2500}", count: columns))
+}
+
+func pushLog(state: &ServerState, value: String) {
+    state.log.append(value)
+}
+
+func activeClientCount(state: *ServerState) -> Int {
+    var count = 0
+    var index = 0
+    while index < state.clients.count {
+        if state.clients[index].active {
+            count = count + 1
+        }
+        index = index + 1
+    }
+    return count
+}
+
+func drawHeader(size: TerminalSize, state: *ServerState, address: String) {
+    clearRow(row: 1)
+    writeAt(row: 1, column: 1, value: "")
+    Terminal.background(color: 236)
+    Terminal.write(value: repeatCell(cell: " ", count: size.columns))
+    Terminal.reset()
+
+    writeAt(row: 1, column: 3, value: "")
+    color(code: 81, value: "\u{25c6} ")
+    strong(value: "Rune TCP Chat Server")
+    quiet(value: "  ${address}")
+
+    let right = "${activeClientCount(state: state)} clients"
+    let column = size.columns > UInt32(right.count + 2) ? size.columns - UInt32(right.count) : 1
+    writeAt(row: 1, column: column, value: "")
+    quiet(value: right)
+}
+
+func drawClients(size: TerminalSize, state: *ServerState, row: UInt32) {
+    clearRow(row: row)
+    writeAt(row: row, column: 3, value: "")
+    quiet(value: "clients ")
+
+    var index = 0
+    var wrote = false
+    while index < state.clients.count {
+        let client = state.clients[index]
+        if client.active {
+            if wrote {
+                quiet(value: "  ")
+            }
+            color(code: 114, value: "#${client.id}")
+            Terminal.write(value: " ${clip(value: client.address, width: 24)}")
+            wrote = true
+        }
+        index = index + 1
+    }
+    if !wrote {
+        quiet(value: "none")
+    }
+}
+
+func drawLog(size: TerminalSize, state: *ServerState, top: UInt32, bottom: UInt32) {
+    let width = Int(size.columns) - 4
+    var row = top
+    let visibleRows = bottom >= top ? Int(bottom - top + 1) : 0
+    let first = state.log.count > visibleRows ? state.log.count - visibleRows : 0
+    var index = first
+
+    while row <= bottom {
+        clearRow(row: row)
+        if index < state.log.count {
+            writeAt(row: row, column: 3, value: "")
+            Terminal.write(value: clip(value: state.log[index], width: width))
+            index = index + 1
+        }
+        row = row + 1
+    }
+}
+
+func drawPrompt(size: TerminalSize, state: *ServerState, row: UInt32) {
+    clearRow(row: row)
+    writeAt(row: row, column: 1, value: "")
+    color(code: 81, value: ">")
+    Terminal.write(value: " ")
+    Terminal.write(value: clip(value: state.input, width: Int(size.columns) - 3))
+}
+
+func drawHint(size: TerminalSize, row: UInt32) {
+    clearRow(row: row)
+    writeAt(row: row, column: 2, value: "")
+    quiet(value: "Type /help for admin commands.")
+}
+
+func render(state: *ServerState, address: String) throws(String) {
+    let size = try Terminal.size()
+    Terminal.setCursorVisible(visible: false)
+    Terminal.clear()
+
+    drawHeader(size: size, state: state, address: address)
+    drawClients(size: size, state: state, row: 3)
+    separator(row: 4, columns: size.columns)
+
+    let hintRow = size.rows
+    let hintSeparatorRow = size.rows > 1 ? size.rows - 1 : 1
+    let promptRow = size.rows > 2 ? size.rows - 2 : 1
+    let promptSeparatorRow = size.rows > 3 ? size.rows - 3 : 1
+    let contentBottom = size.rows > 5 ? size.rows - 5 : 1
+
+    drawLog(size: size, state: state, top: 5, bottom: contentBottom)
+    separator(row: promptSeparatorRow, columns: size.columns)
+    drawPrompt(size: size, state: state, row: promptRow)
+    separator(row: hintSeparatorRow, columns: size.columns)
+    drawHint(size: size, row: hintRow)
+
+    let cursorColumn = UInt32(3 + state.cursor)
+    let boundedCursor = cursorColumn <= size.columns ? cursorColumn : size.columns
+    Terminal.moveCursor(row: promptRow, column: boundedCursor)
+    Terminal.setCursorVisible(visible: true)
+}
+
+func sendText(stream: &TcpStream, text: String) throws(String) {
+    let length = UInt(text.length)
+    if length == 0 {
+        return
+    }
+
+    let buffer = try! Memory.systemAllocate(size: length)
+    let copied = text.copyBytes(destination: buffer, maxLength: length)
+    _ = try stream.writeAll(data: buffer, length: copied)
+    Memory.systemDeallocate(address: buffer)
+}
+
+func broadcast(state: &ServerState, senderId: Int, text: String) {
+    var index = 0
+    while index < state.clients.count {
+        var client = state.clients[index]
+        if client.active && client.id != senderId {
+            do {
+                sendText(stream: &client.stream, text: text)
+            }
+            catch let error {
+                client.active = false
+                client.stream.close()
+                pushLog(state, "system    client #${client.id} dropped: ${error}")
+            }
+        }
+        state.clients[index] = client
+        index = index + 1
+    }
+}
+
+func disconnectClient(state: &ServerState, id: Int, reason: String) -> Bool {
+    var index = 0
+    while index < state.clients.count {
+        var client = state.clients[index]
+        if client.active && client.id == id {
+            _ = try? sendText(stream: &client.stream, text: "system    ${reason}\n")
+            client.active = false
+            client.stream.close()
+            state.clients[index] = client
+            pushLog(state, "system    client #${id} disconnected (${reason})")
+            return true
+        }
+        index = index + 1
+    }
+    return false
+}
+
+func parseClientId(text: String) -> Int {
+    let parts = text.split(separator: " ")
+    if parts.count < 2 {
+        return 0
+    }
+    return Int(value: parts[1])
+}
+
+func submitCommand(state: &ServerState) {
+    let command = state.input
+    state.input = ""
+    state.cursor = 0
+
+    if command.isEmpty {
+        return
+    }
+
+    if command == "/exit" {
+        pushLog(state, "system    shutting down")
+        state.running = false
+        return
+    }
+
+    if command == "/help" {
+        pushLog(state, "commands  /help       list commands")
+        pushLog(state, "commands  /clients    list connected clients")
+        pushLog(state, "commands  /kick <id>  disconnect a client")
+        pushLog(state, "commands  /clear      clear server log")
+        pushLog(state, "commands  /exit       stop server")
+        return
+    }
+
+    if command == "/clients" {
+        pushLog(state, "system    ${activeClientCount(state: state)} active clients")
+        var index = 0
+        while index < state.clients.count {
+            let client = state.clients[index]
+            if client.active {
+                pushLog(state, "client    #${client.id} ${client.address}")
+            }
+            index = index + 1
+        }
+        return
+    }
+
+    if command == "/clear" {
+        state.log = []
+        pushLog(state, "system    log cleared")
+        return
+    }
+
+    if command.count >= 5 && command.substring(start: 0, end: 5) == "/kick" {
+        let id = parseClientId(text: command)
+        if id <= 0 || !disconnectClient(state: state, id: id, reason: "kicked by server") {
+            pushLog(state, "system    no active client #${id}")
+        }
+        return
+    }
+
+    pushLog(state, "system    unknown command '${command}'")
+}
+
+func handleArrow(state: &ServerState, finalKey: Char) {
+    if finalKey == 'D' && state.cursor > 0 {
+        state.cursor = state.cursor - 1
+        return
+    }
+    if finalKey == 'C' && state.cursor < state.input.count {
+        state.cursor = state.cursor + 1
+        return
+    }
+}
+
+func handleCharacter(state: &ServerState, character: Char) {
+    if character.codePoint == 3 {
+        state.running = false
+        return
+    }
+    if character.codePoint == 13 || character.codePoint == 10 {
+        submitCommand(state)
+        return
+    }
+    if character.codePoint == 127 || character.codePoint == 8 {
+        if state.cursor > 0 {
+            state.input = state.input.remove(at: state.cursor - 1)
+            state.cursor = state.cursor - 1
+        }
+        return
+    }
+    if character.codePoint >= 32 {
+        state.input = state.input.insert(character: character, at: state.cursor)
+        state.cursor = state.cursor + 1
+    }
+}
+
+func handleTerminalInput(state: &ServerState, input: String) {
+    var index = 0
+    while index < input.count {
+        let character = input[index]
+        if character.codePoint == 27 && index + 2 < input.count && input[index + 1] == '[' {
+            handleArrow(state: state, finalKey: input[index + 2])
+            index = index + 3
+            continue
+        }
+
+        handleCharacter(state: state, character: character)
+        index = index + 1
+    }
+}
+
+func acceptClients(state: &ServerState, listener: &TcpListener) throws(String) -> Bool {
+    var changed = false
+    while true {
+        let accepted = try listener.acceptAvailable()
+        if accepted == nil {
+            return changed
+        }
+
+        var stream = accepted!
+        _ = stream.setNonblocking(enabled: true)
+        _ = stream.setNoDelay(enabled: true)
+
+        let id = state.nextClientId
+        state.nextClientId = state.nextClientId + 1
+        let address = stream.peerAddress
+        state.clients.append(element: ChatClient(
+            id: id,
+            stream: stream,
+            address: address,
+            active: true))
+        pushLog(state, "system    client #${id} connected from ${address}")
+        try sendText(stream: &stream, text: "system    connected as #${id}\n")
+        broadcast(state: state, senderId: id, text: "system    client #${id} joined\n")
+        changed = true
+    }
+}
+
+func pollClients(state: &ServerState, buffer: &Byte) throws(String) -> Bool {
+    var changed = false
+    var index = 0
+    while index < state.clients.count {
+        var client = state.clients[index]
+        if client.active {
+            let received = try client.stream.readAvailable(buffer: buffer, length: BUFFER_SIZE)
+            if received != nil {
+                if received! == 0 {
+                    client.active = false
+                    client.stream.close()
+                    pushLog(state, "system    client #${client.id} disconnected")
+                    broadcast(state: state, senderId: client.id, text: "system    client #${client.id} left\n")
+                    changed = true
+                }
+                else {
+                    let message = String.fromBytes(source: buffer, length: UInt(received!))
+                    let line = "#${client.id}      ${message}"
+                    pushLog(state, line)
+                    broadcast(state: state, senderId: client.id, text: line)
+                    changed = true
+                }
+            }
+        }
+        state.clients[index] = client
+        index = index + 1
+    }
+    return changed
+}
+
+func runServer() throws(String) -> Int {
+    if !Terminal.isInteractive() {
+        Console.printLine("TCP chat server needs an interactive terminal.")
+        return 0
+    }
+
+    var listener = try TcpListener.bind(host: HOST, port: PORT, backlog: 32)
+    _ = listener.setNonblocking(enabled: true)
+    let buffer = try! Memory.systemAllocate(size: BUFFER_SIZE)
+    defer Memory.systemDeallocate(address: buffer)
+
+    try Terminal.enterAlternateScreen()
+    defer Terminal.leaveAlternateScreen()
+
+    try Terminal.enableRawMode()
+    defer Terminal.disableRawMode()
+
+    Terminal.setCursorVisible(visible: true)
+    defer Terminal.setCursorVisible(visible: true)
+
+    var state = ServerState(
+        clients: [],
+        log: [],
+        input: "",
+        cursor: 0,
+        running: true,
+        nextClientId: 1)
+    pushLog(&state, "system    listening on ${listener.localAddress}")
+    render(state: *state, address: listener.localAddress)
+
+    while state.running {
+        var changed = false
+        let input = try Terminal.readAvailable()
+        if input != nil {
+            handleTerminalInput(state: &state, input: input!)
+            changed = true
+        }
+
+        if try acceptClients(state: &state, listener: &listener) {
+            changed = true
+        }
+        if try pollClients(state: &state, buffer: buffer) {
+            changed = true
+        }
+        if changed {
+            render(state: *state, address: listener.localAddress)
+        }
+    }
+
+    var index = 0
+    while index < state.clients.count {
+        var client = state.clients[index]
+        if client.active {
+            client.stream.close()
+        }
+        state.clients[index] = client
+        index = index + 1
+    }
+    listener.close()
+
+    return 0
+}
+
+func main() -> Int {
+    do {
+        return runServer()
+    }
+    catch let error {
+        Terminal.setCursorVisible(visible: true)
+        Terminal.disableRawMode()
+        Terminal.leaveAlternateScreen()
+        Console.printLine("chat server error: ${error}")
+        return 1
+    }
+}

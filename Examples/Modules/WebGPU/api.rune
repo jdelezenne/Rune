@@ -1,0 +1,950 @@
+// MARK: - Global
+
+@symbol("wgpuCreateInstance")
+public func createInstance(descriptor: *InstanceDescriptor?) -> &InstanceHandle?
+
+@symbol("wgpuGetInstanceFeatures")
+public func getInstanceFeatures(features: *SupportedInstanceFeatures?) -> Void
+
+@symbol("wgpuGetInstanceLimits")
+public func getInstanceLimits(limits: *InstanceLimits?) -> Status
+
+@symbol("wgpuHasInstanceFeature")
+public func hasInstanceFeature(feature: InstanceFeatureName) -> UInt32
+
+@symbol("wgpuGetProcAddress")
+public func getProcAddress(procName: StringView) -> Proc
+
+// MARK: - Instance
+
+@symbol("wgpuInstanceCreateSurface")
+public func instanceCreateSurface(
+    instance: &InstanceHandle?,
+    descriptor: *SurfaceDescriptor?) -> &SurfaceHandle?
+
+@symbol("rune_webgpu_request_adapter")
+public func instanceRequestAdapter(
+    instance: &InstanceHandle?,
+    callback: RequestAdapterCallback,
+    userdata1: &Byte?,
+    userdata2: &Byte?) -> Void
+
+@symbol("wgpuInstanceRequestAdapter")
+public func instanceRequestAdapterWithOptions(
+    instance: &InstanceHandle?,
+    options: *RequestAdapterOptions?,
+    callbackInfo: RequestAdapterCallbackInfo) -> Future
+
+@symbol("wgpuInstanceGetWGSLLanguageFeatures")
+public func instanceGetWGSLLanguageFeatures(
+    instance: &InstanceHandle?,
+    features: *SupportedWGSLLanguageFeatures?) -> Status
+
+@symbol("wgpuInstanceHasWGSLLanguageFeature")
+public func instanceHasWGSLLanguageFeature(
+    instance: &InstanceHandle?,
+    feature: WGSLLanguageFeatureName) -> UInt32
+
+@symbol("wgpuInstanceProcessEvents")
+public func instanceProcessEvents(instance: &InstanceHandle?) -> Void
+
+@symbol("wgpuInstanceWaitAny")
+public func instanceWaitAny(
+    instance: &InstanceHandle?,
+    futureCount: UInt,
+    futures: *FutureWaitInfo?,
+    timeoutNS: UInt64) -> WaitStatus
+
+@symbol("wgpuInstanceAddRef")
+public func instanceAddRef(instance: &InstanceHandle?) -> Void
+
+@symbol("wgpuInstanceRelease")
+public func instanceRelease(instance: &InstanceHandle?) -> Void
+
+@symbol("wgpuSupportedInstanceFeaturesFreeMembers")
+public func supportedInstanceFeaturesFreeMembers(features: SupportedInstanceFeatures) -> Void
+
+@symbol("wgpuSupportedWGSLLanguageFeaturesFreeMembers")
+public func supportedWGSLLanguageFeaturesFreeMembers(features: SupportedWGSLLanguageFeatures) -> Void
+
+// MARK: - Adapter
+
+@symbol("rune_webgpu_request_device")
+public func adapterRequestDevice(
+    adapter: &AdapterHandle?,
+    callback: RequestDeviceCallback,
+    userdata1: &Byte?,
+    userdata2: &Byte?) -> Void
+
+@symbol("wgpuAdapterRequestDevice")
+public func adapterRequestDeviceWithDescriptor(
+    adapter: &AdapterHandle?,
+    descriptor: *DeviceDescriptor?,
+    callbackInfo: RequestDeviceCallbackInfo) -> Future
+
+@symbol("wgpuAdapterGetFeatures")
+public func adapterGetFeatures(
+    adapter: &AdapterHandle?,
+    features: *SupportedFeatures?) -> Void
+
+@symbol("wgpuAdapterGetInfo")
+public func adapterGetInfo(
+    adapter: &AdapterHandle?,
+    info: *AdapterInfo?) -> Status
+
+@symbol("wgpuAdapterGetLimits")
+public func adapterGetLimits(
+    adapter: &AdapterHandle?,
+    limits: *Limits?) -> Status
+
+@symbol("wgpuAdapterHasFeature")
+public func adapterHasFeature(
+    adapter: &AdapterHandle?,
+    feature: FeatureName) -> UInt32
+
+@symbol("wgpuAdapterAddRef")
+public func adapterAddRef(adapter: &AdapterHandle?) -> Void
+
+@symbol("wgpuAdapterRelease")
+public func adapterRelease(adapter: &AdapterHandle?) -> Void
+
+@symbol("wgpuAdapterInfoFreeMembers")
+public func adapterInfoFreeMembers(adapterInfo: AdapterInfo) -> Void
+
+@symbol("wgpuSupportedFeaturesFreeMembers")
+public func supportedFeaturesFreeMembers(features: SupportedFeatures) -> Void
+
+// MARK: - Device
+
+@symbol("wgpuDeviceGetQueue")
+public func deviceGetQueue(device: &DeviceHandle?) -> &QueueHandle?
+
+@symbol("wgpuDevicePushErrorScope")
+public func devicePushErrorScope(device: &DeviceHandle?, filter: ErrorFilter) -> Void
+
+@symbol("wgpuDevicePopErrorScope")
+public func devicePopErrorScope(
+    device: &DeviceHandle?,
+    callbackInfo: PopErrorScopeCallbackInfo) -> Future
+
+@symbol("wgpuDeviceCreateShaderModule")
+public func deviceCreateShaderModule(
+    device: &DeviceHandle?,
+    descriptor: *ShaderModuleDescriptor) -> &ShaderModuleHandle?
+
+@symbol("wgpuDeviceCreateBuffer")
+public func deviceCreateBuffer(device: &DeviceHandle?, descriptor: *BufferDescriptor) -> &BufferHandle?
+
+@symbol("wgpuDeviceCreateTexture")
+public func deviceCreateTexture(device: &DeviceHandle?, descriptor: *TextureDescriptor) -> &TextureHandle?
+
+@symbol("wgpuDeviceCreateSampler")
+public func deviceCreateSampler(device: &DeviceHandle?, descriptor: *SamplerDescriptor?) -> &SamplerHandle?
+
+@symbol("wgpuDeviceCreateRenderPipeline")
+public func deviceCreateRenderPipeline(
+    device: &DeviceHandle?,
+    descriptor: *RenderPipelineDescriptor) -> &RenderPipelineHandle?
+
+@symbol("wgpuDeviceCreateRenderPipelineAsync")
+public func deviceCreateRenderPipelineAsync(
+    device: &DeviceHandle?,
+    descriptor: *RenderPipelineDescriptor?,
+    callbackInfo: CreateRenderPipelineAsyncCallbackInfo) -> Future
+
+@symbol("wgpuDeviceCreateComputePipeline")
+public func deviceCreateComputePipeline(
+    device: &DeviceHandle?,
+    descriptor: *ComputePipelineDescriptor?) -> &ComputePipelineHandle?
+
+@symbol("wgpuDeviceCreateComputePipelineAsync")
+public func deviceCreateComputePipelineAsync(
+    device: &DeviceHandle?,
+    descriptor: *ComputePipelineDescriptor?,
+    callbackInfo: CreateComputePipelineAsyncCallbackInfo) -> Future
+
+@symbol("wgpuDeviceCreateBindGroup")
+public func deviceCreateBindGroup(
+    device: &DeviceHandle?,
+    descriptor: *BindGroupDescriptor) -> &BindGroupHandle?
+
+@symbol("wgpuDeviceCreateBindGroupLayout")
+public func deviceCreateBindGroupLayout(
+    device: &DeviceHandle?,
+    descriptor: *BindGroupLayoutDescriptor?) -> &BindGroupLayoutHandle?
+
+@symbol("wgpuDeviceCreatePipelineLayout")
+public func deviceCreatePipelineLayout(
+    device: &DeviceHandle?,
+    descriptor: *PipelineLayoutDescriptor?) -> &PipelineLayoutHandle?
+
+@symbol("wgpuDeviceCreateCommandEncoder")
+public func deviceCreateCommandEncoder(
+    device: &DeviceHandle?,
+    descriptor: *CommandEncoderDescriptor?) -> &CommandEncoderHandle?
+
+@symbol("wgpuDeviceCreateQuerySet")
+public func deviceCreateQuerySet(
+    device: &DeviceHandle?,
+    descriptor: *QuerySetDescriptor?) -> &QuerySetHandle?
+
+@symbol("wgpuDeviceCreateRenderBundleEncoder")
+public func deviceCreateRenderBundleEncoder(
+    device: &DeviceHandle?,
+    descriptor: *RenderBundleEncoderDescriptor?) -> &RenderBundleEncoderHandle?
+
+@symbol("wgpuDeviceDestroy")
+public func deviceDestroy(device: &DeviceHandle?) -> Void
+
+@symbol("wgpuDeviceGetAdapterInfo")
+public func deviceGetAdapterInfo(
+    device: &DeviceHandle?,
+    info: *AdapterInfo?) -> Status
+
+@symbol("wgpuDeviceGetFeatures")
+public func deviceGetFeatures(
+    device: &DeviceHandle?,
+    features: *SupportedFeatures?) -> Void
+
+@symbol("wgpuDeviceGetLimits")
+public func deviceGetLimits(
+    device: &DeviceHandle?,
+    limits: *Limits?) -> Status
+
+@symbol("wgpuDeviceGetLostFuture")
+public func deviceGetLostFuture(device: &DeviceHandle?) -> Future
+
+@symbol("wgpuDeviceHasFeature")
+public func deviceHasFeature(
+    device: &DeviceHandle?,
+    feature: FeatureName) -> UInt32
+
+@symbol("wgpuDeviceSetLabel")
+public func deviceSetLabel(device: &DeviceHandle?, label: StringView) -> Void
+
+@symbol("wgpuDeviceAddRef")
+public func deviceAddRef(device: &DeviceHandle?) -> Void
+
+@symbol("wgpuDeviceRelease")
+public func deviceRelease(device: &DeviceHandle?) -> Void
+
+// MARK: - Queue
+
+@symbol("wgpuQueueWriteBuffer")
+public func queueWriteBuffer(
+    queue: &QueueHandle?,
+    buffer: &BufferHandle?,
+    bufferOffset: UInt64,
+    data: *Byte?,
+    size: UInt) -> Void
+
+@symbol("wgpuQueueWriteTexture")
+public func queueWriteTexture(
+    queue: &QueueHandle?,
+    destination: *TexelCopyTextureInfo,
+    data: *Byte?,
+    dataSize: UInt,
+    dataLayout: *TexelCopyBufferLayout,
+    writeSize: *Extent3D) -> Void
+
+@symbol("wgpuQueueSubmit")
+public func queueSubmit(
+    queue: &QueueHandle?,
+    commandCount: UInt,
+    commands: *(&CommandBufferHandle?)) -> Void
+
+@symbol("wgpuQueueOnSubmittedWorkDone")
+public func queueOnSubmittedWorkDone(
+    queue: &QueueHandle?,
+    callbackInfo: QueueWorkDoneCallbackInfo) -> Future
+
+@symbol("wgpuQueueSetLabel")
+public func queueSetLabel(queue: &QueueHandle?, label: StringView) -> Void
+
+@symbol("wgpuQueueAddRef")
+public func queueAddRef(queue: &QueueHandle?) -> Void
+
+@symbol("wgpuQueueRelease")
+public func queueRelease(queue: &QueueHandle?) -> Void
+
+// MARK: - Surface
+
+@symbol("wgpuSurfaceGetCapabilities")
+public func surfaceGetCapabilities(
+    surface: &SurfaceHandle?,
+    adapter: &AdapterHandle?,
+    capabilities: *SurfaceCapabilities) -> Status
+
+@symbol("wgpuSurfaceCapabilitiesFreeMembers")
+public func surfaceCapabilitiesFreeMembers(capabilities: SurfaceCapabilities) -> Void
+
+@symbol("wgpuSurfaceConfigure")
+public func surfaceConfigure(surface: &SurfaceHandle?, configuration: *SurfaceConfiguration) -> Void
+
+@symbol("wgpuSurfaceUnconfigure")
+public func surfaceUnconfigure(surface: &SurfaceHandle?) -> Void
+
+@symbol("wgpuSurfaceGetCurrentTexture")
+public func surfaceGetCurrentTexture(surface: &SurfaceHandle?, surfaceTexture: *SurfaceTexture) -> Void
+
+@symbol("wgpuSurfacePresent")
+public func surfacePresent(surface: &SurfaceHandle?) -> Status
+
+@symbol("wgpuSurfaceSetLabel")
+public func surfaceSetLabel(surface: &SurfaceHandle?, label: StringView) -> Void
+
+@symbol("wgpuSurfaceAddRef")
+public func surfaceAddRef(surface: &SurfaceHandle?) -> Void
+
+@symbol("wgpuSurfaceRelease")
+public func surfaceRelease(surface: &SurfaceHandle?) -> Void
+
+// MARK: - Shader module
+
+@symbol("wgpuShaderModuleGetCompilationInfo")
+public func shaderModuleGetCompilationInfo(
+    shaderModule: &ShaderModuleHandle?,
+    callbackInfo: CompilationInfoCallbackInfo) -> Future
+
+@symbol("wgpuShaderModuleSetLabel")
+public func shaderModuleSetLabel(shaderModule: &ShaderModuleHandle?, label: StringView) -> Void
+
+@symbol("wgpuShaderModuleAddRef")
+public func shaderModuleAddRef(shaderModule: &ShaderModuleHandle?) -> Void
+
+@symbol("wgpuShaderModuleRelease")
+public func shaderModuleRelease(shaderModule: &ShaderModuleHandle?) -> Void
+
+// MARK: - Buffer
+
+@symbol("wgpuBufferDestroy")
+public func bufferDestroy(buffer: &BufferHandle?) -> Void
+
+@symbol("wgpuBufferGetConstMappedRange")
+public func bufferGetConstMappedRange(
+    buffer: &BufferHandle?,
+    offset: UInt,
+    size: UInt) -> *Byte?
+
+@symbol("wgpuBufferGetMappedRange")
+public func bufferGetMappedRange(
+    buffer: &BufferHandle?,
+    offset: UInt,
+    size: UInt) -> *Byte?
+
+@symbol("wgpuBufferGetMapState")
+public func bufferGetMapState(buffer: &BufferHandle?) -> BufferMapState
+
+@symbol("wgpuBufferGetSize")
+public func bufferGetSize(buffer: &BufferHandle?) -> UInt64
+
+@symbol("wgpuBufferGetUsage")
+public func bufferGetUsage(buffer: &BufferHandle?) -> UInt64
+
+@symbol("wgpuBufferMapAsync")
+public func bufferMapAsync(
+    buffer: &BufferHandle?,
+    mode: UInt64,
+    offset: UInt,
+    size: UInt,
+    callbackInfo: BufferMapCallbackInfo) -> Future
+
+@symbol("wgpuBufferReadMappedRange")
+public func bufferReadMappedRange(
+    buffer: &BufferHandle?,
+    offset: UInt,
+    data: *Byte?,
+    size: UInt) -> Status
+
+@symbol("wgpuBufferWriteMappedRange")
+public func bufferWriteMappedRange(
+    buffer: &BufferHandle?,
+    offset: UInt,
+    data: *Byte?,
+    size: UInt) -> Status
+
+@symbol("wgpuBufferUnmap")
+public func bufferUnmap(buffer: &BufferHandle?) -> Void
+
+@symbol("wgpuBufferSetLabel")
+public func bufferSetLabel(buffer: &BufferHandle?, label: StringView) -> Void
+
+@symbol("wgpuBufferAddRef")
+public func bufferAddRef(buffer: &BufferHandle?) -> Void
+
+@symbol("wgpuBufferRelease")
+public func bufferRelease(buffer: &BufferHandle?) -> Void
+
+// MARK: - Texture
+
+@symbol("wgpuTextureCreateView")
+public func textureCreateView(
+    texture: &TextureHandle?,
+    descriptor: *TextureViewDescriptor?) -> &TextureViewHandle?
+
+@symbol("wgpuTextureDestroy")
+public func textureDestroy(texture: &TextureHandle?) -> Void
+
+@symbol("wgpuTextureGetDepthOrArrayLayers")
+public func textureGetDepthOrArrayLayers(texture: &TextureHandle?) -> UInt32
+
+@symbol("wgpuTextureGetDimension")
+public func textureGetDimension(texture: &TextureHandle?) -> TextureDimension
+
+@symbol("wgpuTextureGetFormat")
+public func textureGetFormat(texture: &TextureHandle?) -> TextureFormat
+
+@symbol("wgpuTextureGetHeight")
+public func textureGetHeight(texture: &TextureHandle?) -> UInt32
+
+@symbol("wgpuTextureGetMipLevelCount")
+public func textureGetMipLevelCount(texture: &TextureHandle?) -> UInt32
+
+@symbol("wgpuTextureGetSampleCount")
+public func textureGetSampleCount(texture: &TextureHandle?) -> UInt32
+
+@symbol("wgpuTextureGetTextureBindingViewDimension")
+public func textureGetTextureBindingViewDimension(texture: &TextureHandle?) -> TextureViewDimension
+
+@symbol("wgpuTextureGetUsage")
+public func textureGetUsage(texture: &TextureHandle?) -> UInt64
+
+@symbol("wgpuTextureGetWidth")
+public func textureGetWidth(texture: &TextureHandle?) -> UInt32
+
+@symbol("wgpuTextureSetLabel")
+public func textureSetLabel(texture: &TextureHandle?, label: StringView) -> Void
+
+@symbol("wgpuTextureAddRef")
+public func textureAddRef(texture: &TextureHandle?) -> Void
+
+@symbol("wgpuTextureRelease")
+public func textureRelease(texture: &TextureHandle?) -> Void
+
+// MARK: - Texture view
+
+@symbol("wgpuTextureViewSetLabel")
+public func textureViewSetLabel(textureView: &TextureViewHandle?, label: StringView) -> Void
+
+@symbol("wgpuTextureViewAddRef")
+public func textureViewAddRef(textureView: &TextureViewHandle?) -> Void
+
+@symbol("wgpuTextureViewRelease")
+public func textureViewRelease(view: &TextureViewHandle?) -> Void
+
+// MARK: - Sampler
+
+@symbol("wgpuSamplerSetLabel")
+public func samplerSetLabel(sampler: &SamplerHandle?, label: StringView) -> Void
+
+@symbol("wgpuSamplerAddRef")
+public func samplerAddRef(sampler: &SamplerHandle?) -> Void
+
+@symbol("wgpuSamplerRelease")
+public func samplerRelease(sampler: &SamplerHandle?) -> Void
+
+// MARK: - Render pipeline
+
+@symbol("wgpuRenderPipelineGetBindGroupLayout")
+public func renderPipelineGetBindGroupLayout(
+    pipeline: &RenderPipelineHandle?,
+    groupIndex: UInt32) -> &BindGroupLayoutHandle?
+
+@symbol("wgpuRenderPipelineSetLabel")
+public func renderPipelineSetLabel(pipeline: &RenderPipelineHandle?, label: StringView) -> Void
+
+@symbol("wgpuRenderPipelineAddRef")
+public func renderPipelineAddRef(pipeline: &RenderPipelineHandle?) -> Void
+
+@symbol("wgpuRenderPipelineRelease")
+public func renderPipelineRelease(pipeline: &RenderPipelineHandle?) -> Void
+
+// MARK: - Compute pipeline
+
+@symbol("wgpuComputePipelineGetBindGroupLayout")
+public func computePipelineGetBindGroupLayout(
+    pipeline: &ComputePipelineHandle?,
+    groupIndex: UInt32) -> &BindGroupLayoutHandle?
+
+@symbol("wgpuComputePipelineSetLabel")
+public func computePipelineSetLabel(pipeline: &ComputePipelineHandle?, label: StringView) -> Void
+
+@symbol("wgpuComputePipelineAddRef")
+public func computePipelineAddRef(pipeline: &ComputePipelineHandle?) -> Void
+
+@symbol("wgpuComputePipelineRelease")
+public func computePipelineRelease(pipeline: &ComputePipelineHandle?) -> Void
+
+// MARK: - Bind group
+
+@symbol("wgpuBindGroupSetLabel")
+public func bindGroupSetLabel(bindGroup: &BindGroupHandle?, label: StringView) -> Void
+
+@symbol("wgpuBindGroupAddRef")
+public func bindGroupAddRef(bindGroup: &BindGroupHandle?) -> Void
+
+@symbol("wgpuBindGroupRelease")
+public func bindGroupRelease(group: &BindGroupHandle?) -> Void
+
+// MARK: - Bind group layout
+
+@symbol("wgpuBindGroupLayoutSetLabel")
+public func bindGroupLayoutSetLabel(bindGroupLayout: &BindGroupLayoutHandle?, label: StringView) -> Void
+
+@symbol("wgpuBindGroupLayoutAddRef")
+public func bindGroupLayoutAddRef(bindGroupLayout: &BindGroupLayoutHandle?) -> Void
+
+@symbol("wgpuBindGroupLayoutRelease")
+public func bindGroupLayoutRelease(layout: &BindGroupLayoutHandle?) -> Void
+
+// MARK: - Pipeline layout
+
+@symbol("wgpuPipelineLayoutSetLabel")
+public func pipelineLayoutSetLabel(pipelineLayout: &PipelineLayoutHandle?, label: StringView) -> Void
+
+@symbol("wgpuPipelineLayoutAddRef")
+public func pipelineLayoutAddRef(pipelineLayout: &PipelineLayoutHandle?) -> Void
+
+@symbol("wgpuPipelineLayoutRelease")
+public func pipelineLayoutRelease(pipelineLayout: &PipelineLayoutHandle?) -> Void
+
+// MARK: - Query set
+
+@symbol("wgpuQuerySetDestroy")
+public func querySetDestroy(querySet: &QuerySetHandle?) -> Void
+
+@symbol("wgpuQuerySetGetCount")
+public func querySetGetCount(querySet: &QuerySetHandle?) -> UInt32
+
+@symbol("wgpuQuerySetGetType")
+public func querySetGetType(querySet: &QuerySetHandle?) -> QueryType
+
+@symbol("wgpuQuerySetSetLabel")
+public func querySetSetLabel(querySet: &QuerySetHandle?, label: StringView) -> Void
+
+@symbol("wgpuQuerySetAddRef")
+public func querySetAddRef(querySet: &QuerySetHandle?) -> Void
+
+@symbol("wgpuQuerySetRelease")
+public func querySetRelease(querySet: &QuerySetHandle?) -> Void
+
+// MARK: - Command encoder
+
+@symbol("wgpuCommandEncoderBeginRenderPass")
+public func commandEncoderBeginRenderPass(
+    encoder: &CommandEncoderHandle?,
+    descriptor: *RenderPassDescriptor) -> &RenderPassEncoderHandle?
+
+@symbol("wgpuCommandEncoderBeginComputePass")
+public func commandEncoderBeginComputePass(
+    commandEncoder: &CommandEncoderHandle?,
+    descriptor: *ComputePassDescriptor?) -> &ComputePassEncoderHandle?
+
+@symbol("wgpuCommandEncoderClearBuffer")
+public func commandEncoderClearBuffer(
+    commandEncoder: &CommandEncoderHandle?,
+    buffer: &BufferHandle?,
+    offset: UInt64,
+    size: UInt64) -> Void
+
+@symbol("wgpuCommandEncoderCopyBufferToBuffer")
+public func commandEncoderCopyBufferToBuffer(
+    commandEncoder: &CommandEncoderHandle?,
+    source: &BufferHandle?,
+    sourceOffset: UInt64,
+    destination: &BufferHandle?,
+    destinationOffset: UInt64,
+    size: UInt64) -> Void
+
+@symbol("wgpuCommandEncoderCopyBufferToTexture")
+public func commandEncoderCopyBufferToTexture(
+    commandEncoder: &CommandEncoderHandle?,
+    source: *TexelCopyBufferInfo?,
+    destination: *TexelCopyTextureInfo?,
+    copySize: *Extent3D?) -> Void
+
+@symbol("wgpuCommandEncoderCopyTextureToBuffer")
+public func commandEncoderCopyTextureToBuffer(
+    commandEncoder: &CommandEncoderHandle?,
+    source: *TexelCopyTextureInfo?,
+    destination: *TexelCopyBufferInfo?,
+    copySize: *Extent3D?) -> Void
+
+@symbol("wgpuCommandEncoderCopyTextureToTexture")
+public func commandEncoderCopyTextureToTexture(
+    commandEncoder: &CommandEncoderHandle?,
+    source: *TexelCopyTextureInfo?,
+    destination: *TexelCopyTextureInfo?,
+    copySize: *Extent3D?) -> Void
+
+@symbol("wgpuCommandEncoderFinish")
+public func commandEncoderFinish(
+    encoder: &CommandEncoderHandle?,
+    descriptor: *CommandBufferDescriptor?) -> &CommandBufferHandle?
+
+@symbol("wgpuCommandEncoderInsertDebugMarker")
+public func commandEncoderInsertDebugMarker(
+    commandEncoder: &CommandEncoderHandle?,
+    markerLabel: StringView) -> Void
+
+@symbol("wgpuCommandEncoderPushDebugGroup")
+public func commandEncoderPushDebugGroup(
+    commandEncoder: &CommandEncoderHandle?,
+    groupLabel: StringView) -> Void
+
+@symbol("wgpuCommandEncoderPopDebugGroup")
+public func commandEncoderPopDebugGroup(commandEncoder: &CommandEncoderHandle?) -> Void
+
+@symbol("wgpuCommandEncoderResolveQuerySet")
+public func commandEncoderResolveQuerySet(
+    commandEncoder: &CommandEncoderHandle?,
+    querySet: &QuerySetHandle?,
+    firstQuery: UInt32,
+    queryCount: UInt32,
+    destination: &BufferHandle?,
+    destinationOffset: UInt64) -> Void
+
+@symbol("wgpuCommandEncoderWriteTimestamp")
+public func commandEncoderWriteTimestamp(
+    commandEncoder: &CommandEncoderHandle?,
+    querySet: &QuerySetHandle?,
+    queryIndex: UInt32) -> Void
+
+@symbol("wgpuCommandEncoderSetLabel")
+public func commandEncoderSetLabel(commandEncoder: &CommandEncoderHandle?, label: StringView) -> Void
+
+@symbol("wgpuCommandEncoderAddRef")
+public func commandEncoderAddRef(commandEncoder: &CommandEncoderHandle?) -> Void
+
+@symbol("wgpuCommandEncoderRelease")
+public func commandEncoderRelease(encoder: &CommandEncoderHandle?) -> Void
+
+// MARK: - Render pass encoder
+
+@symbol("wgpuRenderPassEncoderSetPipeline")
+public func renderPassEncoderSetPipeline(
+    pass: &RenderPassEncoderHandle?,
+    pipeline: &RenderPipelineHandle?) -> Void
+
+@symbol("wgpuRenderPassEncoderSetBindGroup")
+public func renderPassEncoderSetBindGroup(
+    pass: &RenderPassEncoderHandle?,
+    groupIndex: UInt32,
+    group: &BindGroupHandle?,
+    dynamicOffsetCount: UInt,
+    dynamicOffsets: *UInt32?) -> Void
+
+@symbol("wgpuRenderPassEncoderSetVertexBuffer")
+public func renderPassEncoderSetVertexBuffer(
+    pass: &RenderPassEncoderHandle?,
+    slot: UInt32,
+    buffer: &BufferHandle?,
+    offset: UInt64,
+    size: UInt64) -> Void
+
+@symbol("wgpuRenderPassEncoderSetIndexBuffer")
+public func renderPassEncoderSetIndexBuffer(
+    pass: &RenderPassEncoderHandle?,
+    buffer: &BufferHandle?,
+    format: IndexFormat,
+    offset: UInt64,
+    size: UInt64) -> Void
+
+@symbol("wgpuRenderPassEncoderDraw")
+public func renderPassEncoderDraw(
+    pass: &RenderPassEncoderHandle?,
+    vertexCount: UInt32,
+    instanceCount: UInt32,
+    firstVertex: UInt32,
+    firstInstance: UInt32) -> Void
+
+@symbol("wgpuRenderPassEncoderDrawIndexed")
+public func renderPassEncoderDrawIndexed(
+    pass: &RenderPassEncoderHandle?,
+    indexCount: UInt32,
+    instanceCount: UInt32,
+    firstIndex: UInt32,
+    baseVertex: Int32,
+    firstInstance: UInt32) -> Void
+
+@symbol("wgpuRenderPassEncoderDrawIndirect")
+public func renderPassEncoderDrawIndirect(
+    renderPassEncoder: &RenderPassEncoderHandle?,
+    indirectBuffer: &BufferHandle?,
+    indirectOffset: UInt64) -> Void
+
+@symbol("wgpuRenderPassEncoderDrawIndexedIndirect")
+public func renderPassEncoderDrawIndexedIndirect(
+    renderPassEncoder: &RenderPassEncoderHandle?,
+    indirectBuffer: &BufferHandle?,
+    indirectOffset: UInt64) -> Void
+
+@symbol("wgpuRenderPassEncoderMultiDrawIndirect")
+public func renderPassEncoderMultiDrawIndirect(
+    renderPassEncoder: &RenderPassEncoderHandle?,
+    indirectBuffer: &BufferHandle?,
+    indirectOffset: UInt64,
+    maxDrawCount: UInt32,
+    drawCountBuffer: &BufferHandle?,
+    drawCountBufferOffset: UInt64) -> Void
+
+@symbol("wgpuRenderPassEncoderMultiDrawIndexedIndirect")
+public func renderPassEncoderMultiDrawIndexedIndirect(
+    renderPassEncoder: &RenderPassEncoderHandle?,
+    indirectBuffer: &BufferHandle?,
+    indirectOffset: UInt64,
+    maxDrawCount: UInt32,
+    drawCountBuffer: &BufferHandle?,
+    drawCountBufferOffset: UInt64) -> Void
+
+@symbol("wgpuRenderPassEncoderSetViewport")
+public func renderPassEncoderSetViewport(
+    renderPassEncoder: &RenderPassEncoderHandle?,
+    x: Float32,
+    y: Float32,
+    width: Float32,
+    height: Float32,
+    minDepth: Float32,
+    maxDepth: Float32) -> Void
+
+@symbol("wgpuRenderPassEncoderSetScissorRect")
+public func renderPassEncoderSetScissorRect(
+    renderPassEncoder: &RenderPassEncoderHandle?,
+    x: UInt32,
+    y: UInt32,
+    width: UInt32,
+    height: UInt32) -> Void
+
+@symbol("wgpuRenderPassEncoderSetBlendConstant")
+public func renderPassEncoderSetBlendConstant(
+    renderPassEncoder: &RenderPassEncoderHandle?,
+    color: *Color?) -> Void
+
+@symbol("wgpuRenderPassEncoderSetStencilReference")
+public func renderPassEncoderSetStencilReference(
+    renderPassEncoder: &RenderPassEncoderHandle?,
+    reference: UInt32) -> Void
+
+@symbol("wgpuRenderPassEncoderBeginOcclusionQuery")
+public func renderPassEncoderBeginOcclusionQuery(
+    renderPassEncoder: &RenderPassEncoderHandle?,
+    queryIndex: UInt32) -> Void
+
+@symbol("wgpuRenderPassEncoderEndOcclusionQuery")
+public func renderPassEncoderEndOcclusionQuery(renderPassEncoder: &RenderPassEncoderHandle?) -> Void
+
+@symbol("wgpuRenderPassEncoderExecuteBundles")
+public func renderPassEncoderExecuteBundles(
+    renderPassEncoder: &RenderPassEncoderHandle?,
+    bundleCount: UInt,
+    bundles: *(&RenderBundleHandle?)) -> Void
+
+@symbol("wgpuRenderPassEncoderInsertDebugMarker")
+public func renderPassEncoderInsertDebugMarker(
+    renderPassEncoder: &RenderPassEncoderHandle?,
+    markerLabel: StringView) -> Void
+
+@symbol("wgpuRenderPassEncoderPushDebugGroup")
+public func renderPassEncoderPushDebugGroup(
+    renderPassEncoder: &RenderPassEncoderHandle?,
+    groupLabel: StringView) -> Void
+
+@symbol("wgpuRenderPassEncoderPopDebugGroup")
+public func renderPassEncoderPopDebugGroup(renderPassEncoder: &RenderPassEncoderHandle?) -> Void
+
+@symbol("wgpuRenderPassEncoderWriteTimestamp")
+public func renderPassEncoderWriteTimestamp(
+    renderPassEncoder: &RenderPassEncoderHandle?,
+    querySet: &QuerySetHandle?,
+    queryIndex: UInt32) -> Void
+
+@symbol("wgpuRenderPassEncoderSetLabel")
+public func renderPassEncoderSetLabel(renderPassEncoder: &RenderPassEncoderHandle?, label: StringView) -> Void
+
+@symbol("wgpuRenderPassEncoderEnd")
+public func renderPassEncoderEnd(pass: &RenderPassEncoderHandle?) -> Void
+
+@symbol("wgpuRenderPassEncoderAddRef")
+public func renderPassEncoderAddRef(renderPassEncoder: &RenderPassEncoderHandle?) -> Void
+
+@symbol("wgpuRenderPassEncoderRelease")
+public func renderPassEncoderRelease(pass: &RenderPassEncoderHandle?) -> Void
+
+// MARK: - Compute pass encoder
+
+@symbol("wgpuComputePassEncoderSetPipeline")
+public func computePassEncoderSetPipeline(
+    computePassEncoder: &ComputePassEncoderHandle?,
+    pipeline: &ComputePipelineHandle?) -> Void
+
+@symbol("wgpuComputePassEncoderSetBindGroup")
+public func computePassEncoderSetBindGroup(
+    computePassEncoder: &ComputePassEncoderHandle?,
+    groupIndex: UInt32,
+    group: &BindGroupHandle?,
+    dynamicOffsetCount: UInt,
+    dynamicOffsets: *UInt32?) -> Void
+
+@symbol("wgpuComputePassEncoderDispatchWorkgroups")
+public func computePassEncoderDispatchWorkgroups(
+    computePassEncoder: &ComputePassEncoderHandle?,
+    workgroupCountX: UInt32,
+    workgroupCountY: UInt32,
+    workgroupCountZ: UInt32) -> Void
+
+@symbol("wgpuComputePassEncoderDispatchWorkgroupsIndirect")
+public func computePassEncoderDispatchWorkgroupsIndirect(
+    computePassEncoder: &ComputePassEncoderHandle?,
+    indirectBuffer: &BufferHandle?,
+    indirectOffset: UInt64) -> Void
+
+@symbol("wgpuComputePassEncoderInsertDebugMarker")
+public func computePassEncoderInsertDebugMarker(
+    computePassEncoder: &ComputePassEncoderHandle?,
+    markerLabel: StringView) -> Void
+
+@symbol("wgpuComputePassEncoderPushDebugGroup")
+public func computePassEncoderPushDebugGroup(
+    computePassEncoder: &ComputePassEncoderHandle?,
+    groupLabel: StringView) -> Void
+
+@symbol("wgpuComputePassEncoderPopDebugGroup")
+public func computePassEncoderPopDebugGroup(computePassEncoder: &ComputePassEncoderHandle?) -> Void
+
+@symbol("wgpuComputePassEncoderWriteTimestamp")
+public func computePassEncoderWriteTimestamp(
+    computePassEncoder: &ComputePassEncoderHandle?,
+    querySet: &QuerySetHandle?,
+    queryIndex: UInt32) -> Void
+
+@symbol("wgpuComputePassEncoderSetLabel")
+public func computePassEncoderSetLabel(computePassEncoder: &ComputePassEncoderHandle?, label: StringView) -> Void
+
+@symbol("wgpuComputePassEncoderEnd")
+public func computePassEncoderEnd(computePassEncoder: &ComputePassEncoderHandle?) -> Void
+
+@symbol("wgpuComputePassEncoderAddRef")
+public func computePassEncoderAddRef(computePassEncoder: &ComputePassEncoderHandle?) -> Void
+
+@symbol("wgpuComputePassEncoderRelease")
+public func computePassEncoderRelease(computePassEncoder: &ComputePassEncoderHandle?) -> Void
+
+// MARK: - Command buffer
+
+@symbol("wgpuCommandBufferSetLabel")
+public func commandBufferSetLabel(commandBuffer: &CommandBufferHandle?, label: StringView) -> Void
+
+@symbol("wgpuCommandBufferAddRef")
+public func commandBufferAddRef(commandBuffer: &CommandBufferHandle?) -> Void
+
+@symbol("wgpuCommandBufferRelease")
+public func commandBufferRelease(buffer: &CommandBufferHandle?) -> Void
+
+// MARK: - Render bundle encoder
+
+@symbol("wgpuRenderBundleEncoderSetPipeline")
+public func renderBundleEncoderSetPipeline(
+    renderBundleEncoder: &RenderBundleEncoderHandle?,
+    pipeline: &RenderPipelineHandle?) -> Void
+
+@symbol("wgpuRenderBundleEncoderSetBindGroup")
+public func renderBundleEncoderSetBindGroup(
+    renderBundleEncoder: &RenderBundleEncoderHandle?,
+    groupIndex: UInt32,
+    group: &BindGroupHandle?,
+    dynamicOffsetCount: UInt,
+    dynamicOffsets: *UInt32?) -> Void
+
+@symbol("wgpuRenderBundleEncoderSetVertexBuffer")
+public func renderBundleEncoderSetVertexBuffer(
+    renderBundleEncoder: &RenderBundleEncoderHandle?,
+    slot: UInt32,
+    buffer: &BufferHandle?,
+    offset: UInt64,
+    size: UInt64) -> Void
+
+@symbol("wgpuRenderBundleEncoderSetIndexBuffer")
+public func renderBundleEncoderSetIndexBuffer(
+    renderBundleEncoder: &RenderBundleEncoderHandle?,
+    buffer: &BufferHandle?,
+    format: IndexFormat,
+    offset: UInt64,
+    size: UInt64) -> Void
+
+@symbol("wgpuRenderBundleEncoderDraw")
+public func renderBundleEncoderDraw(
+    renderBundleEncoder: &RenderBundleEncoderHandle?,
+    vertexCount: UInt32,
+    instanceCount: UInt32,
+    firstVertex: UInt32,
+    firstInstance: UInt32) -> Void
+
+@symbol("wgpuRenderBundleEncoderDrawIndexed")
+public func renderBundleEncoderDrawIndexed(
+    renderBundleEncoder: &RenderBundleEncoderHandle?,
+    indexCount: UInt32,
+    instanceCount: UInt32,
+    firstIndex: UInt32,
+    baseVertex: Int32,
+    firstInstance: UInt32) -> Void
+
+@symbol("wgpuRenderBundleEncoderDrawIndirect")
+public func renderBundleEncoderDrawIndirect(
+    renderBundleEncoder: &RenderBundleEncoderHandle?,
+    indirectBuffer: &BufferHandle?,
+    indirectOffset: UInt64) -> Void
+
+@symbol("wgpuRenderBundleEncoderDrawIndexedIndirect")
+public func renderBundleEncoderDrawIndexedIndirect(
+    renderBundleEncoder: &RenderBundleEncoderHandle?,
+    indirectBuffer: &BufferHandle?,
+    indirectOffset: UInt64) -> Void
+
+@symbol("wgpuRenderBundleEncoderInsertDebugMarker")
+public func renderBundleEncoderInsertDebugMarker(
+    renderBundleEncoder: &RenderBundleEncoderHandle?,
+    markerLabel: StringView) -> Void
+
+@symbol("wgpuRenderBundleEncoderPushDebugGroup")
+public func renderBundleEncoderPushDebugGroup(
+    renderBundleEncoder: &RenderBundleEncoderHandle?,
+    groupLabel: StringView) -> Void
+
+@symbol("wgpuRenderBundleEncoderPopDebugGroup")
+public func renderBundleEncoderPopDebugGroup(renderBundleEncoder: &RenderBundleEncoderHandle?) -> Void
+
+@symbol("wgpuRenderBundleEncoderFinish")
+public func renderBundleEncoderFinish(
+    renderBundleEncoder: &RenderBundleEncoderHandle?,
+    descriptor: *RenderBundleDescriptor?) -> &RenderBundleHandle?
+
+@symbol("wgpuRenderBundleEncoderSetLabel")
+public func renderBundleEncoderSetLabel(renderBundleEncoder: &RenderBundleEncoderHandle?, label: StringView) -> Void
+
+@symbol("wgpuRenderBundleEncoderAddRef")
+public func renderBundleEncoderAddRef(renderBundleEncoder: &RenderBundleEncoderHandle?) -> Void
+
+@symbol("wgpuRenderBundleEncoderRelease")
+public func renderBundleEncoderRelease(renderBundleEncoder: &RenderBundleEncoderHandle?) -> Void
+
+// MARK: - Render bundle
+
+@symbol("wgpuRenderBundleSetLabel")
+public func renderBundleSetLabel(renderBundle: &RenderBundleHandle?, label: StringView) -> Void
+
+@symbol("wgpuRenderBundleAddRef")
+public func renderBundleAddRef(renderBundle: &RenderBundleHandle?) -> Void
+
+@symbol("wgpuRenderBundleRelease")
+public func renderBundleRelease(renderBundle: &RenderBundleHandle?) -> Void
+
+// MARK: - External texture
+
+@symbol("wgpuExternalTextureSetLabel")
+public func externalTextureSetLabel(externalTexture: &ExternalTextureHandle?, label: StringView) -> Void
+
+@symbol("wgpuExternalTextureAddRef")
+public func externalTextureAddRef(externalTexture: &ExternalTextureHandle?) -> Void
+
+@symbol("wgpuExternalTextureRelease")
+public func externalTextureRelease(externalTexture: &ExternalTextureHandle?) -> Void

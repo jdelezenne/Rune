@@ -1,0 +1,200 @@
+public static Storage {
+    /// Bitmask controlling how a file is opened. Bit values match
+    /// `RuneFileOpenFlags` from `rune/file.h` exactly, so the runtime binding
+    /// needs no translation.
+    @flags
+    public enum FileOpenFlags: UInt32 {
+        read = 1
+        write = 2
+        append = 4
+        create = 8
+        createNew = 16
+        truncate = 32
+    }
+
+    public extension FileOpenFlags {
+        /// Open an existing file for reading.
+        public static func reading() -> FileOpenFlags {
+            return .read
+        }
+
+        /// Create (or truncate) a file for writing.
+        public static func writing() -> FileOpenFlags {
+            return .write | .create | .truncate
+        }
+
+        /// Open for writing, creating the file if needed, appending to existing content.
+        public static func appending() -> FileOpenFlags {
+            return .write | .append | .create
+        }
+    }
+
+    /// Reference point for a seek operation.
+    public enum SeekOrigin: Int32 {
+        start = 0
+        current = 1
+        end = 2
+    }
+
+    @builtin
+    public struct File {
+        /// Opens the file at `path` according to `flags`.
+        public static func openAt(path: Path, flags: FileOpenFlags) throws(StorageError) -> File {
+            var error: String = ""
+            let file = File(path: path, flags: flags, error: &error)
+            if !error.isEmpty {
+                throw StorageError(kind: .io, message: error, path: path)
+            }
+
+            return file
+        }
+
+        @runtime("rune_file_open")
+        private init(path: Path, flags: FileOpenFlags, error: &String)
+
+        @runtime("rune_file_close")
+        final()
+    }
+
+    public extension File {
+        /// Reads up to `buffer.count` bytes. Returns the number of bytes read;
+        /// `0` signals end of file.
+        public mutating func read(buffer: &Slice<Byte>) throws(StorageError) -> Int {
+            var bytesRead: Int = 0
+            var error: String = ""
+            if !readInternal(
+                data: buffer.data,
+                size: UInt(buffer.count),
+                bytesRead: &bytesRead,
+                error: &error)
+            {
+                throw StorageError(kind: .io, message: error, path: nil)
+            }
+
+            return bytesRead
+        }
+
+        @runtime("rune_file_read")
+        private mutating func readInternal(data: *Byte, size: UInt, bytesRead: &Int, error: &String) -> Bool
+
+        /// Writes `bytes.count` bytes.
+        public mutating func write(bytes: Slice<Byte>) throws(StorageError) -> Int {
+            var bytesWritten: Int = 0
+            var error: String = ""
+            if !writeInternal(
+                data: bytes.data,
+                size: UInt(bytes.count),
+                bytesWritten: &bytesWritten,
+                error: &error)
+            {
+                throw StorageError(kind: .io, message: error, path: nil)
+            }
+
+            return bytesWritten
+        }
+
+        @runtime("rune_file_write")
+        private mutating func writeInternal(data: *Byte, size: UInt, bytesWritten: &Int, error: &String) -> Bool
+
+        /// Writes all bytes, retrying until the full slice is written.
+        public mutating func writeAll(bytes: Slice<Byte>) throws(StorageError) {
+            var written = 0
+            while written < bytes.count {
+                let remaining = bytes.sliceRange(start: written, end: bytes.count)
+                let count = try write(bytes: remaining)
+                if count <= 0 {
+                    throw StorageError(
+                        kind: .io,
+                        message: "File.writeAll made no progress",
+                        path: nil)
+                }
+
+                written = written + count
+            }
+        }
+
+        /// Reads from the current position until end-of-file and decodes the bytes as UTF-8.
+        public mutating func readToString() throws(StorageError) -> String {
+            var result = ""
+            var bufferStorage: [Byte, 4096] = []
+            while true {
+                var buffer = bufferStorage.asSlice()
+                let count = try read(buffer: &buffer)
+                if count == 0 {
+                    return result
+                }
+
+                result = result + String.fromBytes(source: bufferStorage.bytes, length: UInt(count))
+            }
+        }
+
+        /// Flushes OS write buffers to the underlying storage.
+        public mutating func flush() throws(StorageError) {
+            var error: String = ""
+            if !flushInternal(error: &error) {
+                throw StorageError(kind: .io, message: error, path: nil)
+            }
+        }
+
+        @runtime("rune_file_flush")
+        private mutating func flushInternal(error: &String) -> Bool
+
+        /// Moves the file position by `offset` relative to `from`. Returns the
+        /// resulting absolute byte offset.
+        public mutating func seek(offset: Int64, from: SeekOrigin) throws(StorageError) -> UInt64 {
+            var position: UInt64 = 0
+            var error: String = ""
+            if !seekInternal(offset: offset, from: from, position: &position, error: &error) {
+                throw StorageError(kind: .io, message: error, path: nil)
+            }
+
+            return position
+        }
+
+        @runtime("rune_file_seek")
+        private mutating func seekInternal(
+            offset: Int64,
+            from: SeekOrigin,
+            position: &UInt64,
+            error: &String) -> Bool
+
+        /// Returns the current absolute byte offset.
+        public func tell() throws(StorageError) -> UInt64 {
+            var position: UInt64 = 0
+            var error: String = ""
+            if !tellInternal(position: &position, error: &error) {
+                throw StorageError(kind: .io, message: error, path: nil)
+            }
+
+            return position
+        }
+
+        @runtime("rune_file_tell")
+        private func tellInternal(position: &UInt64, error: &String) -> Bool
+
+        /// Returns the file size in bytes.
+        public func size() throws(StorageError) -> UInt64 {
+            var value: UInt64 = 0
+            var error: String = ""
+            if !getSizeInternal(value: &value, error: &error) {
+                throw StorageError(kind: .io, message: error, path: nil)
+            }
+
+            return value
+        }
+
+        @runtime("rune_file_size")
+        private func getSizeInternal(value: &UInt64, error: &String) -> Bool
+
+        /// Truncates or extends the file to exactly `newSize` bytes.
+        public mutating func setSize(newSize: UInt64) throws(StorageError) {
+            var error: String = ""
+            if !setSizeInternal(size: newSize, error: &error) {
+                throw StorageError(kind: .io, message: error, path: nil)
+            }
+        }
+
+        @runtime("rune_file_set_size")
+        private mutating func setSizeInternal(size: UInt64, error: &String) -> Bool
+    }
+}

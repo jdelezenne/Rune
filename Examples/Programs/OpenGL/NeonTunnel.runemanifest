@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "name": "NeonTunnel",
+  "kind": "executable",
+  "unsafe": true,
+  "sources": [
+    "NeonTunnel.rune"
+  ],
+  "dependencies": [
+    "../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../Modules/SDL3/SDL3.runemanifest",
+    "../../Modules/OpenGL/OpenGL.runemanifest"
+  ]
+}

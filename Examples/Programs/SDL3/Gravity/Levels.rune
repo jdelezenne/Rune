@@ -1,0 +1,155 @@
+import Standard.*
+
+struct Package {
+    var position: Vec2
+    var collected: Bool
+}
+
+struct Level {
+    var name: String
+    var base: Rect
+    var exitBase: Rect
+    var start: Vec2
+    var packageCount: Int
+    var packages: [Package, MAX_PACKAGES]
+    var enemyCount: Int
+    var enemies: [Enemy, MAX_ENEMIES]
+    var wallCount: Int
+    var walls: [Rect, MAX_WALLS]
+}
+
+func emptyPackages() -> [Package, MAX_PACKAGES] {
+    return [
+        Package(position: vec2(x: 0.0, y: 0.0), collected: true),
+        Package(position: vec2(x: 0.0, y: 0.0), collected: true),
+        Package(position: vec2(x: 0.0, y: 0.0), collected: true),
+        Package(position: vec2(x: 0.0, y: 0.0), collected: true),
+    ]
+}
+
+func emptyWalls() -> [Rect, MAX_WALLS] {
+    return [
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+        rect(x: 0.0, y: 0.0, w: 0.0, h: 0.0),
+    ]
+}
+
+func loadLevel(index: Int) -> Level {
+    var packages = emptyPackages()
+    var enemies = emptyEnemies()
+    var walls = emptyWalls()
+
+    if index == 0 {
+        packages[0] = Package(position: vec2(x: 965.0, y: 316.0), collected: false)
+        packages[1] = Package(position: vec2(x: 1520.0, y: 740.0), collected: false)
+        enemies[0] = makeEnemy(kind: ENEMY_STATIC, x: 960.0, y: 378.0, minX: 0.0, maxX: 0.0, speed: 0.0, phase: 0.0)
+        enemies[1] = makeEnemy(kind: ENEMY_FLYER, x: 1440.0, y: 610.0, minX: 1320.0, maxX: 1660.0, speed: 1.7, phase: 0.5)
+        enemies[2] = makeEnemy(kind: ENEMY_GROUND, x: 620.0, y: 1110.0, minX: 610.0, maxX: 1040.0, speed: 72.0, phase: 0.0)
+
+        walls[0] = rect(x: 0.0, y: 0.0, w: WORLD_W, h: 44.0)
+        walls[1] = rect(x: 0.0, y: WORLD_H - 44.0, w: WORLD_W, h: 44.0)
+        walls[2] = rect(x: 0.0, y: 0.0, w: 44.0, h: WORLD_H)
+        walls[3] = rect(x: WORLD_W - 44.0, y: 0.0, w: 44.0, h: WORLD_H)
+        walls[4] = rect(x: 360.0, y: 178.0, w: 210.0, h: 360.0)
+        walls[5] = rect(x: 360.0, y: 790.0, w: 230.0, h: 330.0)
+        walls[6] = rect(x: 760.0, y: 0.0, w: 180.0, h: 260.0)
+        walls[7] = rect(x: 740.0, y: 470.0, w: 220.0, h: 420.0)
+        walls[8] = rect(x: 1160.0, y: 230.0, w: 200.0, h: 360.0)
+        walls[9] = rect(x: 1260.0, y: 865.0, w: 360.0, h: 190.0)
+
+        return Level(
+            name: "Cavern Run",
+            base: rect(x: 157.0, y: 210.0, w: 100.0, h: 18.0),
+            exitBase: rect(x: 1621.0, y: 1034.0, w: 100.0, h: 18.0),
+            start: vec2(x: 207.0, y: 187.0),
+            packageCount: 2,
+            packages: packages,
+            enemyCount: 3,
+            enemies: enemies,
+            wallCount: 10,
+            walls: walls)
+    } else if index == 1 {
+        packages[0] = Package(position: vec2(x: 1470.0, y: 230.0), collected: false)
+        packages[1] = Package(position: vec2(x: 610.0, y: 990.0), collected: false)
+        packages[2] = Package(position: vec2(x: 1600.0, y: 960.0), collected: false)
+        enemies[0] = makeEnemy(kind: ENEMY_STATIC, x: 640.0, y: 620.0, minX: 0.0, maxX: 0.0, speed: 0.0, phase: 0.0)
+        enemies[1] = makeEnemy(kind: ENEMY_FLYER, x: 1120.0, y: 690.0, minX: 980.0, maxX: 1320.0, speed: 2.0, phase: 1.2)
+        enemies[2] = makeEnemy(kind: ENEMY_GROUND, x: 1200.0, y: 1146.0, minX: 1190.0, maxX: 1440.0, speed: -82.0, phase: 0.0)
+        enemies[3] = makeEnemy(kind: ENEMY_FLYER, x: 370.0, y: 580.0, minX: 180.0, maxX: 620.0, speed: 1.45, phase: 0.0)
+
+        walls[0] = rect(x: 0.0, y: 0.0, w: WORLD_W, h: 44.0)
+        walls[1] = rect(x: 0.0, y: WORLD_H - 44.0, w: WORLD_W, h: 44.0)
+        walls[2] = rect(x: 0.0, y: 0.0, w: 44.0, h: WORLD_H)
+        walls[3] = rect(x: WORLD_W - 44.0, y: 0.0, w: 44.0, h: WORLD_H)
+        walls[4] = rect(x: 310.0, y: 260.0, w: 260.0, h: 210.0)
+        walls[5] = rect(x: 310.0, y: 680.0, w: 270.0, h: 330.0)
+        walls[6] = rect(x: 710.0, y: 120.0, w: 190.0, h: 520.0)
+        walls[7] = rect(x: 955.0, y: 780.0, w: 230.0, h: 360.0)
+        walls[8] = rect(x: 1225.0, y: 360.0, w: 270.0, h: 250.0)
+        walls[9] = rect(x: 1540.0, y: 80.0, w: 110.0, h: 620.0)
+        walls[10] = rect(x: 1450.0, y: 1060.0, w: 300.0, h: 130.0)
+
+        return Level(
+            name: "Switchbacks",
+            base: rect(x: 142.66667, y: 1002.0, w: 106.66667, h: 18.0),
+            exitBase: rect(x: 1585.0, y: 212.0, w: 100.0, h: 18.0),
+            start: vec2(x: 196.0, y: 978.0),
+            packageCount: 3,
+            packages: packages,
+            enemyCount: 4,
+            enemies: enemies,
+            wallCount: 11,
+            walls: walls)
+    }
+
+    packages[0] = Package(position: vec2(x: 510.0, y: 278.0), collected: false)
+    packages[1] = Package(position: vec2(x: 1030.0, y: 1012.0), collected: false)
+    packages[2] = Package(position: vec2(x: 1520.0, y: 300.0), collected: false)
+    packages[3] = Package(position: vec2(x: 1610.0, y: 900.0), collected: false)
+    enemies[0] = makeEnemy(kind: ENEMY_STATIC, x: 510.0, y: 345.0, minX: 0.0, maxX: 0.0, speed: 0.0, phase: 0.0)
+    enemies[1] = makeEnemy(kind: ENEMY_FLYER, x: 1030.0, y: 690.0, minX: 835.0, maxX: 1260.0, speed: 1.9, phase: 0.4)
+    enemies[2] = makeEnemy(kind: ENEMY_GROUND, x: 1238.0, y: 1174.0, minX: 900.0, maxX: 1410.0, speed: 92.0, phase: 0.0)
+    enemies[3] = makeEnemy(kind: ENEMY_STATIC, x: 1495.0, y: 820.0, minX: 0.0, maxX: 0.0, speed: 0.0, phase: 0.0)
+    enemies[4] = makeEnemy(kind: ENEMY_FLYER, x: 1660.0, y: 245.0, minX: 1460.0, maxX: 1780.0, speed: 2.25, phase: 1.0)
+
+    walls[0] = rect(x: 0.0, y: 0.0, w: WORLD_W, h: 44.0)
+    walls[1] = rect(x: 0.0, y: WORLD_H - 44.0, w: WORLD_W, h: 44.0)
+    walls[2] = rect(x: 0.0, y: 0.0, w: 44.0, h: WORLD_H)
+    walls[3] = rect(x: WORLD_W - 44.0, y: 0.0, w: 44.0, h: WORLD_H)
+    walls[4] = rect(x: 250.0, y: 280.0, w: 170.0, h: 480.0)
+    walls[5] = rect(x: 525.0, y: 0.0, w: 180.0, h: 270.0)
+    walls[6] = rect(x: 600.0, y: 560.0, w: 165.0, h: 520.0)
+    walls[7] = rect(x: 885.0, y: 220.0, w: 210.0, h: 360.0)
+    walls[8] = rect(x: 1045.0, y: 780.0, w: 190.0, h: 260.0)
+    walls[9] = rect(x: 1320.0, y: 112.0, w: 150.0, h: 610.0)
+    walls[10] = rect(x: 1510.0, y: 520.0, w: 250.0, h: 170.0)
+    walls[11] = rect(x: 1450.0, y: 1035.0, w: 320.0, h: 150.0)
+
+    return Level(
+        name: "Deep Haul",
+        base: rect(x: 157.0, y: 1050.0, w: 100.0, h: 18.0),
+        exitBase: rect(x: 1587.0, y: 346.0, w: 100.0, h: 18.0),
+        start: vec2(x: 207.0, y: 1026.0),
+        packageCount: 4,
+        packages: packages,
+        enemyCount: 5,
+        enemies: enemies,
+        wallCount: 12,
+        walls: walls)
+}

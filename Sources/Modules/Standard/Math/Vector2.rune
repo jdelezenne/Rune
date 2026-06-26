@@ -1,0 +1,198 @@
+/// 2D vector for screen-space/UI math (see Vector3 for the 3D counterpart).
+@layout(kind: c)
+public struct Vector2 {
+    public var x: Float32 = 0.0
+    public var y: Float32 = 0.0
+
+    public static func zero() -> Vector2 {
+        return Vector2(x: 0.0, y: 0.0)
+    }
+
+    public static func one() -> Vector2 {
+        return Vector2(x: 1.0, y: 1.0)
+    }
+
+    public static func up() -> Vector2 {
+        return Vector2(x: 0.0, y: 1.0)
+    }
+
+    public static func down() -> Vector2 {
+        return Vector2(x: 0.0, y: -1.0)
+    }
+
+    public static func left() -> Vector2 {
+        return Vector2(x: -1.0, y: 0.0)
+    }
+
+    public static func right() -> Vector2 {
+        return Vector2(x: 1.0, y: 0.0)
+    }
+
+    public func dot(other: Vector2) -> Float32 {
+        return x * other.x + y * other.y
+    }
+
+    public func lengthSquared() -> Float32 {
+        return dot(other: self)
+    }
+
+    public func length() -> Float32 {
+        return Math.sqrt(lengthSquared())
+    }
+
+    public func normalized() -> Vector2 {
+        let magnitude = length()
+        if magnitude < Math.EPSILON_F32 {
+            return Vector2.zero()
+        }
+        return self * (1.0 / magnitude)
+    }
+
+    public func distance(to: Vector2) -> Float32 {
+        return (self - to).length()
+    }
+
+    /// Squared distance to `to` (avoids the square root when only comparing).
+    public func distanceSquared(to: Vector2) -> Float32 {
+        return (self - to).lengthSquared()
+    }
+
+    /// Linear interpolation from `self` to `to` at `t`.
+    public func lerp(to: Vector2, t: Float32) -> Vector2 {
+        return self + (to - self) * t
+    }
+
+    /// Reflects this vector about `normal` (assumed to be unit length).
+    public func reflect(normal: Vector2) -> Vector2 {
+        return self - normal * (2.0 * dot(other: normal))
+    }
+
+    /// Projection of this vector onto `onto`.
+    public func project(onto: Vector2) -> Vector2 {
+        let denom = onto.dot(other: onto)
+        if denom < Math.EPSILON_F32 {
+            return Vector2.zero()
+        }
+        return onto * (dot(other: onto) / denom)
+    }
+
+    /// A vector perpendicular to this one (rotated 90° counter-clockwise).
+    public func perpendicular() -> Vector2 {
+        return Vector2(x: 0.0 - y, y: x)
+    }
+
+    /// The 2D cross product (perp-dot): `x*other.y - y*other.x`. Positive when
+    /// `other` is counter-clockwise from `self`; used for torque, winding, and
+    /// side-of-line tests.
+    public func cross(other: Vector2) -> Float32 {
+        return x * other.y - y * other.x
+    }
+
+    /// This vector rotated by `angle` radians (counter-clockwise).
+    public func rotated(angle: Float32) -> Vector2 {
+        let c = Math.cos(angle)
+        let s = Math.sin(angle)
+        return Vector2(x: x * c - y * s, y: x * s + y * c)
+    }
+
+    /// This vector scaled to `newLength` (zero vector stays zero).
+    public func withLength(newLength: Float32) -> Vector2 {
+        return normalized() * newLength
+    }
+
+    /// This vector with its length capped at `maxLength`.
+    public func clampLength(maxLength: Float32) -> Vector2 {
+        let lenSq = lengthSquared()
+        if lenSq > maxLength * maxLength && lenSq > Math.EPSILON_F32 {
+            return self * (maxLength / Math.sqrt(lenSq))
+        }
+        return self
+    }
+
+    /// Moves this point towards `target` by at most `maxDistance`.
+    public func moveTowards(target: Vector2, maxDistance: Float32) -> Vector2 {
+        let delta = target - self
+        let dist = delta.length()
+        if dist <= maxDistance || dist < Math.EPSILON_F32 {
+            return target
+        }
+        return self + delta * (maxDistance / dist)
+    }
+
+    /// Unsigned angle in radians between this vector and `to`.
+    public func angle(to: Vector2) -> Float32 {
+        let denom = length() * to.length()
+        if denom < Math.EPSILON_F32 {
+            return 0.0
+        }
+        return Math.acos(Math.clamp(dot(other: to) / denom, -1.0, 1.0))
+    }
+
+    /// Component-wise minimum of two vectors.
+    public static func min(a: Vector2, b: Vector2) -> Vector2 {
+        return Vector2(x: Math.min(a.x, b.x), y: Math.min(a.y, b.y))
+    }
+
+    /// Component-wise maximum of two vectors.
+    public static func max(a: Vector2, b: Vector2) -> Vector2 {
+        return Vector2(x: Math.max(a.x, b.x), y: Math.max(a.y, b.y))
+    }
+
+    /// Component-wise clamp of `value` between `minVal` and `maxVal`.
+    public static func clamp(value: Vector2, minVal: Vector2, maxVal: Vector2) -> Vector2 {
+        return Vector2(
+            x: Math.clamp(value.x, minVal.x, maxVal.x),
+            y: Math.clamp(value.y, minVal.y, maxVal.y))
+    }
+
+    /// Component-wise absolute value.
+    public static func abs(value: Vector2) -> Vector2 {
+        return Vector2(x: Math.abs(value.x), y: Math.abs(value.y))
+    }
+
+    public static operator +(lhs: Vector2, rhs: Vector2) -> Vector2 {
+        return Vector2(x: lhs.x + rhs.x, y: lhs.y + rhs.y)
+    }
+
+    public static operator -(lhs: Vector2, rhs: Vector2) -> Vector2 {
+        return Vector2(x: lhs.x - rhs.x, y: lhs.y - rhs.y)
+    }
+
+    public static operator -(value: Vector2) -> Vector2 {
+        return Vector2(x: 0.0 - value.x, y: 0.0 - value.y)
+    }
+
+    public static operator *(lhs: Vector2, rhs: Float32) -> Vector2 {
+        return Vector2(x: lhs.x * rhs, y: lhs.y * rhs)
+    }
+
+    public static operator *(lhs: Float32, rhs: Vector2) -> Vector2 {
+        return Vector2(x: lhs * rhs.x, y: lhs * rhs.y)
+    }
+
+    public static operator /(lhs: Vector2, rhs: Float32) -> Vector2 {
+        return Vector2(x: lhs.x / rhs, y: lhs.y / rhs)
+    }
+
+    /// Component-wise (Hadamard) product.
+    public static operator *(lhs: Vector2, rhs: Vector2) -> Vector2 {
+        return Vector2(x: lhs.x * rhs.x, y: lhs.y * rhs.y)
+    }
+
+    /// Component-wise division.
+    public static operator /(lhs: Vector2, rhs: Vector2) -> Vector2 {
+        return Vector2(x: lhs.x / rhs.x, y: lhs.y / rhs.y)
+    }
+}
+
+public extension Vector2 implements Equatable {
+    public static operator ==(lhs: Vector2, rhs: Vector2) -> Bool {
+        return lhs.x == rhs.x && lhs.y == rhs.y
+    }
+}
+
+public extension Vector2 implements CustomStringConvertible {
+    public func toString() -> String {
+        return "Vector2(${self.x}, ${self.y})"
+    }
+}

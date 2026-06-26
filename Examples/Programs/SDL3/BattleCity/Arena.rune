@@ -1,0 +1,236 @@
+// Arena: the battlefield geometry and stage book for a top-down tank battler
+// in the classic Battle City mould - a 13x13 walled arena with the eagle
+// base at the bottom centre behind a brick ring, the player rising beside
+// it, and enemy tanks dropping in at three points along the top edge.
+//
+// Brick cells erode in quarters (stored as a 4-bit mask per cell) so shots
+// chew through walls half a cell at a time, the way the original's bricks
+// crumble. All geometry constants live here so the simulation and the
+// renderer agree on where every cell sits on screen.
+
+import Standard.*
+
+// MARK: - Screen geometry (arena on the left, roster panel on the right)
+
+const WIDTH: Int32 = 792
+const HEIGHT: Int32 = 672
+
+const CELL: Float32 = 48.0
+const GRID: Int = 13
+const GRID_CELLS: Int = 169
+
+const FIELD_X: Float32 = 24.0
+const FIELD_Y: Float32 = 24.0
+const FIELD_W: Float32 = 624.0
+const FIELD_H: Float32 = 624.0
+
+const PANEL_X: Float32 = 660.0
+const PANEL_W: Float32 = 132.0
+
+// MARK: - Tank and bullet metrics (screen px)
+
+const TANK_HALF: Float32 = 19.0
+const BULLET_HALF: Float32 = 4.0
+
+// Tanks snap to this sub-grid when they turn, so corridors line up.
+const SNAP: Float32 = 24.0
+
+// MARK: - Tile kinds
+
+const TILE_EMPTY: UInt8 = 0
+const TILE_BRICK: UInt8 = 1
+const TILE_STEEL: UInt8 = 2
+const TILE_TREES: UInt8 = 3
+const TILE_WATER: UInt8 = 4
+
+// Quarter mask bits for brick erosion (TL, TR, BL, BR).
+const QUARTER_TL: UInt8 = 1
+const QUARTER_TR: UInt8 = 2
+const QUARTER_BL: UInt8 = 4
+const QUARTER_BR: UInt8 = 8
+const QUARTER_ALL: UInt8 = 15
+const QUARTER_TOP: UInt8 = 3
+const QUARTER_BOTTOM: UInt8 = 12
+const QUARTER_LEFT: UInt8 = 5
+const QUARTER_RIGHT: UInt8 = 10
+
+// MARK: - Directions (same encoding as Sokoban's walk paths)
+
+const DIR_UP: Int32 = 0
+const DIR_RIGHT: Int32 = 1
+const DIR_DOWN: Int32 = 2
+const DIR_LEFT: Int32 = 3
+
+const DIR_DX: [Float32, 4] = [0.0, 1.0, 0.0, -1.0]
+const DIR_DY: [Float32, 4] = [-1.0, 0.0, 1.0, 0.0]
+
+// MARK: - Fixed landmarks (cell coordinates)
+
+const BASE_COL: Int = 6
+const BASE_ROW: Int = 12
+
+const PLAYER_SPAWN_COL: Int = 4
+const PLAYER_SPAWN_ROW: Int = 12
+
+const ENEMY_SPAWN_COLS: [Int, 3] = [0, 6, 12]
+
+// The brick ring shielded by the shovel power-up: the cells hugging the
+// eagle.
+const BASE_RING_COUNT: Int = 5
+const BASE_RING_COLS: [Int, 5] = [5, 5, 6, 7, 7]
+const BASE_RING_ROWS: [Int, 5] = [12, 11, 11, 11, 12]
+
+// MARK: - Cell helpers
+
+func cellIndex(col: Int, row: Int) -> Int {
+    return row * GRID + col
+}
+
+func cellCenterX(col: Int) -> Float32 {
+    return FIELD_X + (Float32(col) + 0.5) * CELL
+}
+
+func cellCenterY(row: Int) -> Float32 {
+    return FIELD_Y + (Float32(row) + 0.5) * CELL
+}
+
+func colAtX(x: Float32) -> Int {
+    return Int((x - FIELD_X) / CELL)
+}
+
+func rowAtY(y: Float32) -> Int {
+    return Int((y - FIELD_Y) / CELL)
+}
+
+// MARK: - Stage layouts
+//
+// One flat 13x13 array per stage: 0 empty, 1 brick, 2 steel, 3 trees,
+// 4 water. Row 0 is the top edge (enemy drops), rows 11-12 stay clear
+// around the base; the brick ring and the eagle are stamped in by the
+// loader so every stage shares the same fortress.
+
+const STAGE_COUNT: Int = 6
+
+// Stage 1 - the parade ground: plain brick lanes with a steel stud in the
+// middle of the crossing.
+const STAGE_1: [UInt8, GRID_CELLS] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+    0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+    0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0,
+    0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0,
+    0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0,
+    1, 1, 0, 1, 1, 1, 2, 1, 1, 1, 0, 1, 1,
+    0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0,
+    0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0,
+    0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0,
+    0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+    0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+]
+
+// Stage 2 - steel studs: brick lanes broken up by bullet-proof blocks.
+const STAGE_2: [UInt8, GRID_CELLS] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0,
+    0, 1, 0, 2, 0, 1, 0, 1, 0, 2, 0, 1, 0,
+    0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0,
+    0, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0,
+    0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0,
+    2, 0, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 2,
+    0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0,
+    0, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0,
+    0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0,
+    0, 1, 0, 2, 0, 1, 0, 1, 0, 2, 0, 1, 0,
+    0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+]
+
+// Stage 3 - the river: a water channel crossed on two brick bridges, with
+// woods along the far bank.
+const STAGE_3: [UInt8, GRID_CELLS] = [
+    0, 0, 0, 0, 0, 3, 3, 3, 0, 0, 0, 0, 0,
+    0, 1, 1, 0, 0, 3, 1, 3, 0, 0, 1, 1, 0,
+    0, 1, 0, 0, 0, 3, 1, 3, 0, 0, 0, 1, 0,
+    0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+    4, 4, 4, 4, 4, 0, 0, 0, 4, 4, 4, 4, 4,
+    4, 4, 4, 4, 4, 0, 1, 0, 4, 4, 4, 4, 4,
+    0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+    0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0,
+    0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0,
+    3, 3, 0, 0, 1, 1, 0, 1, 1, 0, 0, 3, 3,
+    3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3,
+    3, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 3,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+]
+
+// Stage 4 - the warren: a dense brick maze with steel corner posts.
+const STAGE_4: [UInt8, GRID_CELLS] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 2, 0, 1, 1, 0, 1, 0, 1, 1, 0, 2, 0,
+    0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0,
+    0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0,
+    0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0,
+    0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0,
+    0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+    0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0,
+    0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0,
+    0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0,
+    0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+    0, 2, 0, 1, 1, 0, 0, 0, 1, 1, 0, 2, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+]
+
+// Stage 5 - the forest: tree cover hiding the lanes, with two still ponds.
+const STAGE_5: [UInt8, GRID_CELLS] = [
+    0, 0, 0, 3, 3, 3, 0, 3, 3, 3, 0, 0, 0,
+    0, 1, 3, 3, 1, 3, 3, 3, 1, 3, 3, 1, 0,
+    0, 3, 3, 1, 0, 3, 1, 3, 0, 1, 3, 3, 0,
+    3, 3, 1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 3,
+    3, 1, 0, 0, 4, 4, 0, 4, 4, 0, 0, 1, 3,
+    3, 3, 0, 0, 4, 4, 0, 4, 4, 0, 0, 3, 3,
+    0, 3, 1, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0,
+    0, 3, 3, 1, 0, 1, 1, 1, 0, 1, 3, 3, 0,
+    0, 0, 3, 3, 0, 1, 0, 1, 0, 3, 3, 0, 0,
+    0, 1, 0, 3, 3, 0, 0, 0, 3, 3, 0, 1, 0,
+    0, 1, 0, 0, 3, 3, 0, 3, 3, 0, 0, 1, 0,
+    0, 0, 0, 0, 0, 3, 0, 3, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+]
+
+// Stage 6 - the fortress: concentric steel work that only a maxed-out
+// cannon can breach directly.
+const STAGE_6: [UInt8, GRID_CELLS] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 1, 0, 2, 0, 0, 1, 0, 0, 2, 0, 1, 0,
+    0, 0, 0, 2, 0, 0, 1, 0, 0, 2, 0, 0, 0,
+    0, 2, 2, 2, 0, 1, 1, 1, 0, 2, 2, 2, 0,
+    0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0,
+    0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0,
+    1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1,
+    0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0,
+    0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0,
+    0, 2, 2, 2, 0, 1, 1, 1, 0, 2, 2, 2, 0,
+    0, 0, 0, 2, 0, 0, 0, 0, 0, 2, 0, 0, 0,
+    0, 1, 0, 2, 0, 0, 0, 0, 0, 2, 0, 1, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+]
+
+func stageTile(stage: Int, index: Int) -> UInt8 {
+    if stage == 0 {
+        return STAGE_1[index]
+    }
+    if stage == 1 {
+        return STAGE_2[index]
+    }
+    if stage == 2 {
+        return STAGE_3[index]
+    }
+    if stage == 3 {
+        return STAGE_4[index]
+    }
+    if stage == 4 {
+        return STAGE_5[index]
+    }
+    return STAGE_6[index]
+}

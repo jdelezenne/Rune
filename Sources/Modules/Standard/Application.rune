@@ -1,0 +1,9 @@
+/// Paths and metadata belonging to the running application artifact.
+public static Application {
+    /// Directory containing resources declared by module manifests.
+    /// The directory is beside native executables and inside the VM artifact root.
+    public resourcesDirectory: Storage.Path {
+        @runtime("rune_runtime_application_get_resources_directory")
+        get
+    }
+}

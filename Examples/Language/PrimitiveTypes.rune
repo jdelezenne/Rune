@@ -1,0 +1,28 @@
+func main() -> Int {
+    let i8: Int8 = 1
+    let i16: Int16 = 2
+    let i32: Int32 = 3
+    let i64: Int64 = 4
+    let intValue: Int = 5
+
+    let u8: UInt8 = 6
+    let u16: UInt16 = 7
+    let u32: UInt32 = 8
+    let u64: UInt64 = 9
+    let uintValue: UInt = 10
+
+    let f32: Float = 1.5
+    let f64: Float64 = 2.5
+    let flag: Bool = true
+    let letter: Char = 'A'
+
+    if i8 == 1 && i16 == 2 && i32 == 3 && i64 == 4 && intValue == 5 {
+        if u8 == 6 && u16 == 7 && u32 == 8 && u64 == 9 && uintValue == 10 {
+            if f32 == 1.5 && f64 == 2.5 && flag && letter == 'A' {
+                return 0
+            }
+        }
+    }
+
+    return 1
+}

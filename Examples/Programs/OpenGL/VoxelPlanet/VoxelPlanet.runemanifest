@@ -1,0 +1,27 @@
+{
+  "version": "1.0.0",
+  "name": "VoxelPlanet",
+  "kind": "executable",
+  "unsafe": true,
+  "sources": [
+    "Noise.rune",
+    "Model.rune",
+    "Mesh.rune",
+    "Input.rune",
+    "Render.rune",
+    "HudText.rune",
+    "Main.rune"
+  ],
+  "resources": [
+    {
+      "path": "../../../Resources/DejaVuSansMono.ttf",
+      "destination": "DejaVuSansMono.ttf"
+    }
+  ],
+  "dependencies": [
+    "../../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../../../Examples/Modules/SDL3/SDL3.runemanifest",
+    "../../../../Examples/Modules/SDL3_ttf/SDL3_ttf.runemanifest",
+    "../../../../Examples/Modules/OpenGL/OpenGL.runemanifest"
+  ]
+}

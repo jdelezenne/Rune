@@ -1,0 +1,26 @@
+var score = 0
+
+struct Token {
+    init() {
+        score = score + 3
+    }
+
+    final() {
+        score = score + 7
+    }
+}
+
+func run() -> Int {
+    let token = Token()
+    return 0
+}
+
+func main() -> Int {
+    score = 0
+    _ = run()
+    if score != 10 {
+        return 1
+    }
+
+    return 0
+}

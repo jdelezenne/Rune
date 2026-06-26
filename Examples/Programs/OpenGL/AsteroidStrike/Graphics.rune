@@ -1,0 +1,687 @@
+import Standard.*
+import SDL3
+import OpenGL
+
+func resolveOpenGL(name: CStringSlice) -> &Byte? { return SDL3.glGetProcAddress(name) }
+
+let desktopShaderHeader: String = "#version 410 core\n"
+let wasmShaderHeader: String = "#version 300 es\n"
+
+func platformShaderSource(body: String) -> String {
+    if #platform(wasm) { return wasmShaderHeader + body }
+    return desktopShaderHeader + body
+}
+
+let worldVertexShader: String = """
+#ifdef GL_ES
+precision highp float;
+#endif
+in vec3 position;
+in vec3 normal;
+in vec3 color;
+uniform mat4 mvp;
+uniform mat4 model;
+out vec3 worldNormal;
+out vec3 vertexColor;
+void main() {
+    gl_Position = mvp * vec4(position, 1.0);
+    gl_PointSize = 1.8;
+    worldNormal = (model * vec4(normal, 0.0)).xyz;
+    vertexColor = color;
+}
+"""
+
+let worldFragmentShader: String = """
+#ifdef GL_ES
+precision mediump float;
+#endif
+in vec3 worldNormal;
+in vec3 vertexColor;
+out vec4 fragmentColor;
+void main() {
+    float magnitude = length(worldNormal);
+    if (magnitude < 0.01) {
+        fragmentColor = vec4(vertexColor, 1.0);
+    } else {
+        vec3 n = normalize(worldNormal);
+        vec3 lightDirection = normalize(vec3(-0.35, 0.78, -0.48));
+        float diffuse = max(dot(n, lightDirection), 0.0);
+        float rim = pow(1.0 - abs(n.z), 2.0) * 0.16;
+        fragmentColor = vec4(vertexColor * (0.24 + diffuse * 0.84 + rim), 1.0);
+    }
+}
+"""
+
+let effectVertexShader: String = """
+#ifdef GL_ES
+precision highp float;
+#endif
+in vec3 position;
+in vec4 color;
+in vec2 uv;
+uniform mat4 viewProjection;
+out vec4 effectColor;
+out vec2 effectUv;
+void main() {
+    gl_Position = viewProjection * vec4(position, 1.0);
+    effectColor = color;
+    effectUv = uv;
+}
+"""
+
+let effectFragmentShader: String = """
+#ifdef GL_ES
+precision mediump float;
+#endif
+uniform float softParticle;
+in vec4 effectColor;
+in vec2 effectUv;
+out vec4 fragmentColor;
+void main() {
+    float alpha = effectColor.a;
+    if (softParticle > 0.5) {
+        vec2 centered = effectUv * 2.0 - 1.0;
+        float radial = clamp(1.0 - dot(centered, centered), 0.0, 1.0);
+        alpha *= radial * radial;
+    }
+    fragmentColor = vec4(effectColor.rgb, alpha);
+}
+"""
+
+let screenVertexShader: String = """
+#ifdef GL_ES
+precision highp float;
+#endif
+in vec2 position;
+in vec2 uv;
+out vec2 screenUv;
+void main() {
+    gl_Position = vec4(position, 0.0, 1.0);
+    screenUv = uv;
+}
+"""
+
+let brightFragmentShader: String = """
+#ifdef GL_ES
+precision mediump float;
+#endif
+uniform sampler2D sourceTexture;
+in vec2 screenUv;
+out vec4 fragmentColor;
+void main() {
+    vec3 color = texture(sourceTexture, screenUv).rgb;
+    float brightness = max(color.r, max(color.g, color.b));
+    float contribution = smoothstep(0.62, 1.08, brightness);
+    fragmentColor = vec4(color * contribution, 1.0);
+}
+"""
+
+let blurFragmentShader: String = """
+#ifdef GL_ES
+precision mediump float;
+#endif
+uniform sampler2D sourceTexture;
+uniform vec2 direction;
+in vec2 screenUv;
+out vec4 fragmentColor;
+void main() {
+    vec3 result = texture(sourceTexture, screenUv).rgb * 0.227027;
+    result += texture(sourceTexture, screenUv + direction * 1.384615).rgb * 0.316216;
+    result += texture(sourceTexture, screenUv - direction * 1.384615).rgb * 0.316216;
+    result += texture(sourceTexture, screenUv + direction * 3.230769).rgb * 0.070270;
+    result += texture(sourceTexture, screenUv - direction * 3.230769).rgb * 0.070270;
+    fragmentColor = vec4(result, 1.0);
+}
+"""
+
+let compositeFragmentShader: String = """
+#ifdef GL_ES
+precision mediump float;
+#endif
+uniform sampler2D sourceTexture;
+uniform sampler2D bloomTexture;
+uniform float bloomIntensity;
+in vec2 screenUv;
+out vec4 fragmentColor;
+void main() {
+    vec3 scene = texture(sourceTexture, screenUv).rgb;
+    vec3 bloom = texture(bloomTexture, screenUv).rgb;
+    fragmentColor = vec4(scene + bloom * bloomIntensity, 1.0);
+}
+"""
+
+struct Program {
+    var handle: OpenGL.GLuint
+    var position: OpenGL.GLuint
+    var normal: OpenGL.GLuint
+    var color: OpenGL.GLuint
+    var mvp: OpenGL.GLint
+    var model: OpenGL.GLint
+}
+
+struct EffectProgram {
+    var handle: OpenGL.GLuint
+    var position: OpenGL.GLuint
+    var color: OpenGL.GLuint
+    var uv: OpenGL.GLuint
+    var viewProjection: OpenGL.GLint
+    var softParticle: OpenGL.GLint
+}
+
+struct PostProgram {
+    var handle: OpenGL.GLuint
+    var position: OpenGL.GLuint
+    var uv: OpenGL.GLuint
+    var sourceTexture: OpenGL.GLint
+    var bloomTexture: OpenGL.GLint
+    var direction: OpenGL.GLint
+    var bloomIntensity: OpenGL.GLint
+}
+
+@layout(kind: c)
+struct ScreenVertex {
+    var x: Float32
+    var y: Float32
+    var u: Float32
+    var v: Float32
+}
+
+@layout(kind: c)
+struct EffectVertex {
+    var position: Vector3
+    var red: Float32
+    var green: Float32
+    var blue: Float32
+    var alpha: Float32
+    var u: Float32
+    var v: Float32
+}
+
+const MAX_EFFECT_VERTICES: Int = 2304
+
+func compileStage(kind: OpenGL.GLenum, source: String) -> OpenGL.GLuint {
+    let shader = OpenGL.createShader(kind)
+    var bytes: [Byte, 4096] = []
+    let fullSource = platformShaderSource(source)
+    let count = fullSource.copyBytes(destination: (bytes.bytes as &Byte), maxLength: 4096)
+    var pointer = bytes.bytes as *Int8
+    var length = count as! OpenGL.GLint
+    OpenGL.shaderSource(shader, 1, &pointer, &length)
+    OpenGL.compileShader(shader)
+    var status: Int32 = 0
+    OpenGL.getShaderiv(shader, OpenGL.COMPILE_STATUS, &status)
+    if status == 0 { Console.printLine("Asteroid Strike shader compilation failed") }
+    return shader
+}
+
+func buildProgram() -> Program {
+    let vertex = compileStage(OpenGL.VERTEX_SHADER, worldVertexShader)
+    let fragment = compileStage(OpenGL.FRAGMENT_SHADER, worldFragmentShader)
+    let handle = OpenGL.createProgram()
+    OpenGL.attachShader(handle, vertex)
+    OpenGL.attachShader(handle, fragment)
+    OpenGL.linkProgram(handle)
+    var status: Int32 = 0
+    OpenGL.getProgramiv(handle, OpenGL.LINK_STATUS, &status)
+    if status == 0 { Console.printLine("Asteroid Strike shader linking failed") }
+    return Program(
+        handle: handle,
+        position: OpenGL.getAttribLocation(handle, "position") as! UInt32,
+        normal: OpenGL.getAttribLocation(handle, "normal") as! UInt32,
+        color: OpenGL.getAttribLocation(handle, "color") as! UInt32,
+        mvp: OpenGL.getUniformLocation(handle, "mvp"),
+        model: OpenGL.getUniformLocation(handle, "model"))
+}
+
+func buildEffectProgram() -> EffectProgram {
+    let vertex = compileStage(OpenGL.VERTEX_SHADER, effectVertexShader)
+    let fragment = compileStage(OpenGL.FRAGMENT_SHADER, effectFragmentShader)
+    let handle = OpenGL.createProgram()
+    OpenGL.attachShader(handle, vertex)
+    OpenGL.attachShader(handle, fragment)
+    OpenGL.linkProgram(handle)
+    var status: Int32 = 0
+    OpenGL.getProgramiv(handle, OpenGL.LINK_STATUS, &status)
+    if status == 0 { Console.printLine("Asteroid Strike effect shader linking failed") }
+    return EffectProgram(handle: handle,
+        position: OpenGL.getAttribLocation(handle, "position") as! UInt32,
+        color: OpenGL.getAttribLocation(handle, "color") as! UInt32,
+        uv: OpenGL.getAttribLocation(handle, "uv") as! UInt32,
+        viewProjection: OpenGL.getUniformLocation(handle, "viewProjection"),
+        softParticle: OpenGL.getUniformLocation(handle, "softParticle"))
+}
+
+func buildPostProgram(fragmentSource: String) -> PostProgram {
+    let vertex = compileStage(OpenGL.VERTEX_SHADER, screenVertexShader)
+    let fragment = compileStage(OpenGL.FRAGMENT_SHADER, fragmentSource)
+    let handle = OpenGL.createProgram()
+    OpenGL.attachShader(handle, vertex)
+    OpenGL.attachShader(handle, fragment)
+    OpenGL.linkProgram(handle)
+    var status: Int32 = 0
+    OpenGL.getProgramiv(handle, OpenGL.LINK_STATUS, &status)
+    if status == 0 { Console.printLine("Asteroid Strike post-process shader linking failed") }
+    return PostProgram(handle: handle,
+        position: OpenGL.getAttribLocation(handle, "position") as! UInt32,
+        uv: OpenGL.getAttribLocation(handle, "uv") as! UInt32,
+        sourceTexture: OpenGL.getUniformLocation(handle, "sourceTexture"),
+        bloomTexture: OpenGL.getUniformLocation(handle, "bloomTexture"),
+        direction: OpenGL.getUniformLocation(handle, "direction"),
+        bloomIntensity: OpenGL.getUniformLocation(handle, "bloomIntensity"))
+}
+
+func uploadShip(vertices: *[Vertex, SHIP_VERTEX_COUNT]) -> OpenGL.GLuint {
+    var buffer: OpenGL.GLuint = 0
+    OpenGL.genBuffers(1, &buffer)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, buffer)
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, SHIP_VERTEX_COUNT * 36, (vertices.bytes as *Byte), OpenGL.STATIC_DRAW)
+    return buffer
+}
+
+func uploadRock(vertices: *[Vertex, ROCK_VERTEX_COUNT]) -> OpenGL.GLuint {
+    var buffer: OpenGL.GLuint = 0
+    OpenGL.genBuffers(1, &buffer)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, buffer)
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, ROCK_VERTEX_COUNT * 36, (vertices.bytes as *Byte), OpenGL.STATIC_DRAW)
+    return buffer
+}
+
+func uploadShot(vertices: *[Vertex, SHOT_VERTEX_COUNT]) -> OpenGL.GLuint {
+    var buffer: OpenGL.GLuint = 0
+    OpenGL.genBuffers(1, &buffer)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, buffer)
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, SHOT_VERTEX_COUNT * 36, (vertices.bytes as *Byte), OpenGL.STATIC_DRAW)
+    return buffer
+}
+
+func uploadStars(vertices: *[Vertex, STAR_COUNT]) -> OpenGL.GLuint {
+    var buffer: OpenGL.GLuint = 0
+    OpenGL.genBuffers(1, &buffer)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, buffer)
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, STAR_COUNT * 36, (vertices.bytes as *Byte), OpenGL.STATIC_DRAW)
+    return buffer
+}
+
+func uploadReticle(vertices: *[Vertex, RETICLE_VERTEX_COUNT]) -> OpenGL.GLuint {
+    var buffer: OpenGL.GLuint = 0
+    OpenGL.genBuffers(1, &buffer)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, buffer)
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, RETICLE_VERTEX_COUNT * 36, (vertices.bytes as *Byte), OpenGL.STATIC_DRAW)
+    return buffer
+}
+
+struct Scene {
+    var vertexArray: OpenGL.GLuint
+    var program: Program
+    var effectProgram: EffectProgram
+    var brightProgram: PostProgram
+    var blurProgram: PostProgram
+    var compositeProgram: PostProgram
+    var ship: OpenGL.GLuint
+    var rocks: [OpenGL.GLuint, ROCK_VARIANTS]
+    var shot: OpenGL.GLuint
+    var stars: OpenGL.GLuint
+    var reticle: OpenGL.GLuint
+    var effects: OpenGL.GLuint
+    var screenQuad: OpenGL.GLuint
+    var worldFramebuffer: OpenGL.GLuint
+    var worldTexture: OpenGL.GLuint
+    var worldDepth: OpenGL.GLuint
+    var bloomFramebuffers: [OpenGL.GLuint, 2]
+    var bloomTextures: [OpenGL.GLuint, 2]
+    var width: Int32
+    var height: Int32
+    var bloomWidth: Int32
+    var bloomHeight: Int32
+}
+
+func configureRenderTexture(texture: OpenGL.GLuint, width: Int32, height: Int32) {
+    OpenGL.bindTexture(OpenGL.TEXTURE_2D, texture)
+    if #platform(wasm) {
+        OpenGL.texImage2D(OpenGL.TEXTURE_2D, 0, OpenGL.RGBA8 as! Int32,
+            width, height, 0, OpenGL.RGBA, OpenGL.UNSIGNED_BYTE, 0 as *Byte)
+    } else {
+        OpenGL.texImage2D(OpenGL.TEXTURE_2D, 0, OpenGL.RGBA16F as! Int32,
+            width, height, 0, OpenGL.RGBA, OpenGL.FLOAT, 0 as *Byte)
+    }
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_MIN_FILTER, OpenGL.LINEAR as! Int32)
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_MAG_FILTER, OpenGL.LINEAR as! Int32)
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_WRAP_S, OpenGL.CLAMP_TO_EDGE as! Int32)
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_WRAP_T, OpenGL.CLAMP_TO_EDGE as! Int32)
+}
+
+func checkRenderTarget(name: String) {
+    if OpenGL.checkFramebufferStatus(OpenGL.FRAMEBUFFER) != OpenGL.FRAMEBUFFER_COMPLETE {
+        Console.printLine("Asteroid Strike ${name} framebuffer is incomplete")
+    }
+}
+
+func buildScene(width: Int32, height: Int32) -> Scene {
+    OpenGL.loadFunctions(resolveOpenGL)
+    var vertexArray: OpenGL.GLuint = 0
+    OpenGL.genVertexArrays(1, &vertexArray)
+    OpenGL.bindVertexArray(vertexArray)
+    let program = buildProgram()
+    let effectProgram = buildEffectProgram()
+    let brightProgram = buildPostProgram(brightFragmentShader)
+    let blurProgram = buildPostProgram(blurFragmentShader)
+    let compositeProgram = buildPostProgram(compositeFragmentShader)
+    let shipMesh = buildShipMesh()
+    let shotMesh = buildShotMesh()
+    let starMesh = buildStars()
+    let reticleMesh = buildReticle()
+    var rocks: [OpenGL.GLuint, ROCK_VARIANTS] = []
+    for index in 0..ROCK_VARIANTS {
+        let mesh = buildRockMesh(UInt32(index) * 3571 + 97)
+        rocks[index] = uploadRock(*mesh)
+    }
+    var effects: OpenGL.GLuint = 0
+    OpenGL.genBuffers(1, &effects)
+
+    var screenQuad: OpenGL.GLuint = 0
+    OpenGL.genBuffers(1, &screenQuad)
+    var quad: [ScreenVertex, 6] = []
+    quad[0] = ScreenVertex(x: -1.0, y: -1.0, u: 0.0, v: 0.0)
+    quad[1] = ScreenVertex(x: 1.0, y: -1.0, u: 1.0, v: 0.0)
+    quad[2] = ScreenVertex(x: 1.0, y: 1.0, u: 1.0, v: 1.0)
+    quad[3] = ScreenVertex(x: -1.0, y: -1.0, u: 0.0, v: 0.0)
+    quad[4] = ScreenVertex(x: 1.0, y: 1.0, u: 1.0, v: 1.0)
+    quad[5] = ScreenVertex(x: -1.0, y: 1.0, u: 0.0, v: 1.0)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, screenQuad)
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, 96, quad.bytes as *Byte, OpenGL.STATIC_DRAW)
+
+    var worldFramebuffer: OpenGL.GLuint = 0
+    var worldTexture: OpenGL.GLuint = 0
+    var worldDepth: OpenGL.GLuint = 0
+    OpenGL.genFramebuffers(1, &worldFramebuffer)
+    OpenGL.genTextures(1, &worldTexture)
+    OpenGL.genRenderbuffers(1, &worldDepth)
+    configureRenderTexture(worldTexture, width, height)
+    OpenGL.bindRenderbuffer(OpenGL.RENDERBUFFER, worldDepth)
+    OpenGL.renderbufferStorage(OpenGL.RENDERBUFFER, OpenGL.DEPTH_COMPONENT24, width, height)
+    OpenGL.bindFramebuffer(OpenGL.FRAMEBUFFER, worldFramebuffer)
+    OpenGL.framebufferTexture2D(OpenGL.FRAMEBUFFER, OpenGL.COLOR_ATTACHMENT0,
+        OpenGL.TEXTURE_2D, worldTexture, 0)
+    OpenGL.framebufferRenderbuffer(OpenGL.FRAMEBUFFER, OpenGL.DEPTH_ATTACHMENT,
+        OpenGL.RENDERBUFFER, worldDepth)
+    checkRenderTarget("world")
+
+    let bloomWidth = width / 2
+    let bloomHeight = height / 2
+    var bloomFramebuffers: [OpenGL.GLuint, 2] = []
+    var bloomTextures: [OpenGL.GLuint, 2] = []
+    OpenGL.genFramebuffers(2, &bloomFramebuffers[0])
+    OpenGL.genTextures(2, &bloomTextures[0])
+    for index in 0..2 {
+        configureRenderTexture(bloomTextures[index], bloomWidth, bloomHeight)
+        OpenGL.bindFramebuffer(OpenGL.FRAMEBUFFER, bloomFramebuffers[index])
+        OpenGL.framebufferTexture2D(OpenGL.FRAMEBUFFER, OpenGL.COLOR_ATTACHMENT0,
+            OpenGL.TEXTURE_2D, bloomTextures[index], 0)
+        checkRenderTarget("bloom")
+    }
+    OpenGL.bindFramebuffer(OpenGL.FRAMEBUFFER, 0)
+    OpenGL.bindTexture(OpenGL.TEXTURE_2D, 0)
+
+    return Scene(vertexArray: vertexArray, program: program, effectProgram: effectProgram,
+        brightProgram: brightProgram, blurProgram: blurProgram, compositeProgram: compositeProgram,
+        ship: uploadShip(*shipMesh), rocks: rocks, shot: uploadShot(*shotMesh),
+        stars: uploadStars(*starMesh), reticle: uploadReticle(*reticleMesh), effects: effects,
+        screenQuad: screenQuad, worldFramebuffer: worldFramebuffer, worldTexture: worldTexture,
+        worldDepth: worldDepth, bloomFramebuffers: bloomFramebuffers, bloomTextures: bloomTextures,
+        width: width, height: height, bloomWidth: bloomWidth, bloomHeight: bloomHeight)
+}
+
+func basisMatrix(basis: ShipBasis) -> Matrix4 {
+    var result = Matrix4.identity()
+    result.m[0] = basis.forward.x; result.m[1] = basis.forward.y; result.m[2] = basis.forward.z
+    result.m[4] = basis.up.x; result.m[5] = basis.up.y; result.m[6] = basis.up.z
+    result.m[8] = basis.right.x; result.m[9] = basis.right.y; result.m[10] = basis.right.z
+    return result
+}
+
+func beginWorldFrame(scene: *Scene) {
+    OpenGL.bindVertexArray(scene.vertexArray)
+    OpenGL.bindFramebuffer(OpenGL.FRAMEBUFFER, scene.worldFramebuffer)
+    OpenGL.viewport(0, 0, scene.width, scene.height)
+}
+
+func beginPostProgram(scene: *Scene, program: PostProgram) {
+    OpenGL.bindVertexArray(scene.vertexArray)
+    OpenGL.useProgram(program.handle)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, scene.screenQuad)
+    OpenGL.enableVertexAttribArray(program.position)
+    OpenGL.vertexAttribPointer(program.position, 2, OpenGL.FLOAT, OpenGL.FALSE, 16, 0 as *Byte)
+    OpenGL.enableVertexAttribArray(program.uv)
+    OpenGL.vertexAttribPointer(program.uv, 2, OpenGL.FLOAT, OpenGL.FALSE, 16, 8 as *Byte)
+}
+
+func drawPostQuad() {
+    OpenGL.drawArrays(OpenGL.TRIANGLES, 0, 6)
+}
+
+func finishWorldFrame(scene: *Scene) {
+    OpenGL.disable(OpenGL.DEPTH_TEST)
+    OpenGL.disable(OpenGL.BLEND)
+    OpenGL.depthMask(OpenGL.FALSE)
+
+    // Downsample the HDR world while extracting pixels above the bloom knee.
+    OpenGL.bindFramebuffer(OpenGL.FRAMEBUFFER, scene.bloomFramebuffers[0])
+    OpenGL.viewport(0, 0, scene.bloomWidth, scene.bloomHeight)
+    OpenGL.clearColor(0.0, 0.0, 0.0, 1.0)
+    OpenGL.clear(OpenGL.COLOR_BUFFER_BIT)
+    beginPostProgram(scene, scene.brightProgram)
+    OpenGL.activeTexture(OpenGL.TEXTURE0)
+    OpenGL.bindTexture(OpenGL.TEXTURE_2D, scene.worldTexture)
+    OpenGL.uniform1i(scene.brightProgram.sourceTexture, 0)
+    drawPostQuad()
+
+    // Eight separable Gaussian passes produce a stable wide blur at half
+    // resolution without coupling blur radius to window resolution.
+    for pass in 0..8 {
+        let horizontal = (pass % 2) == 0
+        let destination: Int = if horizontal { 1 } else { 0 }
+        let source: Int = if horizontal { 0 } else { 1 }
+        OpenGL.bindFramebuffer(OpenGL.FRAMEBUFFER, scene.bloomFramebuffers[destination])
+        beginPostProgram(scene, scene.blurProgram)
+        OpenGL.activeTexture(OpenGL.TEXTURE0)
+        OpenGL.bindTexture(OpenGL.TEXTURE_2D, scene.bloomTextures[source])
+        OpenGL.uniform1i(scene.blurProgram.sourceTexture, 0)
+        if horizontal {
+            OpenGL.uniform2f(scene.blurProgram.direction, 1.0 / Float32(scene.bloomWidth), 0.0)
+        } else {
+            OpenGL.uniform2f(scene.blurProgram.direction, 0.0, 1.0 / Float32(scene.bloomHeight))
+        }
+        drawPostQuad()
+    }
+
+    // Composite the original full-resolution world with the blurred bright
+    // buffer. The HUD is drawn afterward and therefore remains unblurred.
+    OpenGL.bindFramebuffer(OpenGL.FRAMEBUFFER, 0)
+    OpenGL.viewport(0, 0, scene.width, scene.height)
+    beginPostProgram(scene, scene.compositeProgram)
+    OpenGL.activeTexture(OpenGL.TEXTURE0)
+    OpenGL.bindTexture(OpenGL.TEXTURE_2D, scene.worldTexture)
+    OpenGL.uniform1i(scene.compositeProgram.sourceTexture, 0)
+    OpenGL.activeTexture(OpenGL.TEXTURE0 + 1)
+    OpenGL.bindTexture(OpenGL.TEXTURE_2D, scene.bloomTextures[0])
+    OpenGL.uniform1i(scene.compositeProgram.bloomTexture, 1)
+    OpenGL.uniform1f(scene.compositeProgram.bloomIntensity, 0.82)
+    drawPostQuad()
+    OpenGL.activeTexture(OpenGL.TEXTURE0)
+    OpenGL.depthMask(OpenGL.TRUE)
+    OpenGL.enable(OpenGL.DEPTH_TEST)
+}
+
+func beginMesh(scene: *Scene, buffer: OpenGL.GLuint) {
+    OpenGL.bindVertexArray(scene.vertexArray)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, buffer)
+    OpenGL.enableVertexAttribArray(scene.program.position)
+    OpenGL.vertexAttribPointer(scene.program.position, 3, OpenGL.FLOAT, OpenGL.FALSE, 36, 0 as *Byte)
+    OpenGL.enableVertexAttribArray(scene.program.normal)
+    OpenGL.vertexAttribPointer(scene.program.normal, 3, OpenGL.FLOAT, OpenGL.FALSE, 36, 12 as *Byte)
+    OpenGL.enableVertexAttribArray(scene.program.color)
+    OpenGL.vertexAttribPointer(scene.program.color, 3, OpenGL.FLOAT, OpenGL.FALSE, 36, 24 as *Byte)
+}
+
+func drawBuffer(scene: *Scene, buffer: OpenGL.GLuint, count: Int32, mode: OpenGL.GLenum,
+    model: Matrix4, viewProjection: Matrix4) {
+    beginMesh(scene, buffer)
+    var modelCopy = model
+    var mvp = viewProjection * model
+    OpenGL.uniformMatrix4fv(scene.program.model, 1, OpenGL.FALSE, modelCopy.m.bytes as *OpenGL.GLfloat)
+    OpenGL.uniformMatrix4fv(scene.program.mvp, 1, OpenGL.FALSE, mvp.m.bytes as *OpenGL.GLfloat)
+    OpenGL.drawArrays(mode, 0, count)
+}
+
+func makeEffectVertex(position: Vector3, color: Vector3, alpha: Float32,
+    u: Float32, v: Float32) -> EffectVertex {
+    return EffectVertex(position: position, red: color.x, green: color.y, blue: color.z,
+        alpha: alpha, u: u, v: v)
+}
+
+func writeParticleQuad(vertices: *[EffectVertex, MAX_EFFECT_VERTICES], offset: Int,
+    center: Vector3, right: Vector3, up: Vector3, color: Vector3, alpha: Float32) {
+    let bottomLeft = center - right - up
+    let bottomRight = center + right - up
+    let topRight = center + right + up
+    let topLeft = center - right + up
+    vertices[offset + 0] = makeEffectVertex(bottomLeft, color, alpha, 0.0, 0.0)
+    vertices[offset + 1] = makeEffectVertex(bottomRight, color, alpha, 1.0, 0.0)
+    vertices[offset + 2] = makeEffectVertex(topRight, color, alpha, 1.0, 1.0)
+    vertices[offset + 3] = makeEffectVertex(bottomLeft, color, alpha, 0.0, 0.0)
+    vertices[offset + 4] = makeEffectVertex(topRight, color, alpha, 1.0, 1.0)
+    vertices[offset + 5] = makeEffectVertex(topLeft, color, alpha, 0.0, 1.0)
+}
+
+func drawEffectBatch(scene: *Scene, vertices: *[EffectVertex, MAX_EFFECT_VERTICES],
+    count: Int, viewProjection: Matrix4, shape: Float32) {
+    if count == 0 { return }
+    OpenGL.bindVertexArray(scene.vertexArray)
+    OpenGL.useProgram(scene.effectProgram.handle)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, scene.effects)
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, count * 36, vertices.bytes as *Byte, OpenGL.DYNAMIC_DRAW)
+    OpenGL.enableVertexAttribArray(scene.effectProgram.position)
+    OpenGL.vertexAttribPointer(scene.effectProgram.position, 3, OpenGL.FLOAT, OpenGL.FALSE, 36, 0 as *Byte)
+    OpenGL.enableVertexAttribArray(scene.effectProgram.color)
+    OpenGL.vertexAttribPointer(scene.effectProgram.color, 4, OpenGL.FLOAT, OpenGL.FALSE, 36, 12 as *Byte)
+    OpenGL.enableVertexAttribArray(scene.effectProgram.uv)
+    OpenGL.vertexAttribPointer(scene.effectProgram.uv, 2, OpenGL.FLOAT, OpenGL.FALSE, 36, 28 as *Byte)
+    var matrix = viewProjection
+    OpenGL.uniformMatrix4fv(scene.effectProgram.viewProjection, 1, OpenGL.FALSE,
+        matrix.m.bytes as *OpenGL.GLfloat)
+    OpenGL.uniform1f(scene.effectProgram.softParticle, shape)
+    OpenGL.drawArrays(OpenGL.TRIANGLES, 0, Int32(count))
+}
+
+func writeShotRibbon(vertices: *[EffectVertex, MAX_EFFECT_VERTICES], offset: Int,
+    shot: Shot, cameraForward: Vector3, cameraRight: Vector3, width: Float32,
+    frontAlpha: Float32) {
+    let direction = shot.velocity.normalized()
+    let tail = shot.position - direction * 3.8
+    var side = direction.cross(other: cameraForward).normalized()
+    if side.lengthSquared() < 0.01 { side = cameraRight }
+    side = side * width
+    let frontColor = Vector3(x: 1.0, y: 0.88, z: 0.28)
+    let backColor = Vector3(x: 1.0, y: 0.12, z: 0.015)
+    vertices[offset + 0] = makeEffectVertex(tail - side, backColor, 0.0, 0.0, 0.0)
+    vertices[offset + 1] = makeEffectVertex(tail + side, backColor, 0.0, 1.0, 0.0)
+    vertices[offset + 2] = makeEffectVertex(shot.position + side, frontColor, frontAlpha, 1.0, 1.0)
+    vertices[offset + 3] = makeEffectVertex(tail - side, backColor, 0.0, 0.0, 0.0)
+    vertices[offset + 4] = makeEffectVertex(shot.position + side, frontColor, frontAlpha, 1.0, 1.0)
+    vertices[offset + 5] = makeEffectVertex(shot.position - side, frontColor, frontAlpha, 0.0, 1.0)
+}
+
+func drawEffects(scene: *Scene, game: *Game, viewProjection: Matrix4, cameraUp: Vector3) {
+    let cameraForward = (game.camera.target - game.camera.eye).normalized()
+    var cameraRight = cameraForward.cross(other: cameraUp).normalized()
+    if cameraRight.lengthSquared() < 0.01 { cameraRight = Vector3(x: 0.0, y: 0.0, z: 1.0) }
+    let billboardUp = cameraRight.cross(other: cameraForward).normalized()
+    var vertices: [EffectVertex, MAX_EFFECT_VERTICES] = []
+    var count: Int = 0
+
+    OpenGL.enable(OpenGL.BLEND)
+    OpenGL.blendFunc(OpenGL.SRC_ALPHA, OpenGL.ONE_MINUS_SRC_ALPHA)
+    OpenGL.depthMask(OpenGL.FALSE)
+
+    for index in 0..MAX_SHOTS {
+        if !game.shots[index].active || count + 6 > MAX_EFFECT_VERTICES { continue }
+        writeShotRibbon(&vertices, count, game.shots[index], cameraForward, cameraRight, 0.095, 0.96)
+        count = count + 6
+    }
+    drawEffectBatch(scene, &vertices, count, viewProjection, 0.0)
+
+    count = 0
+    for index in 0..MAX_PARTICLES {
+        if !game.particles[index].active || count + 6 > MAX_EFFECT_VERTICES { continue }
+        let particle = game.particles[index]
+        let remaining = Math.clamp(particle.life / particle.maxLife, 0.0, 1.0)
+        let age = 1.0 - remaining
+        let halfSize = particle.size * (0.55 + age * 0.75)
+        writeParticleQuad(&vertices, count, particle.position,
+            cameraRight * halfSize, billboardUp * halfSize, particle.color, remaining * remaining)
+        count = count + 6
+    }
+    drawEffectBatch(scene, &vertices, count, viewProjection, 1.0)
+    OpenGL.depthMask(OpenGL.TRUE)
+    OpenGL.disable(OpenGL.BLEND)
+}
+
+func drawWorld(scene: *Scene, game: *Game, projection: Matrix4) {
+    OpenGL.useProgram(scene.program.handle)
+    let basis = shipBasis(game.ship.yaw, game.ship.pitch, game.ship.roll)
+    let view = Matrix4.lookAt(eye: game.camera.eye, target: game.camera.target, up: basis.up)
+    let viewProjection = projection * view
+
+    OpenGL.depthMask(OpenGL.FALSE)
+    drawBuffer(scene, scene.stars, Int32(STAR_COUNT), OpenGL.POINTS, Matrix4.identity(), viewProjection)
+    OpenGL.depthMask(OpenGL.TRUE)
+
+    if !game.gameOver && (game.ship.invulnerable <= 0.0 || (Int32(game.ship.invulnerable * 8.0) % 2) == 0) {
+        let shipModel = Matrix4.translation(offset: game.ship.position) * basisMatrix(basis)
+        drawBuffer(scene, scene.ship, Int32(SHIP_VERTEX_COUNT), OpenGL.TRIANGLES, shipModel, viewProjection)
+    }
+
+    for index in 0..MAX_ROCKS {
+        if !game.rocks[index].active { continue }
+        let rock = game.rocks[index]
+        let rotation = Matrix4.rotation(axis: rock.spinAxis, angle: rock.spin)
+        let model = Matrix4.translation(offset: rock.position) * (rotation * Matrix4.scale(uniform: rock.radius))
+        drawBuffer(scene, scene.rocks[Int(rock.variant)], Int32(ROCK_VERTEX_COUNT), OpenGL.TRIANGLES, model, viewProjection)
+    }
+
+    for index in 0..MAX_SHOTS {
+        if !game.shots[index].active { continue }
+        let direction = game.shots[index].velocity.normalized()
+        let yaw = Math.atan2(direction.z, direction.x)
+        let pitch = Math.asin(direction.y)
+        let shotBasis = shipBasis(yaw, pitch, 0.0)
+        let model = Matrix4.translation(offset: game.shots[index].position) * basisMatrix(shotBasis)
+        drawBuffer(scene, scene.shot, Int32(SHOT_VERTEX_COUNT), OpenGL.TRIANGLES, model, viewProjection)
+    }
+
+    let reticlePosition = game.ship.position + basis.forward * 22.0
+    let reticleModel = Matrix4.translation(offset: reticlePosition) * (basisMatrix(basis) * Matrix4.scale(uniform: 0.72))
+    drawBuffer(scene, scene.reticle, Int32(RETICLE_VERTEX_COUNT), OpenGL.LINES, reticleModel, viewProjection)
+    drawEffects(scene, game, viewProjection, basis.up)
+}
+
+func destroyScene(scene: &Scene) {
+    OpenGL.deleteVertexArrays(1, &scene.vertexArray)
+    OpenGL.deleteBuffers(1, &scene.ship)
+    for index in 0..ROCK_VARIANTS { OpenGL.deleteBuffers(1, &scene.rocks[index]) }
+    OpenGL.deleteBuffers(1, &scene.shot)
+    OpenGL.deleteBuffers(1, &scene.stars)
+    OpenGL.deleteBuffers(1, &scene.reticle)
+    OpenGL.deleteBuffers(1, &scene.effects)
+    OpenGL.deleteBuffers(1, &scene.screenQuad)
+    OpenGL.deleteTextures(1, &scene.worldTexture)
+    OpenGL.deleteTextures(2, &scene.bloomTextures[0])
+    OpenGL.deleteRenderbuffers(1, &scene.worldDepth)
+    OpenGL.deleteFramebuffers(1, &scene.worldFramebuffer)
+    OpenGL.deleteFramebuffers(2, &scene.bloomFramebuffers[0])
+    OpenGL.deleteProgram(scene.program.handle)
+    OpenGL.deleteProgram(scene.effectProgram.handle)
+    OpenGL.deleteProgram(scene.brightProgram.handle)
+    OpenGL.deleteProgram(scene.blurProgram.handle)
+    OpenGL.deleteProgram(scene.compositeProgram.handle)
+}

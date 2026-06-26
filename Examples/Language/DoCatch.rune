@@ -1,0 +1,20 @@
+func divide(a: Int, b: Int) throws(Int) -> Int {
+    if b == 0 {
+        throw 99
+    }
+
+    return a / b
+}
+
+func main() -> Int {
+    do {
+        return divide(10, 0)
+    }
+    catch let code {
+        if code == 99 {
+            return 0
+        }
+    }
+
+    return 3
+}

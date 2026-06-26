@@ -1,0 +1,29 @@
+// SystemTime is wall-clock time. It is useful for timestamps, but it can move
+// if the operating system clock is adjusted.
+
+import Standard.*
+
+func main() -> Int {
+    let now = SystemTime.now()
+    if now.unixNanoseconds <= 0 {
+        return 1
+    }
+
+    let later = now + Duration.fromSeconds(value: 1)
+    if later <= now {
+        return 2
+    }
+
+    let delta = later - now
+    if delta.nanoseconds != 1000000000 {
+        return 3
+    }
+
+    let epoch = SystemTime(secondsSinceUnixEpoch: 0.0)
+    if epoch.secondsSinceUnixEpoch != 0.0 {
+        return 4
+    }
+
+    #printLn("system time smoke: now=${now.unixNanoseconds}")
+    return 0
+}

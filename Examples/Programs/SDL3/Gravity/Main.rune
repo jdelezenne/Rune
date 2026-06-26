@@ -1,0 +1,63 @@
+import Standard.*
+import SDL3
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_Init failed")
+        } else {
+            Console.printLine("SDL_Init failed: ${message!}")
+        }
+
+        return 1
+    }
+
+    var window: &SDL3.Window? = nil
+    var renderer: &SDL3.Renderer? = nil
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Gravity", SCREEN_W, SCREEN_H, 0, &window, &renderer) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_CreateWindowAndRenderer failed")
+        } else {
+            Console.printLine("SDL_CreateWindowAndRenderer failed: ${message!}")
+        }
+        SDL3.quit()
+        return 1
+    }
+
+    SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.blend)
+
+    var game = makeGame()
+    var input = InputState(left: false, right: false, thrust: false, fire: false, restart: false, escape: false)
+    var event = SDL3.Event()
+    var running = true
+    var lastCounter = SDL3.getPerformanceCounter()
+    let frequency = Float64(SDL3.getPerformanceFrequency())
+
+    Console.printLine("Gravity: start at base, collect packages, land at the exit base. Arrows/WASD fly, Space fires, R restarts.")
+
+    while running {
+        input.restart = false
+        while SDL3.pollEvent(&event) {
+            if !handleEvent(event, &input) {
+                running = false
+            }
+        }
+
+        let now = SDL3.getPerformanceCounter()
+        var dt = Float32(Float64(now - lastCounter) / frequency)
+        lastCounter = now
+        dt = clampFloat(dt, 0.0, 0.05)
+
+        updateGame(game: &game, input: input, dt: dt)
+        drawWorld(renderer, *game)
+        SDL3.delay(1)
+    }
+
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    Console.printLine("Gravity finished.")
+    return 0
+}

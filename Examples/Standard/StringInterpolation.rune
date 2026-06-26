@@ -1,0 +1,8 @@
+import Standard.*
+
+func main() -> Int {
+    let name = "Rune"
+    let version = 1
+    Console.printLine("Language: ${name}, version ${version}")
+    return 0
+}

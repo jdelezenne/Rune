@@ -1,0 +1,347 @@
+/// Unit quaternion for representing 3D rotations without gimbal lock, the
+/// preferred alternative to Euler angles for orientation and interpolation.
+/// Stored as `(x, y, z, w)` where `w` is the scalar part; the default value is
+/// the identity rotation.
+@layout(kind: c)
+public struct Quaternion {
+    public var x: Float32 = 0.0
+    public var y: Float32 = 0.0
+    public var z: Float32 = 0.0
+    public var w: Float32 = 1.0
+
+    /// The identity rotation (no rotation).
+    public static func identity() -> Quaternion {
+        return Quaternion(x: 0.0, y: 0.0, z: 0.0, w: 1.0)
+    }
+
+    /// Rotation of `angle` radians about a unit `axis`.
+    public static func fromAxisAngle(axis: Vector3, angle: Float32) -> Quaternion {
+        let half = angle * 0.5
+        let s = Math.sin(half)
+        return Quaternion(
+            x: axis.x * s,
+            y: axis.y * s,
+            z: axis.z * s,
+            w: Math.cos(half))
+    }
+
+    /// Builds a rotation from intrinsic Euler angles (radians) applied in
+    /// yaw (Y) → pitch (X) → roll (Z) order.
+    public static func fromEuler(pitch: Float32, yaw: Float32, roll: Float32) -> Quaternion {
+        let halfPitch = pitch * 0.5
+        let halfYaw = yaw * 0.5
+        let halfRoll = roll * 0.5
+
+        let cp = Math.cos(halfPitch)
+        let sp = Math.sin(halfPitch)
+        let cy = Math.cos(halfYaw)
+        let sy = Math.sin(halfYaw)
+        let cr = Math.cos(halfRoll)
+        let sr = Math.sin(halfRoll)
+
+        return Quaternion(
+            x: sp * cy * cr + cp * sy * sr,
+            y: cp * sy * cr - sp * cy * sr,
+            z: cp * cy * sr - sp * sy * cr,
+            w: cp * cy * cr + sp * sy * sr)
+    }
+
+    public func dot(other: Quaternion) -> Float32 {
+        return x * other.x + y * other.y + z * other.z + w * other.w
+    }
+
+    public func lengthSquared() -> Float32 {
+        return dot(other: self)
+    }
+
+    public func length() -> Float32 {
+        return Math.sqrt(lengthSquared())
+    }
+
+    public func normalized() -> Quaternion {
+        let magnitude = length()
+        if magnitude < Math.EPSILON_F32 {
+            return Quaternion.identity()
+        }
+        let inv = 1.0 / magnitude
+        return Quaternion(x: x * inv, y: y * inv, z: z * inv, w: w * inv)
+    }
+
+    /// The conjugate `(-x, -y, -z, w)`; equals the inverse for a unit quaternion.
+    public func conjugate() -> Quaternion {
+        return Quaternion(x: 0.0 - x, y: 0.0 - y, z: 0.0 - z, w: w)
+    }
+
+    /// The multiplicative inverse. For unit quaternions this equals `conjugate`.
+    public func inverse() -> Quaternion {
+        let lenSq = lengthSquared()
+        if lenSq < Math.EPSILON_F32 {
+            return Quaternion.identity()
+        }
+        let inv = 1.0 / lenSq
+        return Quaternion(x: (0.0 - x) * inv, y: (0.0 - y) * inv, z: (0.0 - z) * inv, w: w * inv)
+    }
+
+    /// Rotates a vector by this quaternion (assumes a unit quaternion).
+    /// Uses the optimized form `v + 2w(q × v) + 2(q × (q × v))`.
+    public func rotate(vector: Vector3) -> Vector3 {
+        let u = Vector3(x: x, y: y, z: z)
+        let t = u.cross(other: vector) * 2.0
+        return vector + t * w + u.cross(other: t)
+    }
+
+    /// Spherical linear interpolation between `a` and `b` at `t` (0..1),
+    /// taking the shorter arc. Both inputs should be unit quaternions.
+    public static func slerp(a: Quaternion, b: Quaternion, t: Float32) -> Quaternion {
+        var cosTheta = a.dot(other: b)
+
+        // Choose the shorter path by flipping one quaternion if needed.
+        var end = b
+        if cosTheta < 0.0 {
+            end = Quaternion(x: 0.0 - b.x, y: 0.0 - b.y, z: 0.0 - b.z, w: 0.0 - b.w)
+            cosTheta = 0.0 - cosTheta
+        }
+
+        // For nearly-parallel inputs fall back to linear interpolation to avoid
+        // dividing by a near-zero sin(theta).
+        if cosTheta > 0.9995 {
+            let result = Quaternion(
+                x: a.x + (end.x - a.x) * t,
+                y: a.y + (end.y - a.y) * t,
+                z: a.z + (end.z - a.z) * t,
+                w: a.w + (end.w - a.w) * t)
+            return result.normalized()
+        }
+
+        let theta = Math.acos(cosTheta)
+        let sinTheta = Math.sin(theta)
+        let scaleA = Math.sin((1.0 - t) * theta) / sinTheta
+        let scaleB = Math.sin(t * theta) / sinTheta
+
+        return Quaternion(
+            x: a.x * scaleA + end.x * scaleB,
+            y: a.y * scaleA + end.y * scaleB,
+            z: a.z * scaleA + end.z * scaleB,
+            w: a.w * scaleA + end.w * scaleB)
+    }
+
+    /// Converts this rotation to a 3x3 rotation matrix.
+    public func toMatrix3() -> Matrix3 {
+        let xx = x * x
+        let yy = y * y
+        let zz = z * z
+        let xy = x * y
+        let xz = x * z
+        let yz = y * z
+        let wx = w * x
+        let wy = w * y
+        let wz = w * z
+
+        return Matrix3(m: [
+            1.0 - 2.0 * (yy + zz), 2.0 * (xy + wz),       2.0 * (xz - wy),
+            2.0 * (xy - wz),       1.0 - 2.0 * (xx + zz), 2.0 * (yz + wx),
+            2.0 * (xz + wy),       2.0 * (yz - wx),       1.0 - 2.0 * (xx + yy),
+        ])
+    }
+
+    /// Converts this rotation to a 4x4 transform matrix (rotation only).
+    public func toMatrix4() -> Matrix4 {
+        let xx = x * x
+        let yy = y * y
+        let zz = z * z
+        let xy = x * y
+        let xz = x * z
+        let yz = y * z
+        let wx = w * x
+        let wy = w * y
+        let wz = w * z
+
+        var result = Matrix4.identity()
+        result.m[0] = 1.0 - 2.0 * (yy + zz)
+        result.m[1] = 2.0 * (xy + wz)
+        result.m[2] = 2.0 * (xz - wy)
+        result.m[4] = 2.0 * (xy - wz)
+        result.m[5] = 1.0 - 2.0 * (xx + zz)
+        result.m[6] = 2.0 * (yz + wx)
+        result.m[8] = 2.0 * (xz + wy)
+        result.m[9] = 2.0 * (yz - wx)
+        result.m[10] = 1.0 - 2.0 * (xx + yy)
+        return result
+    }
+
+    /// The unit rotation axis of this quaternion. Returns the Z axis for a
+    /// near-identity rotation, where the axis is undefined.
+    public func axis() -> Vector3 {
+        let sinHalfSq = 1.0 - w * w
+        if sinHalfSq < Math.EPSILON_F32 {
+            return Vector3(x: 0.0, y: 0.0, z: 1.0)
+        }
+        let inv = 1.0 / Math.sqrt(sinHalfSq)
+        return Vector3(x: x * inv, y: y * inv, z: z * inv)
+    }
+
+    /// The rotation angle in radians, in the range [0, π] (shortest arc).
+    public func rotationAngle() -> Float32 {
+        return 2.0 * Math.acos(Math.clamp(Math.abs(w), 0.0, 1.0))
+    }
+
+    /// The shortest angular distance in radians between this rotation and `to`.
+    public func angle(to: Quaternion) -> Float32 {
+        let d = Math.abs(dot(other: to))
+        return 2.0 * Math.acos(Math.clamp(d, 0.0, 1.0))
+    }
+
+    /// Extracts intrinsic Euler angles (radians) in the same pitch(X) / yaw(Y) /
+    /// roll(Z) convention as `fromEuler`, returned as `(x: pitch, y: yaw, z: roll)`.
+    public func toEuler() -> Vector3 {
+        let sinPitch = 2.0 * (w * x - y * z)
+        let pitch = Math.asin(Math.clamp(sinPitch, -1.0, 1.0))
+
+        if Math.abs(sinPitch) < 0.9999 {
+            let yaw = Math.atan2(2.0 * (x * z + w * y), 1.0 - 2.0 * (x * x + y * y))
+            let roll = Math.atan2(2.0 * (x * y + w * z), 1.0 - 2.0 * (x * x + z * z))
+            return Vector3(x: pitch, y: yaw, z: roll)
+        }
+
+        // Gimbal lock: fix roll at zero and fold its rotation into yaw.
+        let yaw = Math.atan2(2.0 * (w * y - x * z), 1.0 - 2.0 * (y * y + z * z))
+        return Vector3(x: pitch, y: yaw, z: 0.0)
+    }
+
+    /// Builds a quaternion from a 3x3 rotation matrix (Shepperd's method).
+    public static func fromMatrix3(matrix: Matrix3) -> Quaternion {
+        let r00 = matrix.m[0]
+        let r10 = matrix.m[1]
+        let r20 = matrix.m[2]
+        let r01 = matrix.m[3]
+        let r11 = matrix.m[4]
+        let r21 = matrix.m[5]
+        let r02 = matrix.m[6]
+        let r12 = matrix.m[7]
+        let r22 = matrix.m[8]
+
+        let trace = r00 + r11 + r22
+        if trace > 0.0 {
+            let s = 0.5 / Math.sqrt(trace + 1.0)
+            return Quaternion(
+                x: (r21 - r12) * s,
+                y: (r02 - r20) * s,
+                z: (r10 - r01) * s,
+                w: 0.25 / s)
+        } else if r00 > r11 && r00 > r22 {
+            let s = 2.0 * Math.sqrt(1.0 + r00 - r11 - r22)
+            return Quaternion(
+                x: 0.25 * s,
+                y: (r01 + r10) / s,
+                z: (r02 + r20) / s,
+                w: (r21 - r12) / s)
+        } else if r11 > r22 {
+            let s = 2.0 * Math.sqrt(1.0 + r11 - r00 - r22)
+            return Quaternion(
+                x: (r01 + r10) / s,
+                y: 0.25 * s,
+                z: (r12 + r21) / s,
+                w: (r02 - r20) / s)
+        } else {
+            let s = 2.0 * Math.sqrt(1.0 + r22 - r00 - r11)
+            return Quaternion(
+                x: (r02 + r20) / s,
+                y: (r12 + r21) / s,
+                z: 0.25 * s,
+                w: (r10 - r01) / s)
+        }
+    }
+
+    /// Shortest-arc rotation that turns direction `from` into direction `to`
+    /// (both are normalized internally).
+    public static func fromToRotation(from: Vector3, to: Vector3) -> Quaternion {
+        let a = from.normalized()
+        let b = to.normalized()
+        let d = a.dot(other: b)
+
+        if d >= 1.0 - Math.EPSILON_F32 {
+            return Quaternion.identity()
+        }
+
+        if d <= Math.EPSILON_F32 - 1.0 {
+            // Vectors are opposite: rotate 180° about any orthogonal axis.
+            var axis = Vector3(x: 1.0, y: 0.0, z: 0.0).cross(other: a)
+            if axis.lengthSquared() < Math.EPSILON_F32 {
+                axis = Vector3(x: 0.0, y: 1.0, z: 0.0).cross(other: a)
+            }
+            return Quaternion.fromAxisAngle(axis: axis.normalized(), angle: Float32(Math.PI))
+        }
+
+        let axis = a.cross(other: b)
+        return Quaternion(x: axis.x, y: axis.y, z: axis.z, w: 1.0 + d).normalized()
+    }
+
+    /// Orientation looking along `forward` with the given `up` reference. The
+    /// resulting rotation maps local +Z onto `forward`, +Y onto the corrected
+    /// up, and +X onto the right vector.
+    public static func lookRotation(forward: Vector3, up: Vector3) -> Quaternion {
+        let f = forward.normalized()
+        let r = up.cross(other: f).normalized()
+        let u = f.cross(other: r)
+
+        let basis = Matrix3(m: [
+            r.x, r.y, r.z,
+            u.x, u.y, u.z,
+            f.x, f.y, f.z,
+        ])
+        return Quaternion.fromMatrix3(matrix: basis)
+    }
+
+    /// Normalized linear interpolation between `a` and `b` at `t`, taking the
+    /// shorter arc. Cheaper than `slerp` but with non-constant angular velocity.
+    public static func nlerp(a: Quaternion, b: Quaternion, t: Float32) -> Quaternion {
+        var end = b
+        if a.dot(other: b) < 0.0 {
+            end = Quaternion(x: 0.0 - b.x, y: 0.0 - b.y, z: 0.0 - b.z, w: 0.0 - b.w)
+        }
+        let result = Quaternion(
+            x: a.x + (end.x - a.x) * t,
+            y: a.y + (end.y - a.y) * t,
+            z: a.z + (end.z - a.z) * t,
+            w: a.w + (end.w - a.w) * t)
+        return result.normalized()
+    }
+
+    /// Quaternion (Hamilton) product: the composition of two rotations.
+    public static operator *(lhs: Quaternion, rhs: Quaternion) -> Quaternion {
+        return Quaternion(
+            x: lhs.w * rhs.x + lhs.x * rhs.w + lhs.y * rhs.z - lhs.z * rhs.y,
+            y: lhs.w * rhs.y - lhs.x * rhs.z + lhs.y * rhs.w + lhs.z * rhs.x,
+            z: lhs.w * rhs.z + lhs.x * rhs.y - lhs.y * rhs.x + lhs.z * rhs.w,
+            w: lhs.w * rhs.w - lhs.x * rhs.x - lhs.y * rhs.y - lhs.z * rhs.z)
+    }
+
+    /// Rotates a vector (shorthand for `rotate(vector:)`).
+    public static operator *(lhs: Quaternion, rhs: Vector3) -> Vector3 {
+        return lhs.rotate(vector: rhs)
+    }
+
+    public static operator *(lhs: Quaternion, rhs: Float32) -> Quaternion {
+        return Quaternion(x: lhs.x * rhs, y: lhs.y * rhs, z: lhs.z * rhs, w: lhs.w * rhs)
+    }
+
+    public static operator +(lhs: Quaternion, rhs: Quaternion) -> Quaternion {
+        return Quaternion(x: lhs.x + rhs.x, y: lhs.y + rhs.y, z: lhs.z + rhs.z, w: lhs.w + rhs.w)
+    }
+
+    public static operator -(lhs: Quaternion, rhs: Quaternion) -> Quaternion {
+        return Quaternion(x: lhs.x - rhs.x, y: lhs.y - rhs.y, z: lhs.z - rhs.z, w: lhs.w - rhs.w)
+    }
+}
+
+public extension Quaternion implements Equatable {
+    public static operator ==(lhs: Quaternion, rhs: Quaternion) -> Bool {
+        return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z && lhs.w == rhs.w
+    }
+}
+
+public extension Quaternion implements CustomStringConvertible {
+    public func toString() -> String {
+        return "Quaternion(${self.x}, ${self.y}, ${self.z}, ${self.w})"
+    }
+}

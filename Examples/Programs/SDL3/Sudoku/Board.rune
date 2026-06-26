@@ -1,0 +1,207 @@
+// Sudoku board generation via symmetry transformations on a known base solution.
+// Transformations applied: digit permutation, row-band / col-band shuffle,
+// row / col shuffle within each band. Puzzle is created by removing cells.
+import Standard.*
+
+const BOARD_CELLS: Int = 81
+const CLUES_COUNT: Int = 36
+
+const BASE_SOLUTION: [UInt8, 81] = [
+    5, 3, 4, 6, 7, 8, 9, 1, 2,
+    6, 7, 2, 1, 9, 5, 3, 4, 8,
+    1, 9, 8, 3, 4, 2, 5, 6, 7,
+    8, 5, 9, 7, 6, 1, 4, 2, 3,
+    4, 2, 6, 8, 5, 3, 7, 9, 1,
+    7, 1, 3, 9, 2, 4, 8, 5, 6,
+    9, 6, 1, 5, 3, 7, 2, 8, 4,
+    2, 8, 7, 4, 1, 9, 6, 3, 5,
+    3, 4, 5, 2, 8, 6, 1, 7, 9
+]
+
+// MARK: - RNG
+
+struct Rng {
+    var state: UInt32
+}
+
+func seedRng(rng: &Rng, seed: UInt32) {
+    rng.state = seed
+    if rng.state == 0 {
+        rng.state = 1
+    }
+}
+
+func randU32(rng: &Rng) -> UInt32 {
+    var x = rng.state
+    x = x ^ (x << 13)
+    x = x ^ (x >> 17)
+    x = x ^ (x << 5)
+    rng.state = x
+    return x
+}
+
+func randInt(rng: &Rng, n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    return Int(randU32(rng) % UInt32(n))
+}
+
+// MARK: - Board
+
+struct Board {
+    var cells: [UInt8, 81]
+    var solution: [UInt8, 81]
+    var given: [Bool, 81]
+}
+
+// MARK: - Generation helpers
+
+func shuffleDigits(arr: &[UInt8, 9], rng: &Rng) {
+    var i = 8
+    while i > 0 {
+        let j = randInt(rng, i + 1)
+        let tmp = arr[i]
+        arr[i] = arr[j]
+        arr[j] = tmp
+        i = i - 1
+    }
+}
+
+func shuffleThree(arr: &[Int, 3], rng: &Rng) {
+    var i = 2
+    while i > 0 {
+        let j = randInt(rng, i + 1)
+        let tmp = arr[i]
+        arr[i] = arr[j]
+        arr[j] = tmp
+        i = i - 1
+    }
+}
+
+func applyDigitPerm(cells: [UInt8, 81], perm: [UInt8, 9]) -> [UInt8, 81] {
+    var result = cells
+    for i in 0..81 {
+        let v = cells[i]
+        if v != 0 {
+            result[i] = perm[Int(v) - 1]
+        }
+    }
+    return result
+}
+
+func reorderRowBands(cells: [UInt8, 81], order: [Int, 3]) -> [UInt8, 81] {
+    var result: [UInt8, 81] = []
+    for destBand in 0..3 {
+        let srcBand = order[destBand]
+        for r in 0..3 {
+            for c in 0..9 {
+                result[destBand * 27 + r * 9 + c] = cells[srcBand * 27 + r * 9 + c]
+            }
+        }
+    }
+    return result
+}
+
+func reorderColBands(cells: [UInt8, 81], order: [Int, 3]) -> [UInt8, 81] {
+    var result: [UInt8, 81] = []
+    for destBand in 0..3 {
+        let srcBand = order[destBand]
+        for r in 0..9 {
+            for c in 0..3 {
+                result[r * 9 + destBand * 3 + c] = cells[r * 9 + srcBand * 3 + c]
+            }
+        }
+    }
+    return result
+}
+
+func reorderRowsInBand(cells: [UInt8, 81], band: Int, order: [Int, 3]) -> [UInt8, 81] {
+    var result = cells
+    for destR in 0..3 {
+        let srcR = order[destR]
+        for c in 0..9 {
+            result[(band * 3 + destR) * 9 + c] = cells[(band * 3 + srcR) * 9 + c]
+        }
+    }
+    return result
+}
+
+func reorderColsInBand(cells: [UInt8, 81], band: Int, order: [Int, 3]) -> [UInt8, 81] {
+    var result = cells
+    for destC in 0..3 {
+        let srcC = order[destC]
+        for r in 0..9 {
+            result[r * 9 + band * 3 + destC] = cells[r * 9 + band * 3 + srcC]
+        }
+    }
+    return result
+}
+
+// MARK: - Public API
+
+func generateBoard(rng: &Rng) -> Board {
+    var cells = BASE_SOLUTION
+
+    var digitPerm: [UInt8, 9] = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    shuffleDigits(&digitPerm, rng)
+    cells = applyDigitPerm(cells, digitPerm)
+
+    var rowBandOrder: [Int, 3] = [0, 1, 2]
+    shuffleThree(&rowBandOrder, rng)
+    cells = reorderRowBands(cells, rowBandOrder)
+
+    var colBandOrder: [Int, 3] = [0, 1, 2]
+    shuffleThree(&colBandOrder, rng)
+    cells = reorderColBands(cells, colBandOrder)
+
+    for band in 0..3 {
+        var rowOrder: [Int, 3] = [0, 1, 2]
+        shuffleThree(&rowOrder, rng)
+        cells = reorderRowsInBand(cells, band, rowOrder)
+    }
+
+    for band in 0..3 {
+        var colOrder: [Int, 3] = [0, 1, 2]
+        shuffleThree(&colOrder, rng)
+        cells = reorderColsInBand(cells, band, colOrder)
+    }
+
+    let solution = cells
+
+    var removeOrder: [Int, 81] = []
+    for i in 0..81 {
+        removeOrder[i] = i
+    }
+    var j = 80
+    while j > 0 {
+        let k = randInt(rng, j + 1)
+        let tmp = removeOrder[j]
+        removeOrder[j] = removeOrder[k]
+        removeOrder[k] = tmp
+        j = j - 1
+    }
+
+    var given: [Bool, 81] = []
+    for i in 0..81 {
+        given[i] = true
+    }
+
+    let toRemove = 81 - CLUES_COUNT
+    for i in 0..toRemove {
+        let pos = removeOrder[i]
+        cells[pos] = 0
+        given[pos] = false
+    }
+
+    return Board(cells: cells, solution: solution, given: given)
+}
+
+func isBoardSolved(board: Board) -> Bool {
+    for i in 0..81 {
+        if board.cells[i] != board.solution[i] {
+            return false
+        }
+    }
+    return true
+}

@@ -1,0 +1,110 @@
+public static Storage {
+    @builtin
+    public struct Path {
+        /// Creates a path from a UTF-8 string.
+        @runtime("rune_path_from_string")
+        public init(value: String)
+
+        @runtime("rune_path_destroy")
+        final()
+    }
+
+    public extension Path {
+        /// `true` when the path has no bytes.
+        public isEmpty: Bool {
+            @runtime("rune_path_is_empty") get
+        }
+
+        /// `true` when the path starts with '/' or a drive root on Windows.
+        public isAbsolute: Bool {
+            @runtime("rune_path_is_absolute") get
+        }
+
+        /// `true` when the path is relative.
+        public isRelative: Bool {
+            @runtime("rune_path_is_relative") get
+        }
+
+        /// Appends `component`, inserting '/' between the existing path and the
+        /// component when needed. If `component` is absolute it replaces `self`.
+        @runtime("rune_path_push")
+        public mutating func push(component: StringSlice)
+
+        // NOTE: named `pushPath`, not overloading `push`, because overloading
+        // `push(component: StringSlice)` with `push(other: Path)` here makes the
+        // compiler resolve calls to `push(other:)` against the `component:`
+        // overload instead ("expected type 'StringSlice', found type 'Path'") -
+        // each individually works, only the combination doesn't.
+        /// Appends all components of `other`, inserting '/' when needed.
+        @runtime("rune_runtime_path_push_path")
+        public mutating func pushPath(other: Path)
+
+        /// Replaces this path with a copy of `source`.
+        @runtime("rune_runtime_path_copy")
+        public mutating func copyFrom(source: Path)
+
+        /// Returns `lhs` joined with `rhs`, inserting '/' when needed.
+        public static operator /(lhs: Path, rhs: Path) -> Path {
+            var result = Path("")
+            result.copyFrom(source: lhs)
+            result.pushPath(other: rhs)
+            return result
+        }
+
+        /// Returns `lhs` joined with `rhs`, inserting '/' when needed.
+        public static operator /(lhs: Path, rhs: StringSlice) -> Path {
+            var result = Path("")
+            result.copyFrom(source: lhs)
+            result.push(component: rhs)
+            return result
+        }
+
+        /// Returns `lhs` joined with `rhs`, inserting '/' when needed.
+        public static operator /(lhs: Path, rhs: String) -> Path {
+            var result = Path("")
+            result.copyFrom(source: lhs)
+            result.push(component: rhs.sliceRange(start: 0, end: rhs.length))
+            return result
+        }
+
+        /// Returns a non-owning view over the raw path bytes.
+        @runtime("rune_runtime_path_as_slice")
+        public func asSlice() -> StringSlice
+
+        /// The final path component (filename). Empty when the path ends with '/'.
+        @runtime("rune_runtime_path_filename")
+        public func filename() -> StringSlice
+
+        /// The filename without its extension.
+        @runtime("rune_runtime_path_stem")
+        public func stem() -> StringSlice
+
+        /// The extension without the leading dot. Empty when there is no extension.
+        @runtime("rune_runtime_path_extension")
+        public func fileExtension() -> StringSlice
+
+        /// The parent directory, or `nil` when this path has no parent.
+        public func parent() -> Path? {
+            var value = Path("")
+            if parentInternal(parent: &value) {
+                return value
+            }
+
+            return nil
+        }
+
+        @runtime("rune_runtime_path_parent")
+        private func parentInternal(parent: &Path) -> Bool
+    }
+
+    public extension Path implements Equatable {
+        /// Returns whether two paths contain the same normalized bytes.
+        @runtime("rune_runtime_path_equal")
+        public static operator ==(lhs: Path, rhs: Path) -> Bool
+    }
+
+    public extension Path implements CustomStringConvertible {
+        @runtime("rune_runtime_path_to_string")
+        public func toString() -> String
+    }
+}

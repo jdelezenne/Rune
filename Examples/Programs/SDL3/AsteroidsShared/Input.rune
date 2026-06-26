@@ -1,0 +1,69 @@
+import Standard.*
+import SDL3
+
+func keyboardDown(state: *Bool?, scancode: SDL3.Scancode) -> Bool {
+    if state == nil {
+        return false
+    }
+    let slot = (Int(state!) + Int(scancode as Int32)) as *Bool
+    return slot^
+}
+
+func readKeyboard(input: &InputState, keyboard: *Bool?) {
+    input.rotateLeft = keyboardDown(keyboard, SDL3.Scancode.left) ||
+        keyboardDown(keyboard, SDL3.Scancode.a)
+    input.rotateRight = keyboardDown(keyboard, SDL3.Scancode.right) ||
+        keyboardDown(keyboard, SDL3.Scancode.d)
+    input.thrust = keyboardDown(keyboard, SDL3.Scancode.up) ||
+        keyboardDown(keyboard, SDL3.Scancode.w)
+    input.fire = keyboardDown(keyboard, SDL3.Scancode.space)
+    input.hyperspace = keyboardDown(keyboard, SDL3.Scancode.lshift) ||
+        keyboardDown(keyboard, SDL3.Scancode.rshift)
+}
+
+func applyGamepad(input: &InputState, gamepad: &SDL3.Gamepad?) {
+    if gamepad == nil {
+        return
+    }
+
+    let leftX = SDL3.getGamepadAxis(gamepad, SDL3.GamepadAxis.leftX)
+    let leftY = SDL3.getGamepadAxis(gamepad, SDL3.GamepadAxis.leftY)
+    let deadZone: Int32 = 8000
+
+    if leftX < -deadZone {
+        input.rotateLeft = true
+    }
+
+    if leftX > deadZone {
+        input.rotateRight = true
+    }
+
+    if leftY < -deadZone {
+        input.thrust = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.dpadLeft) {
+        input.rotateLeft = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.dpadRight) {
+        input.rotateRight = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.dpadUp) {
+        input.thrust = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.south) ||
+        SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.rightShoulder) {
+        input.fire = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.east) {
+        input.hyperspace = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.start) {
+        input.pause = true
+    }
+}

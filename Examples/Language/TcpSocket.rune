@@ -1,0 +1,66 @@
+import Standard.*
+
+func fail(message: String) -> Int {
+    #printLn("FAIL: ${message}")
+    return 1
+}
+
+func tcpTypedLoopback() throws(String) -> Int {
+    var listener = try TcpListener.bind(address: SocketAddress(host: "127.0.0.1", port: 18472), backlog: 1)
+    var client = try TcpStream.connect(address: SocketAddress(host: "127.0.0.1", port: 18472))
+    var server = try listener.accept()
+
+    let message = try! Memory.systemAllocate(size: 4)
+    Memory.fill(destination: message, value: 67, byteCount: 4)
+
+    let written = try client.writeAll(data: message, length: 4)
+    if written != 4 {
+        server.close()
+        client.close()
+        listener.close()
+        Memory.systemDeallocate(address: message)
+        return fail("TcpStream.writeAll: expected 4 bytes")
+    }
+
+    let buffer = try! Memory.systemAllocate(size: 16)
+    let received = try server.read(buffer: buffer, length: 16)
+    if received != 4 {
+        server.close()
+        client.close()
+        listener.close()
+        Memory.systemDeallocate(address: message)
+        Memory.systemDeallocate(address: buffer)
+        return fail("TcpStream.read: expected 4 bytes")
+    }
+    if client.localAddress == "" || server.peerAddress == "" {
+        server.close()
+        client.close()
+        listener.close()
+        Memory.systemDeallocate(address: message)
+        Memory.systemDeallocate(address: buffer)
+        return fail("TcpStream addresses unexpectedly empty")
+    }
+
+    server.shutdown()
+    server.close()
+    client.close()
+    listener.close()
+    Memory.systemDeallocate(address: message)
+    Memory.systemDeallocate(address: buffer)
+    return 0
+}
+
+func main() -> Int {
+    do {
+        let result = tcpTypedLoopback()
+        if result != 0 {
+            return result
+        }
+    }
+    catch let error {
+        return fail("typed TCP socket error: ${error}")
+    }
+
+    #printLn("typed TCP socket smoke test: OK")
+    return 0
+}

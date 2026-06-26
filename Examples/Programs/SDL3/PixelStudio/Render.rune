@@ -1,0 +1,157 @@
+import Standard.*
+import SDL3
+
+func color(renderer: &SDL3.Renderer?, value: Int32) {
+    SDL3.setRenderDrawColor(renderer, UInt8((value >> 16) & 255), UInt8((value >> 8) & 255), UInt8(value & 255), 255)
+}
+
+func fill(renderer: &SDL3.Renderer?, x: Float32, y: Float32, w: Float32, h: Float32, value: Int32) {
+    color(renderer, value)
+    var rect = SDL3.FRect(x: x, y: y, w: w, h: h)
+    SDL3.renderFillRect(renderer, &rect)
+}
+
+func outline(renderer: &SDL3.Renderer?, x: Float32, y: Float32, w: Float32, h: Float32, value: Int32) {
+    color(renderer, value)
+    var rect = SDL3.FRect(x: x, y: y, w: w, h: h)
+    SDL3.renderRect(renderer, &rect)
+}
+
+func drawToolIcon(renderer: &SDL3.Renderer?, tool: Tool, x: Float32, y: Float32) {
+    color(renderer, 0xD8DEEE)
+    if tool == Tool.pencil {
+        // Broad diagonal body, eraser cap, and pointed graphite tip.
+        SDL3.renderLine(renderer, x + 14.0, y + 32.0, x + 31.0, y + 15.0)
+        SDL3.renderLine(renderer, x + 18.0, y + 36.0, x + 35.0, y + 19.0)
+        SDL3.renderLine(renderer, x + 14.0, y + 32.0, x + 18.0, y + 36.0)
+        SDL3.renderLine(renderer, x + 31.0, y + 15.0, x + 35.0, y + 19.0)
+        SDL3.renderLine(renderer, x + 16.0, y + 34.0, x + 33.0, y + 17.0)
+        // Fill the triangular tip instead of leaving it as an empty outline.
+        SDL3.renderLine(renderer, x + 14.0, y + 32.0, x + 10.0, y + 40.0)
+        SDL3.renderLine(renderer, x + 15.0, y + 33.0, x + 10.0, y + 40.0)
+        SDL3.renderLine(renderer, x + 16.0, y + 34.0, x + 10.0, y + 40.0)
+        SDL3.renderLine(renderer, x + 17.0, y + 35.0, x + 10.0, y + 40.0)
+        SDL3.renderLine(renderer, x + 18.0, y + 36.0, x + 10.0, y + 40.0)
+        color(renderer, 0x596174)
+        SDL3.renderLine(renderer, x + 10.0, y + 40.0, x + 12.0, y + 37.0)
+    } else if tool == Tool.eraser {
+        fill(renderer, x + 11.0, y + 16.0, 28.0, 22.0, 0xD8DEEE)
+        fill(renderer, x + 11.0, y + 31.0, 28.0, 7.0, 0x8E98AD)
+        outline(renderer, x + 11.0, y + 16.0, 28.0, 22.0, 0xEEF1F8)
+        color(renderer, 0x596174)
+        SDL3.renderLine(renderer, x + 11.0, y + 31.0, x + 39.0, y + 31.0)
+    } else if tool == Tool.fill {
+        // Filled paint bucket with a raised handle and a visible paint drip.
+        SDL3.renderLine(renderer, x + 17.0, y + 22.0, x + 17.0, y + 14.0)
+        SDL3.renderLine(renderer, x + 17.0, y + 14.0, x + 33.0, y + 14.0)
+        SDL3.renderLine(renderer, x + 33.0, y + 14.0, x + 36.0, y + 22.0)
+        fill(renderer, x + 12.0, y + 21.0, 27.0, 5.0, 0xD8DEEE)
+        fill(renderer, x + 14.0, y + 26.0, 23.0, 5.0, 0xD8DEEE)
+        fill(renderer, x + 16.0, y + 31.0, 19.0, 6.0, 0xD8DEEE)
+        fill(renderer, x + 14.0, y + 26.0, 23.0, 4.0, 0x6EA8FE)
+        fill(renderer, x + 39.0, y + 31.0, 4.0, 6.0, 0x6EA8FE)
+        fill(renderer, x + 40.0, y + 29.0, 2.0, 2.0, 0x6EA8FE)
+    } else if tool == Tool.picker {
+        // Eyedropper bulb, barrel, narrow tip, and sampled-color drop.
+        fill(renderer, x + 28.0, y + 12.0, 8.0, 8.0, 0xD8DEEE)
+        SDL3.renderLine(renderer, x + 29.0, y + 20.0, x + 17.0, y + 32.0)
+        SDL3.renderLine(renderer, x + 34.0, y + 25.0, x + 22.0, y + 37.0)
+        SDL3.renderLine(renderer, x + 17.0, y + 32.0, x + 22.0, y + 37.0)
+        SDL3.renderLine(renderer, x + 31.0, y + 18.0, x + 36.0, y + 23.0)
+        fill(renderer, x + 14.0, y + 38.0, 5.0, 5.0, 0x6EA8FE)
+    } else if tool == Tool.rectangle {
+        fill(renderer, x + 11.0, y + 14.0, 30.0, 4.0, 0xD8DEEE)
+        fill(renderer, x + 11.0, y + 35.0, 30.0, 4.0, 0xD8DEEE)
+        fill(renderer, x + 11.0, y + 18.0, 4.0, 17.0, 0xD8DEEE)
+        fill(renderer, x + 37.0, y + 18.0, 4.0, 17.0, 0xD8DEEE)
+    } else if tool == Tool.circle {
+        SDL3.renderLine(renderer, x + 19.0, y + 12.0, x + 33.0, y + 12.0)
+        SDL3.renderLine(renderer, x + 33.0, y + 12.0, x + 41.0, y + 20.0)
+        SDL3.renderLine(renderer, x + 41.0, y + 20.0, x + 41.0, y + 32.0)
+        SDL3.renderLine(renderer, x + 41.0, y + 32.0, x + 33.0, y + 40.0)
+        SDL3.renderLine(renderer, x + 33.0, y + 40.0, x + 19.0, y + 40.0)
+        SDL3.renderLine(renderer, x + 19.0, y + 40.0, x + 11.0, y + 32.0)
+        SDL3.renderLine(renderer, x + 11.0, y + 32.0, x + 11.0, y + 20.0)
+        SDL3.renderLine(renderer, x + 11.0, y + 20.0, x + 19.0, y + 12.0)
+    }
+}
+
+func drawEditor(renderer: &SDL3.Renderer?, document: *Document) {
+    fill(renderer, 0.0, 0.0, Float32(WINDOW_W), Float32(WINDOW_H), 0x171A22)
+    fill(renderer, 0.0, 0.0, Float32(WINDOW_W), TOP_H, 0x242936)
+    fill(renderer, 0.0, TOP_H, LEFT_W, Float32(WINDOW_H) - TOP_H, 0x20242F)
+    fill(renderer, Float32(WINDOW_W) - RIGHT_W, TOP_H, RIGHT_W, Float32(WINDOW_H) - TOP_H, 0x20242F)
+    color(renderer, 0xEEF1F8)
+    SDL3.renderDebugText(renderer, 18.0, 18.0, "PIXEL STUDIO")
+    color(renderer, 0x8E98AD)
+    SDL3.renderDebugText(renderer, 148.0, 18.0, "32 x 32   WHEEL ZOOM   MIDDLE / SHIFT DRAG PAN")
+
+    for toolIndex in 0..TOOLBAR_TOOLS.count {
+        let tool = TOOLBAR_TOOLS[toolIndex]
+        let x: Float32 = 18.0
+        let y = TOP_H + 18.0 + Float32(toolIndex) * 62.0
+        fill(renderer, x, y, 52.0, 52.0, if tool == document.tool {
+            0x3C4760
+        } else {
+            0x292E3B
+        }
+        )
+        if tool == document.tool {
+            outline(renderer, x, y, 52.0, 52.0, 0x6EA8FE)
+        }
+        drawToolIcon(renderer, tool, x, y)
+    }
+
+    let originX = canvasOriginX(document)
+    let originY = canvasOriginY(document)
+    var clip = SDL3.Rect(x: Int32(LEFT_W), y: Int32(TOP_H), w: Int32(canvasAreaW()), h: Int32(canvasAreaH()))
+    SDL3.setRenderClipRect(renderer, &clip)
+    fill(renderer, originX - 5.0, originY - 5.0, Float32(IMAGE_W) * document.zoom + 10.0, Float32(IMAGE_H) * document.zoom + 10.0, 0x0D0F14)
+    for py in 0..IMAGE_H {
+        for px in 0..IMAGE_W {
+            let x = originX + Float32(px) * document.zoom
+            let y = originY + Float32(py) * document.zoom
+            let checker: Int32 = if (px + py) % 2 == 0 {
+                0xD8D8D8
+            } else {
+                0xB8B8B8
+            }
+            fill(renderer, x, y, document.zoom + 0.5, document.zoom + 0.5, checker)
+            let pixel = document.pixels[py * IMAGE_W + px]
+            if pixel != TRANSPARENT {
+                fill(renderer, x, y, document.zoom + 0.5, document.zoom + 0.5, pixel)
+            }
+        }
+    }
+    if document.zoom >= 12.0 {
+        color(renderer, 0x707070)
+        for x in 0..(IMAGE_W + 1) {
+            let sx = originX + Float32(x) * document.zoom
+            SDL3.renderLine(renderer, sx, originY, sx, originY + Float32(IMAGE_H) * document.zoom)
+        }
+        for y in 0..(IMAGE_H + 1) {
+            let sy = originY + Float32(y) * document.zoom
+            SDL3.renderLine(renderer, originX, sy, originX + Float32(IMAGE_W) * document.zoom, sy)
+        }
+    }
+    SDL3.setRenderClipRect(renderer, nil)
+
+    let panelX = Float32(WINDOW_W) - RIGHT_W
+    color(renderer, 0xEEF1F8)
+    SDL3.renderDebugText(renderer, panelX + 20.0, TOP_H + 22.0, "PALETTE")
+    for i in 0..PALETTE_COUNT {
+        let col = i % 4
+        let row = i / 4
+        let x = panelX + 20.0 + Float32(col) * 44.0
+        let y = TOP_H + 52.0 + Float32(row) * 44.0
+        fill(renderer, x, y, 34.0, 34.0, PALETTE[i])
+        if i == document.colorIndex {
+            outline(renderer, x - 3.0, y - 3.0, 40.0, 40.0, 0xFFFFFF)
+        }
+    }
+    color(renderer, 0x8E98AD)
+    SDL3.renderDebugText(renderer, panelX + 20.0, TOP_H + 250.0, "ACTIVE COLOR")
+    fill(renderer, panelX + 20.0, TOP_H + 274.0, 166.0, 72.0, PALETTE[document.colorIndex])
+    outline(renderer, panelX + 20.0, TOP_H + 274.0, 166.0, 72.0, 0x596174)
+    SDL3.renderPresent(renderer)
+}

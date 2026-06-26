@@ -1,0 +1,10 @@
+public const O_RDONLY: Int32 = 0
+public const O_WRONLY: Int32 = 1
+public const O_RDWR: Int32 = 2
+public const O_CREAT: Int32 = 256
+public const O_EXCL: Int32 = 1024
+public const O_TRUNC: Int32 = 512
+public const O_APPEND: Int32 = 8
+
+@symbol("_open")
+public func openFd(path: CStringSlice?, oflags: Int32, fileMode: Int32) -> Int32

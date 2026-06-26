@@ -1,0 +1,148 @@
+// Battle City - a top-down tank battler in the classic NES mould: defend
+// the eagle at the bottom of a 13x13 walled arena while working through a
+// reserve of twenty enemy tanks that drop in along the top edge. Brick
+// walls crumble half a cell at a time, steel stops everything short of a
+// fully upgraded cannon, tanks vanish under the tree canopy, and the
+// red-flashing enemies leave pick-ups behind: grenade, helmet, shovel,
+// star, extra tank and freeze. Lose the eagle or the last tank and the
+// run is over; clear the reserve to roll on to the next stage.
+//
+// Controls:
+//   Arrows / WASD          - drive
+//   Space                  - fire
+//   P                      - pause / resume
+//   R                      - restart after game over
+//   Escape / close         - quit
+
+import Standard.*
+import SDL3
+
+struct Held {
+    var up: Bool
+    var down: Bool
+    var left: Bool
+    var right: Bool
+    var fire: Bool
+}
+
+var held = Held(up: false, down: false, left: false, right: false, fire: false)
+
+func setHeld(scancode: SDL3.Scancode, pressed: Bool, edge: &InputEdge) {
+    if scancode == SDL3.Scancode.up || scancode == SDL3.Scancode.w {
+        held.up = pressed
+    } else if scancode == SDL3.Scancode.down || scancode == SDL3.Scancode.s {
+        held.down = pressed
+    } else if scancode == SDL3.Scancode.left || scancode == SDL3.Scancode.a {
+        held.left = pressed
+    } else if scancode == SDL3.Scancode.right || scancode == SDL3.Scancode.d {
+        held.right = pressed
+    } else if scancode == SDL3.Scancode.space {
+        held.fire = pressed
+    } else if pressed && scancode == SDL3.Scancode.p {
+        edge.pause = true
+    } else if pressed && scancode == SDL3.Scancode.r {
+        edge.restart = true
+    }
+}
+
+func handleEvent(event: SDL3.Event, edge: &InputEdge) -> Bool {
+    if event.type == SDL3.EventType.quit {
+        return false
+    }
+
+    if event.type == SDL3.EventType.keyDown && event.down {
+        setHeld(event.scancode, true, edge)
+        if event.scancode == SDL3.Scancode.escape {
+            return false
+        }
+    }
+
+    if event.type == SDL3.EventType.keyUp {
+        setHeld(event.scancode, false, edge)
+    }
+
+    return true
+}
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var game = makeGame()
+var running = true
+var perfFreq: UInt64 = 1
+var lastCounter: UInt64 = 0
+
+func shutdown() {
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    Console.printLine("Battle City finished.")
+}
+
+func mainLoop() {
+    var edge = makeInputEdge()
+
+    var event = SDL3.Event()
+    while SDL3.pollEvent(&event) {
+        if !handleEvent(event, &edge) {
+            running = false
+        }
+    }
+
+    edge.up = held.up
+    edge.down = held.down
+    edge.left = held.left
+    edge.right = held.right
+    edge.fire = held.fire
+
+    let counter = SDL3.getPerformanceCounter()
+    var deltaTime = Float32(counter - lastCounter) / Float32(perfFreq)
+    lastCounter = counter
+    if deltaTime > 0.05 {
+        deltaTime = 0.05
+    }
+
+    if !running {
+        shutdown()
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    game.update(edge, deltaTime)
+    drawGame(renderer, *game)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune SDL3 - Battle City", WIDTH, HEIGHT, 0, &window, &renderer) {
+        Console.printLine("SDL_CreateWindowAndRenderer failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.setRenderVSync(renderer, 1) {
+        Console.printLine("SDL_SetRenderVSync failed: ${SDL3.getError()!}")
+    }
+
+    game = makeGame()
+    running = true
+    perfFreq = SDL3.getPerformanceFrequency()
+    lastCounter = SDL3.getPerformanceCounter()
+
+    Console.printLine("Battle City - Arrows/WASD drive, Space fire, P pause, R restart.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+
+    return 0
+}

@@ -1,0 +1,15 @@
+public const EPERM: Int32 = 1
+public const ENOENT: Int32 = 2
+public const EACCES: Int32 = 13
+public const EEXIST: Int32 = 17
+public const ENOTDIR: Int32 = 20
+public const EISDIR: Int32 = 21
+public const EINVAL: Int32 = 22
+public const ENAMETOOLONG: Int32 = 63
+public const ENOMEM: Int32 = 12
+public const EBADF: Int32 = 9
+
+public errno: Int32 {
+    @symbol("rune_errno")
+    get
+}

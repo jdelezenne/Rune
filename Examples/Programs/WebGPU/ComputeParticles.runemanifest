@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "name": "WebGPUComputeParticles",
+  "kind": "executable",
+  "unsafe": true,
+  "sources": [
+    "ComputeParticles.rune"
+  ],
+  "dependencies": [
+    "../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../Modules/WebGPU/WebGPU.runemanifest"
+  ]
+}

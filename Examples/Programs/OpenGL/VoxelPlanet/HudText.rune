@@ -1,0 +1,237 @@
+// Screen-space HUD text via SDL3_ttf: render each label to a CPU surface,
+// upload it as a GL texture, and draw it as a textured quad with its own
+// small orthographic-projection shader. Labels are regenerated only when
+// their text actually changes.
+
+import Standard.*
+import SDL3
+import SDL3_ttf
+import OpenGL
+
+const HUD_FONT_RESOURCE: String = "DejaVuSansMono.ttf"
+const HUD_FONT_SIZE: Float32 = 22.0
+const HUD_WIN_FONT_SIZE: Float32 = 36.0
+
+@layout(kind: c)
+struct TextVertex {
+    var x: Float32
+    var y: Float32
+}
+
+struct TextShaderProgram {
+    var program: OpenGL.GLuint
+    var positionAttrib: OpenGL.GLuint
+    var rectLocation: OpenGL.GLint
+    var projectionLocation: OpenGL.GLint
+    var textureLocation: OpenGL.GLint
+}
+
+struct HudLabel {
+    var texture: OpenGL.GLuint
+    var width: Float32
+    var height: Float32
+}
+
+let textVertexShaderSource: String = """
+#version 120
+attribute vec2 position;
+uniform vec4 rect;
+uniform mat4 projection;
+varying vec2 texCoord;
+void main() {
+    vec2 screenPos = vec2(rect.x + position.x * rect.z, rect.y + position.y * rect.w);
+    gl_Position = projection * vec4(screenPos, 0.0, 1.0);
+    texCoord = vec2(position.x, position.y);
+}
+"""
+
+let textFragmentShaderSource: String = """
+#version 120
+varying vec2 texCoord;
+uniform sampler2D fontTexture;
+void main() {
+    gl_FragColor = texture2D(fontTexture, texCoord);
+}
+"""
+
+func buildTextShaderProgram() -> TextShaderProgram {
+    let vertexShader = compileShaderStage(OpenGL.VERTEX_SHADER, textVertexShaderSource)
+    let fragmentShader = compileShaderStage(OpenGL.FRAGMENT_SHADER, textFragmentShaderSource)
+    let program = OpenGL.createProgram()
+    OpenGL.attachShader(program, vertexShader)
+    OpenGL.attachShader(program, fragmentShader)
+    OpenGL.linkProgram(program)
+
+    var status: Int32 = 0
+    OpenGL.getProgramiv(program, OpenGL.LINK_STATUS, &status)
+    if status == 0 {
+        var log: [Int8, 1024] = []
+        var logLength: OpenGL.GLsizei = 0
+        OpenGL.getProgramInfoLog(program, 1024, &logLength, (log.bytes as *Int8))
+        Console.printLine("text shader program link failed")
+    }
+
+    let positionAttrib = (OpenGL.getAttribLocation(program, "position") as! UInt32)
+    return TextShaderProgram(
+        program: program,
+        positionAttrib: positionAttrib,
+        rectLocation: OpenGL.getUniformLocation(program, "rect"),
+        projectionLocation: OpenGL.getUniformLocation(program, "projection"),
+        textureLocation: OpenGL.getUniformLocation(program, "fontTexture"))
+}
+
+func buildTextQuadBuffer() -> OpenGL.GLuint {
+    var vertices: [TextVertex, 6] = []
+    vertices[0] = TextVertex(x: 0.0, y: 0.0)
+    vertices[1] = TextVertex(x: 1.0, y: 0.0)
+    vertices[2] = TextVertex(x: 1.0, y: 1.0)
+    vertices[3] = TextVertex(x: 0.0, y: 0.0)
+    vertices[4] = TextVertex(x: 1.0, y: 1.0)
+    vertices[5] = TextVertex(x: 0.0, y: 1.0)
+
+    var buffer: OpenGL.GLuint = 0
+    OpenGL.genBuffers(1, &buffer)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, buffer)
+    var data = vertices
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, 6 * 8, (data.bytes as *Byte), OpenGL.STATIC_DRAW)
+    return buffer
+}
+
+func destroyHudLabel(label: HudLabel) {
+    if label.texture == 0 {
+        return
+    }
+    var textureId: OpenGL.GLuint = label.texture
+    OpenGL.deleteTextures(1, &textureId)
+}
+
+func renderHudLabel(font: &SDL3_ttf.Font?, text: CStringSlice, color: SDL3.Color) -> HudLabel {
+    let rendered = SDL3_ttf.renderTextBlended(font, text, 0, color)
+    if rendered == nil {
+        Console.printLine("TTF_RenderText_Blended failed: ${SDL3.getError()!}")
+        return HudLabel(texture: 0, width: 0.0, height: 0.0)
+    }
+
+    let converted = SDL3.convertSurface(rendered, SDL3.PixelFormat.abgr8888)
+    SDL3.destroySurface(rendered)
+    if converted == nil {
+        Console.printLine("convertSurface failed: ${SDL3.getError()!}")
+        return HudLabel(texture: 0, width: 0.0, height: 0.0)
+    }
+
+    var textureId: OpenGL.GLuint = 0
+    OpenGL.genTextures(1, &textureId)
+    OpenGL.bindTexture(OpenGL.TEXTURE_2D, textureId)
+    OpenGL.pixelStorei(OpenGL.UNPACK_ALIGNMENT, 1)
+    OpenGL.texImage2D(
+        OpenGL.TEXTURE_2D,
+        0,
+        (OpenGL.RGBA as! OpenGL.GLint),
+        converted!.w,
+        converted!.h,
+        0,
+        OpenGL.RGBA,
+        OpenGL.UNSIGNED_BYTE,
+        converted!.pixels!)
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_MIN_FILTER, (OpenGL.LINEAR as! OpenGL.GLint))
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_MAG_FILTER, (OpenGL.LINEAR as! OpenGL.GLint))
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_WRAP_S, (OpenGL.CLAMP_TO_EDGE as! OpenGL.GLint))
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_WRAP_T, (OpenGL.CLAMP_TO_EDGE as! OpenGL.GLint))
+
+    let label = HudLabel(texture: textureId, width: Float32(converted!.w), height: Float32(converted!.h))
+    SDL3.destroySurface(converted)
+    return label
+}
+
+func drawHudLabel(textShader: TextShaderProgram, quadBuffer: OpenGL.GLuint, label: HudLabel, x: Float32, y: Float32, projection: Matrix4) {
+    if label.texture == 0 {
+        return
+    }
+
+    OpenGL.useProgram(textShader.program)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, quadBuffer)
+    OpenGL.enableVertexAttribArray(textShader.positionAttrib)
+    OpenGL.vertexAttribPointer(textShader.positionAttrib, 2, OpenGL.FLOAT, 0, 8, (0 as *Byte))
+
+    OpenGL.bindTexture(OpenGL.TEXTURE_2D, label.texture)
+    OpenGL.uniform1i(textShader.textureLocation, 0)
+    OpenGL.uniform4f(textShader.rectLocation, x, y, label.width, label.height)
+
+    var projectionCopy = projection
+    OpenGL.uniformMatrix4fv(textShader.projectionLocation, 1, 0, (projectionCopy.m.bytes as *OpenGL.GLfloat))
+
+    OpenGL.drawArrays(OpenGL.TRIANGLES, 0, 6)
+}
+
+struct Hud {
+    var font: &SDL3_ttf.Font?
+    var winFont: &SDL3_ttf.Font?
+    var textShader: TextShaderProgram
+    var quadBuffer: OpenGL.GLuint
+    var crystalLabel: HudLabel
+    var winLabel: HudLabel
+}
+
+func buildHud() -> Hud {
+    let fontPath = Application.resourcesDirectory / HUD_FONT_RESOURCE
+    let fontPathString = fontPath.toString()
+    let fontPathCString = CString(value: fontPathString)
+    let font = SDL3_ttf.openFont(fontPathCString.asCStringSlice(), HUD_FONT_SIZE)
+    if font == nil {
+        Console.printLine("TTF_OpenFont failed for ${fontPathString}: ${SDL3.getError()!}")
+    }
+    let winFont = SDL3_ttf.openFont(fontPathCString.asCStringSlice(), HUD_WIN_FONT_SIZE)
+
+    return Hud(
+        font: font,
+        winFont: winFont,
+        textShader: buildTextShaderProgram(),
+        quadBuffer: buildTextQuadBuffer(),
+        crystalLabel: HudLabel(texture: 0, width: 0.0, height: 0.0),
+        winLabel: HudLabel(texture: 0, width: 0.0, height: 0.0))
+}
+
+func hudWhite() -> SDL3.Color {
+    return SDL3.Color(r: 235, g: 240, b: 245, a: 255)
+}
+
+func hudGold() -> SDL3.Color {
+    return SDL3.Color(r: 255, g: 210, b: 90, a: 255)
+}
+
+func refreshCrystalLabel(hud: &Hud, collected: Int32, total: Int32) {
+    destroyHudLabel(hud.crystalLabel)
+    let message = CString(value: "Crystals: ${collected} / ${total}")
+    hud.crystalLabel = renderHudLabel(hud.font, message.asCStringSlice(), hudWhite())
+}
+
+func refreshWinLabel(hud: &Hud) {
+    destroyHudLabel(hud.winLabel)
+    let message = CString(value: "All crystals collected!")
+    hud.winLabel = renderHudLabel(hud.winFont, message.asCStringSlice(), hudGold())
+}
+
+func drawHud(hud: *Hud, screenWidth: Int32, screenHeight: Int32, showWin: Bool) {
+    let projection = Matrix4.orthographic(
+        left: 0.0,
+        right: Float32(screenWidth),
+        bottom: Float32(screenHeight),
+        top: 0.0,
+        near: -1.0,
+        far: 1.0)
+
+    OpenGL.disable(OpenGL.DEPTH_TEST)
+    OpenGL.enable(OpenGL.BLEND)
+    OpenGL.blendFunc(OpenGL.SRC_ALPHA, OpenGL.ONE_MINUS_SRC_ALPHA)
+
+    drawHudLabel(hud.textShader, hud.quadBuffer, hud.crystalLabel, 16.0, 12.0, projection)
+
+    if showWin {
+        let x = (Float32(screenWidth) - hud.winLabel.width) * 0.5
+        let y = (Float32(screenHeight) - hud.winLabel.height) * 0.5
+        drawHudLabel(hud.textShader, hud.quadBuffer, hud.winLabel, x, y, projection)
+    }
+
+    OpenGL.disable(OpenGL.BLEND)
+    OpenGL.enable(OpenGL.DEPTH_TEST)
+}

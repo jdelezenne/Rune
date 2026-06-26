@@ -1,0 +1,211 @@
+import Standard.*
+import SDL3
+
+func setColor(renderer: &SDL3.Renderer?, r: UInt8, g: UInt8, b: UInt8, a: UInt8) {
+    SDL3.setRenderDrawColor(renderer, r, g, b, a)
+}
+
+func drawLine(renderer: &SDL3.Renderer?, x1: Float32, y1: Float32, x2: Float32, y2: Float32) {
+    SDL3.renderLine(renderer, x1, y1, x2, y2)
+}
+
+func drawRect(renderer: &SDL3.Renderer?, r: Rect, camera: Camera, red: UInt8, green: UInt8, blue: UInt8, alpha: UInt8) {
+    setColor(renderer, red, green, blue, alpha)
+    var sr = SDL3.FRect(x: r.x - camera.x, y: r.y - camera.y, w: r.w, h: r.h)
+    SDL3.renderFillRect(renderer, &sr)
+}
+
+func drawCave(renderer: &SDL3.Renderer?, level: Level, camera: Camera) {
+    for i in 0..level.wallCount {
+        let wall = level.walls[i]
+        drawRect(renderer, wall, camera, 26, 30, 34, 255)
+        setColor(renderer, 86, 126, 124, 230)
+        let sx = wall.x - camera.x
+        let sy = wall.y - camera.y
+        drawLine(renderer, sx, sy, sx + wall.w, sy)
+        drawLine(renderer, sx, sy + wall.h, sx + wall.w, sy + wall.h)
+        drawLine(renderer, sx, sy, sx, sy + wall.h)
+        drawLine(renderer, sx + wall.w, sy, sx + wall.w, sy + wall.h)
+    }
+}
+
+func drawPad(renderer: &SDL3.Renderer?, game: *Game, pad: Rect, red: UInt8, green: UInt8, blue: UInt8) {
+    drawRect(renderer, pad, game.camera, red, green, blue, 245)
+    setColor(renderer, 175, 230, 255, 230)
+    let sx = pad.x - game.camera.x
+    let sy = pad.y - game.camera.y
+    drawLine(renderer, sx + 8.0, sy, sx + 0.0, sy + 24.0)
+    drawLine(renderer, sx + pad.w - 8.0, sy, sx + pad.w, sy + 24.0)
+}
+
+func drawBases(renderer: &SDL3.Renderer?, game: *Game) {
+    drawPad(renderer, game, game.level.base, 42, 145, 220)
+    drawPad(renderer, game, game.level.exitBase, 230, 180, 45)
+    SDL3.renderDebugText(renderer, game.level.base.x - game.camera.x + 18.0, game.level.base.y - game.camera.y - 18.0, "BASE")
+    SDL3.renderDebugText(renderer, game.level.exitBase.x - game.camera.x + 18.0, game.level.exitBase.y - game.camera.y - 18.0, "EXIT")
+}
+
+func drawPackages(renderer: &SDL3.Renderer?, game: *Game) {
+    for i in 0..game.level.packageCount {
+        if !game.level.packages[i].collected {
+            let p = game.level.packages[i].position
+            let pulse = 1.0 + Math.abs(Math.sin(game.pulse + Float32(i))) * 4.0
+            setColor(renderer, 255, 214, 58, 255)
+            var box = SDL3.FRect(x: p.x - game.camera.x - 8.0, y: p.y - game.camera.y - 8.0, w: 16.0, h: 16.0)
+            SDL3.renderFillRect(renderer, &box)
+            setColor(renderer, 255, 245, 160, 210)
+            drawLine(renderer, p.x - game.camera.x - 12.0 - pulse, p.y - game.camera.y, p.x - game.camera.x + 12.0 + pulse, p.y - game.camera.y)
+            drawLine(renderer, p.x - game.camera.x, p.y - game.camera.y - 12.0 - pulse, p.x - game.camera.x, p.y - game.camera.y + 12.0 + pulse)
+        }
+    }
+}
+
+func drawShip(renderer: &SDL3.Renderer?, ship: Ship, camera: Camera) {
+    if !ship.alive {
+        return
+    }
+
+    let sx = ship.position.x - camera.x
+    let sy = ship.position.y - camera.y
+    let nose = vec2(x: sx + Math.cos(ship.angle) * 18.0, y: sy + Math.sin(ship.angle) * 18.0)
+    let left = vec2(x: sx + Math.cos(ship.angle + 2.48) * 13.0, y: sy + Math.sin(ship.angle + 2.48) * 13.0)
+    let right = vec2(x: sx + Math.cos(ship.angle - 2.48) * 13.0, y: sy + Math.sin(ship.angle - 2.48) * 13.0)
+
+    setColor(renderer, 215, 235, 255, 255)
+    drawLine(renderer, nose.x, nose.y, left.x, left.y)
+    drawLine(renderer, left.x, left.y, right.x, right.y)
+    drawLine(renderer, right.x, right.y, nose.x, nose.y)
+
+    setColor(renderer, 70, 180, 255, 190)
+    drawLine(renderer, sx, sy, left.x, left.y)
+    drawLine(renderer, sx, sy, right.x, right.y)
+
+    if ship.thrusting {
+        let tail = vec2(x: sx + Math.cos(ship.angle + PI_F) * 24.0, y: sy + Math.sin(ship.angle + PI_F) * 24.0)
+        setColor(renderer, 255, 155, 42, 230)
+        drawLine(renderer, left.x, left.y, tail.x, tail.y)
+        drawLine(renderer, right.x, right.y, tail.x, tail.y)
+    }
+}
+
+func drawBullets(renderer: &SDL3.Renderer?, game: *Game) {
+    setColor(renderer, 120, 225, 255, 255)
+    for i in 0..game.bullets.count {
+        if game.bullets[i].active {
+            let p = game.bullets[i].position
+            var b = SDL3.FRect(x: p.x - game.camera.x - 2.0, y: p.y - game.camera.y - 2.0, w: 4.0, h: 4.0)
+            SDL3.renderFillRect(renderer, &b)
+        }
+    }
+}
+
+func drawEnemyShots(renderer: &SDL3.Renderer?, game: *Game) {
+    for i in 0..game.enemyShots.count {
+        if game.enemyShots[i].active {
+            let p = game.enemyShots[i].position
+            let sx = p.x - game.camera.x
+            let sy = p.y - game.camera.y
+            setColor(renderer, 255, 80, 70, 255)
+            var core = SDL3.FRect(x: sx - 3.0, y: sy - 3.0, w: 6.0, h: 6.0)
+            SDL3.renderFillRect(renderer, &core)
+            setColor(renderer, 255, 190, 120, 210)
+            drawLine(renderer, sx - 7.0, sy, sx + 7.0, sy)
+            drawLine(renderer, sx, sy - 7.0, sx, sy + 7.0)
+        }
+    }
+}
+
+func drawStaticEnemy(renderer: &SDL3.Renderer?, x: Float32, y: Float32) {
+    setColor(renderer, 255, 84, 110, 255)
+    drawLine(renderer, x - 13.0, y, x, y - 13.0)
+    drawLine(renderer, x, y - 13.0, x + 13.0, y)
+    drawLine(renderer, x + 13.0, y, x, y + 13.0)
+    drawLine(renderer, x, y + 13.0, x - 13.0, y)
+    setColor(renderer, 255, 180, 190, 220)
+    drawLine(renderer, x - 18.0, y, x + 18.0, y)
+    drawLine(renderer, x, y - 18.0, x, y + 18.0)
+}
+
+func drawFlyerEnemy(renderer: &SDL3.Renderer?, x: Float32, y: Float32, phase: Float32) {
+    let wing = 10.0 + Math.abs(Math.sin(phase * 6.0)) * 6.0
+    setColor(renderer, 230, 90, 255, 255)
+    drawLine(renderer, x - 18.0, y, x - 4.0, y - wing)
+    drawLine(renderer, x - 4.0, y - wing, x, y + 7.0)
+    drawLine(renderer, x, y + 7.0, x + 4.0, y - wing)
+    drawLine(renderer, x + 4.0, y - wing, x + 18.0, y)
+    setColor(renderer, 255, 210, 255, 220)
+    var core = SDL3.FRect(x: x - 4.0, y: y - 4.0, w: 8.0, h: 8.0)
+    SDL3.renderFillRect(renderer, &core)
+}
+
+func drawGroundEnemy(renderer: &SDL3.Renderer?, x: Float32, y: Float32) {
+    setColor(renderer, 255, 135, 48, 255)
+    var body = SDL3.FRect(x: x - 14.0, y: y - 8.0, w: 28.0, h: 16.0)
+    SDL3.renderFillRect(renderer, &body)
+    setColor(renderer, 255, 220, 150, 230)
+    drawLine(renderer, x - 18.0, y + 8.0, x - 8.0, y + 15.0)
+    drawLine(renderer, x + 18.0, y + 8.0, x + 8.0, y + 15.0)
+}
+
+func drawEnemies(renderer: &SDL3.Renderer?, game: *Game) {
+    for i in 0..game.level.enemyCount {
+        if game.level.enemies[i].alive {
+            let enemy = game.level.enemies[i]
+            let x = enemy.position.x - game.camera.x
+            let y = enemy.position.y - game.camera.y
+            if enemy.kind == ENEMY_STATIC {
+                drawStaticEnemy(renderer, x, y)
+            } else if enemy.kind == ENEMY_FLYER {
+                drawFlyerEnemy(renderer, x, y, enemy.phase)
+            } else {
+                drawGroundEnemy(renderer, x, y)
+            }
+        }
+    }
+}
+
+func drawParticles(renderer: &SDL3.Renderer?, game: *Game) {
+    for i in 0..game.particles.count {
+        if game.particles[i].active {
+            let p = game.particles[i]
+            let alpha = UInt8(clampFloat(p.life * 230.0, 0.0, 230.0))
+            setColor(renderer, p.red, p.green, p.blue, alpha)
+            var r = SDL3.FRect(x: p.position.x - game.camera.x - 2.0, y: p.position.y - game.camera.y - 2.0, w: 4.0, h: 4.0)
+            SDL3.renderFillRect(renderer, &r)
+        }
+    }
+}
+
+func drawHud(renderer: &SDL3.Renderer?, game: *Game) {
+    setColor(renderer, 190, 225, 230, 230)
+    SDL3.renderDebugText(renderer, 14.0, 14.0, "GRAVITY  Arrows/WASD thrust + turn   Space fire   R restart")
+    SDL3.renderDebugText(renderer, 14.0, 32.0, "Collect all packages, then land gently at the exit base")
+
+    if game.won {
+        setColor(renderer, 255, 235, 90, 255)
+        SDL3.renderDebugText(renderer, 388.0, 304.0, "ROUTE COMPLETE")
+    } else if !game.ship.alive {
+        setColor(renderer, 255, 100, 70, 255)
+        SDL3.renderDebugText(renderer, 394.0, 304.0, "SHIP DESTROYED")
+    } else if game.delivered >= game.level.packageCount {
+        setColor(renderer, 120, 230, 160, 255)
+        SDL3.renderDebugText(renderer, 366.0, 58.0, "Land at exit base")
+    }
+}
+
+func drawWorld(renderer: &SDL3.Renderer?, game: *Game) {
+    setColor(renderer, 3, 5, 8, 255)
+    SDL3.renderClear(renderer)
+
+    drawCave(renderer, game.level, game.camera)
+    drawBases(renderer, game)
+    drawPackages(renderer, game)
+    drawEnemies(renderer, game)
+    drawBullets(renderer, game)
+    drawEnemyShots(renderer, game)
+    drawParticles(renderer, game)
+    drawShip(renderer, game.ship, game.camera)
+    drawHud(renderer, game)
+
+    SDL3.renderPresent(renderer)
+}

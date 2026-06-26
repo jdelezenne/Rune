@@ -1,0 +1,32 @@
+// Captured immutable values are copied into an owned thread closure environment.
+
+import Standard.*
+
+var result: Int = 0
+var namedResult: Int = 0
+
+func main() -> Int {
+    let base = 40
+    let increment = 2
+
+    var thread = Thread(body: {
+        result = base + increment
+    })
+    thread.join()
+
+    if result != 42 {
+        return 1
+    }
+
+    let namedBase = 20
+    var namedThread = Thread(body: {
+        namedResult = namedBase + namedBase + 2
+    }, name: "captured-thread")
+    namedThread.join()
+
+    if namedResult != 42 {
+        return 2
+    }
+
+    return 0
+}

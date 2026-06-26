@@ -1,0 +1,235 @@
+// GL 2.1 shader/VBO rendering through the shared OpenGL module. Each chunk's mesh is uploaded once
+// at startup into its own VBO straight from the chunk's Array<Vertex> via
+// .bytes/.byteLength -- chunks never change after generation, so there's no
+// per-frame re-upload. Crystal pickups reuse one small octahedron VBO,
+// redrawn per uncollected crystal with its own translation + spin.
+
+import Standard.*
+import SDL3
+import OpenGL
+
+func resolveOpenGLFunction(name: CStringSlice) -> &Byte? {
+    return SDL3.glGetProcAddress(name)
+}
+
+let vertexShaderSource: String = """
+#version 120
+attribute vec3 position;
+attribute vec3 normal;
+attribute vec3 color;
+uniform mat4 mvp;
+uniform mat4 model;
+varying vec3 fragNormal;
+varying vec3 fragColor;
+void main() {
+    gl_Position = mvp * vec4(position, 1.0);
+    fragNormal = normalize((model * vec4(normal, 0.0)).xyz);
+    fragColor = color;
+}
+"""
+
+let fragmentShaderSource: String = """
+#version 120
+varying vec3 fragNormal;
+varying vec3 fragColor;
+uniform vec3 lightDir;
+void main() {
+    vec3 n = normalize(fragNormal);
+    float diffuse = max(dot(n, normalize(-lightDir)), 0.0);
+    vec3 ambient = fragColor * 0.4;
+    vec3 lit = ambient + fragColor * (diffuse * 0.75);
+    gl_FragColor = vec4(lit, 1.0);
+}
+"""
+
+struct ShaderProgram {
+    var program: OpenGL.GLuint
+    var mvpLocation: OpenGL.GLint
+    var modelLocation: OpenGL.GLint
+    var lightDirLocation: OpenGL.GLint
+    var positionAttrib: OpenGL.GLuint
+    var normalAttrib: OpenGL.GLuint
+    var colorAttrib: OpenGL.GLuint
+}
+
+func compileShaderStage(kind: OpenGL.GLenum, source: String) -> OpenGL.GLuint {
+    let shader = OpenGL.createShader(kind)
+    var sourceBuffer: [Byte, 4096] = []
+    let sourceLength = source.copyBytes(destination: (sourceBuffer.bytes as &Byte), maxLength: 4096)
+    var sourcePointer: *Int8 = (sourceBuffer.bytes as *Int8)
+    var sourceLengthValue: OpenGL.GLint = (sourceLength as! OpenGL.GLint)
+    OpenGL.shaderSource(shader, 1, &sourcePointer, &sourceLengthValue)
+    OpenGL.compileShader(shader)
+
+    var status: Int32 = 0
+    OpenGL.getShaderiv(shader, OpenGL.COMPILE_STATUS, &status)
+    if status == 0 {
+        var log: [Int8, 1024] = []
+        var logLength: OpenGL.GLsizei = 0
+        OpenGL.getShaderInfoLog(shader, 1024, &logLength, (log.bytes as *Int8))
+        Console.printLine("shader compile failed")
+    }
+    return shader
+}
+
+func buildShaderProgram() -> ShaderProgram {
+    let vertexShader = compileShaderStage(OpenGL.VERTEX_SHADER, vertexShaderSource)
+    let fragmentShader = compileShaderStage(OpenGL.FRAGMENT_SHADER, fragmentShaderSource)
+    let program = OpenGL.createProgram()
+    OpenGL.attachShader(program, vertexShader)
+    OpenGL.attachShader(program, fragmentShader)
+    OpenGL.linkProgram(program)
+
+    var status: Int32 = 0
+    OpenGL.getProgramiv(program, OpenGL.LINK_STATUS, &status)
+    if status == 0 {
+        var log: [Int8, 1024] = []
+        var logLength: OpenGL.GLsizei = 0
+        OpenGL.getProgramInfoLog(program, 1024, &logLength, (log.bytes as *Int8))
+        Console.printLine("program link failed")
+    }
+
+    let positionAttrib = (OpenGL.getAttribLocation(program, "position") as! UInt32)
+    let normalAttrib = (OpenGL.getAttribLocation(program, "normal") as! UInt32)
+    let colorAttrib = (OpenGL.getAttribLocation(program, "color") as! UInt32)
+
+    return ShaderProgram(
+        program: program,
+        mvpLocation: OpenGL.getUniformLocation(program, "mvp"),
+        modelLocation: OpenGL.getUniformLocation(program, "model"),
+        lightDirLocation: OpenGL.getUniformLocation(program, "lightDir"),
+        positionAttrib: positionAttrib,
+        normalAttrib: normalAttrib,
+        colorAttrib: colorAttrib)
+}
+
+const VERTEX_STRIDE: Int = 36
+
+// Uploads a genuinely runtime-sized chunk mesh (see Mesh.rune) into a new
+// VBO via Array<Vertex>.bytes/.byteLength. Takes the mesh by reference --
+// Array<T> is a heap-owning handle (see Documentation/Users/MEMORY.md), so
+// copying a live one (e.g. `var data = vertices`) leaves two owners that
+// each free the same buffer at scope exit; borrowing it avoids ever making
+// a second owning copy.
+func uploadChunkMesh(vertices: &Array<Vertex>) -> OpenGL.GLuint {
+    var buffer: OpenGL.GLuint = 0
+    OpenGL.genBuffers(1, &buffer)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, buffer)
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, vertices.byteLength, (vertices.bytes as *Byte), OpenGL.STATIC_DRAW)
+    return buffer
+}
+
+const CRYSTAL_VERTEX_COUNT: Int = 24
+
+// A small octahedron (top/bottom apex + 4 equatorial points), flat-shaded
+// with one facet color -- 8 triangular faces, 3 unshared vertices each.
+func buildCrystalMesh() -> [Vertex, CRYSTAL_VERTEX_COUNT] {
+    let top = Vector3(x: 0.0, y: 0.5, z: 0.0)
+    let bottom = Vector3(x: 0.0, y: -0.5, z: 0.0)
+    var ring: [Vector3, 4] = []
+    ring[0] = Vector3(x: 0.35, y: 0.0, z: 0.0)
+    ring[1] = Vector3(x: 0.0, y: 0.0, z: 0.35)
+    ring[2] = Vector3(x: -0.35, y: 0.0, z: 0.0)
+    ring[3] = Vector3(x: 0.0, y: 0.0, z: -0.35)
+    let color = Vector3(x: 0.55, y: 0.9, z: 0.95)
+
+    var vertices: [Vertex, CRYSTAL_VERTEX_COUNT] = []
+    var index = 0
+    for i in 0..4 {
+        let a = ring[i]
+        let b = ring[(i + 1) % 4]
+
+        let topNormal = (a - top).cross(other: (b - top)).normalized()
+        vertices[index] = Vertex(x: top.x, y: top.y, z: top.z, nx: topNormal.x, ny: topNormal.y, nz: topNormal.z, r: color.x, g: color.y, b: color.z)
+        index = index + 1
+        vertices[index] = Vertex(x: a.x, y: a.y, z: a.z, nx: topNormal.x, ny: topNormal.y, nz: topNormal.z, r: color.x, g: color.y, b: color.z)
+        index = index + 1
+        vertices[index] = Vertex(x: b.x, y: b.y, z: b.z, nx: topNormal.x, ny: topNormal.y, nz: topNormal.z, r: color.x, g: color.y, b: color.z)
+        index = index + 1
+
+        let bottomNormal = (b - bottom).cross(other: (a - bottom)).normalized()
+        vertices[index] = Vertex(x: bottom.x, y: bottom.y, z: bottom.z, nx: bottomNormal.x, ny: bottomNormal.y, nz: bottomNormal.z, r: color.x, g: color.y, b: color.z)
+        index = index + 1
+        vertices[index] = Vertex(x: b.x, y: b.y, z: b.z, nx: bottomNormal.x, ny: bottomNormal.y, nz: bottomNormal.z, r: color.x, g: color.y, b: color.z)
+        index = index + 1
+        vertices[index] = Vertex(x: a.x, y: a.y, z: a.z, nx: bottomNormal.x, ny: bottomNormal.y, nz: bottomNormal.z, r: color.x, g: color.y, b: color.z)
+        index = index + 1
+    }
+    return vertices
+}
+
+func uploadCrystalMesh(vertices: [Vertex, CRYSTAL_VERTEX_COUNT]) -> OpenGL.GLuint {
+    var buffer: OpenGL.GLuint = 0
+    OpenGL.genBuffers(1, &buffer)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, buffer)
+    var data = vertices
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, CRYSTAL_VERTEX_COUNT * VERTEX_STRIDE, (data.bytes as *Byte), OpenGL.STATIC_DRAW)
+    return buffer
+}
+
+struct Scene {
+    var shader: ShaderProgram
+    var crystalBuffer: OpenGL.GLuint
+}
+
+// Builds the shared shader and uploads every chunk's mesh into the chunk's
+// own VBO (filling in Chunk.vertexBuffer/vertexCount in place), plus the one
+// shared crystal mesh.
+func buildScene(world: &World) -> Scene {
+    OpenGL.loadFunctions(resolveOpenGLFunction)
+    let shader = buildShaderProgram()
+
+    for chunkIndex in 0..WORLD_CHUNK_COUNT {
+        let chunk = world.chunks[chunkIndex]
+        var mesh = buildChunkMesh(world, chunk.chunkX, chunk.chunkZ)
+        world.chunks[chunkIndex].vertexBuffer = uploadChunkMesh(&mesh)
+        world.chunks[chunkIndex].vertexCount = Int32(mesh.count)
+        world.chunks[chunkIndex].meshed = true
+    }
+
+    let crystalBuffer = uploadCrystalMesh(buildCrystalMesh())
+
+    return Scene(shader: shader, crystalBuffer: crystalBuffer)
+}
+
+func drawMeshBuffer(scene: *Scene, buffer: OpenGL.GLuint, vertexCount: Int32, model: Matrix4, viewProjection: Matrix4) {
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, buffer)
+    OpenGL.enableVertexAttribArray(scene.shader.positionAttrib)
+    OpenGL.vertexAttribPointer(scene.shader.positionAttrib, 3, OpenGL.FLOAT, 0, (VERTEX_STRIDE as! OpenGL.GLsizei), (0 as *Byte))
+    OpenGL.enableVertexAttribArray(scene.shader.normalAttrib)
+    OpenGL.vertexAttribPointer(scene.shader.normalAttrib, 3, OpenGL.FLOAT, 0, (VERTEX_STRIDE as! OpenGL.GLsizei), (12 as *Byte))
+    OpenGL.enableVertexAttribArray(scene.shader.colorAttrib)
+    OpenGL.vertexAttribPointer(scene.shader.colorAttrib, 3, OpenGL.FLOAT, 0, (VERTEX_STRIDE as! OpenGL.GLsizei), (24 as *Byte))
+
+    var mvp = viewProjection * model
+    var modelCopy = model
+    OpenGL.uniformMatrix4fv(scene.shader.mvpLocation, 1, 0, (mvp.m.bytes as *OpenGL.GLfloat))
+    OpenGL.uniformMatrix4fv(scene.shader.modelLocation, 1, 0, (modelCopy.m.bytes as *OpenGL.GLfloat))
+
+    OpenGL.drawArrays(OpenGL.TRIANGLES, 0, vertexCount)
+}
+
+func drawWorld(scene: *Scene, world: *World, viewProjection: Matrix4) {
+    OpenGL.useProgram(scene.shader.program)
+    OpenGL.uniform3f(scene.shader.lightDirLocation, -0.35, -1.0, -0.25)
+
+    let identity = Matrix4.identity()
+    for chunkIndex in 0..WORLD_CHUNK_COUNT {
+        let chunk = world.chunks[chunkIndex]
+        if chunk.vertexCount == 0 {
+            continue
+        }
+        drawMeshBuffer(scene, chunk.vertexBuffer, chunk.vertexCount, identity, viewProjection)
+    }
+
+    for i in 0..CRYSTAL_COUNT {
+        let crystal = world.crystals[i]
+        if crystal.collected {
+            continue
+        }
+        let spin = Matrix4.rotation(axis: Vector3(x: 0.0, y: 1.0, z: 0.0), angle: crystal.spinAngle)
+        let translation = Matrix4.translation(x: crystal.position.x, y: crystal.position.y, z: crystal.position.z)
+        let model = translation * spin
+        drawMeshBuffer(scene, scene.crystalBuffer, Int32(CRYSTAL_VERTEX_COUNT), model, viewProjection)
+    }
+}

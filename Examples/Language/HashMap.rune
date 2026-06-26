@@ -1,0 +1,64 @@
+struct Inventory {
+    var items: HashMap<UInt64, String>
+
+    init() {
+        items = HashMap<UInt64, String>()
+    }
+
+    mutating func add(id: UInt64, name: String) {
+        items.insert(key: id, value: name)
+    }
+
+    func name(id: UInt64) -> String? {
+        return items.tryGet(key: id)
+    }
+}
+
+// Explicit generic instantiation of an imported collection, stored in a struct
+// field and accessed through methods (implicit-self field receivers).
+func demonstrateExplicitInstantiation() -> Bool {
+    var inventory = Inventory()
+    inventory.add(id: 7, name: "sword")
+    inventory.add(id: 9, name: "shield")
+
+    if let name = inventory.name(id: 7) {
+        if name != "sword" {
+            return false
+        }
+    } else {
+        return false
+    }
+
+    var direct = HashMap<UInt64, Int>()
+    direct.insert(key: 1, value: 10)
+    if let value = direct.tryGet(key: 1) {
+        return value == 10
+    }
+
+    return false
+}
+
+func main() -> Int {
+    if !demonstrateExplicitInstantiation() {
+        return 5
+    }
+
+    let scores: HashMap<String, Int> = ["alice": 10, "bob": 20, "carol": 5]
+    let alice = scores.tryGet(key: "alice")
+    if alice == nil || alice! != 10 {
+        return 1
+    }
+    let bob = scores.tryGet(key: "bob")
+    if bob == nil {
+        return 2
+    }
+    let carol = scores.tryGet(key: "carol")
+    if carol == nil {
+        return 3
+    }
+
+    if alice! + bob! + carol! != 35 {
+        return 4
+    }
+    return 0
+}

@@ -1,0 +1,60 @@
+// UDP echo client.
+//
+// Start Examples/Programs/Network/UdpEchoServer.rune first.
+// Run:
+//   rune run Examples/Programs/Network/UdpEchoClient.rune
+
+import Standard.*
+
+const HOST: String = "127.0.0.1"
+const PORT: UInt16 = 9101
+const BUFFER_SIZE: UInt = 4096
+
+func sendLine(socket: &UdpSocket, line: String, address: SocketAddress) throws(String) -> UInt {
+    let length = UInt(line.length)
+    if length == 0 {
+        return 0
+    }
+
+    let buffer = try! Memory.systemAllocate(size: length)
+    let copied = line.copyBytes(destination: buffer, maxLength: length)
+    _ = try socket.sendTo(data: buffer, length: copied, address: address)
+    Memory.systemDeallocate(address: buffer)
+    return copied
+}
+
+func runClient() throws(String) -> Int {
+    var socket = UdpSocket()
+    let server = SocketAddress(host: HOST, port: PORT)
+    let buffer = try! Memory.systemAllocate(size: BUFFER_SIZE)
+
+    Console.printLine("UDP echo target ${HOST}:${PORT}")
+    Console.printLine("type a line and press Enter; empty line exits")
+
+    while true {
+        Console.print("> ")
+        let line = Console.readLine()
+        if line.isEmpty {
+            socket.close()
+            Memory.systemDeallocate(address: buffer)
+            return 0
+        }
+
+        let sent = try sendLine(socket: &socket, line: line, address: server)
+        let datagram = try socket.receiveFrom(buffer: buffer, length: BUFFER_SIZE)
+        let echoed = String.fromBytes(source: buffer, length: UInt(datagram.byteCount))
+        Console.printLine("echo ${datagram.byteCount}/${sent} bytes from ${datagram.remoteAddress.host}:${datagram.remoteAddress.port}: ${echoed}")
+    }
+
+    return 0
+}
+
+func main() -> Int {
+    do {
+        return runClient()
+    }
+    catch let error {
+        Console.printLine("udp echo client error: ${error}")
+        return 1
+    }
+}

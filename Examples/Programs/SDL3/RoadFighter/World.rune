@@ -1,0 +1,623 @@
+// World: the Game state machine - fuel economy, the traffic spawner, skid and
+// crash resolution, scoring, and the tour through the four courses. The loop
+// of a run mirrors the classic checkpoint racer: start lights, race the road
+// against a draining tank, cross the finish for a fuel bonus, and carry on to
+// the next (harder) course. Running dry ends the game where the car rolls to
+// a stop.
+
+import Standard.*
+
+// MARK: - Tuning
+
+const FUEL_MAX: Float32 = 100.0
+// Litres per second: a fixed idle burn plus a term that grows with speed.
+const FUEL_DRAIN_BASE: Float32 = 0.5
+const FUEL_DRAIN_SPEED: Float32 = 0.6
+const FUEL_DRAIN_PER_LOOP: Float32 = 0.06
+const BONUS_CAR_FUEL: Float32 = 16.0
+
+const SCORE_PASS: Int32 = 50
+const SCORE_BONUS_CAR: Int32 = 500
+const SCORE_FUEL_BONUS_PER_UNIT: Int32 = 100
+const SCORE_PERFECT_RUN: Int32 = 5000
+// Points per second at full speed (scored continuously while moving).
+const SCORE_SPEED_RATE: Float32 = 0.25
+
+const READY_DURATION: Float32 = 3.0
+const GO_FLASH_DURATION: Float32 = 0.9
+const GOAL_DURATION: Float32 = 4.5
+const GOAL_DECEL: Float32 = 130.0
+
+// Spawn pacing: the timer ticks with player speed so traffic density tracks
+// how fast the road is coming at you.
+const SPAWN_TICK_SPEED: Float32 = 300.0
+const SPAWN_MIN_SPEED: Float32 = 60.0
+const BONUS_FIRST_DELAY: Float32 = 12.0
+const RESPAWN_CLEAR_M: Float32 = 70.0
+
+// Passing a slick above this speed breaks traction.
+const OIL_SKID_SPEED: Float32 = 100.0
+
+// MARK: - Phases
+
+const PHASE_READY: Int32 = 0
+const PHASE_PLAYING: Int32 = 1
+const PHASE_GOAL: Int32 = 2
+const PHASE_GAME_OVER: Int32 = 3
+
+// MARK: - Input for one frame
+
+struct InputEdge {
+    var moveLeft: Bool
+    var moveRight: Bool
+    var accelHi: Bool
+    var accelLo: Bool
+    var brake: Bool
+    var pause: Bool
+    var restart: Bool
+    var quit: Bool
+}
+
+func makeInputEdge() -> InputEdge {
+    return InputEdge(
+        moveLeft: false,
+        moveRight: false,
+        accelHi: false,
+        accelLo: false,
+        brake: false,
+        pause: false,
+        restart: false,
+        quit: false)
+}
+
+// MARK: - Game
+
+struct Game {
+    var player: PlayerCar
+    var enemies: [Enemy, MAX_ENEMIES]
+    var oils: [Oil, MAX_OILS]
+    var popups: [Popup, MAX_POPUPS]
+    var rng: Rng
+    var course: Int
+    var round: Int
+    var dist: Float32
+    var fuel: Float32
+    var score: Int32
+    var highScore: Int32
+    var phase: Int32
+    var phaseTimer: Float32
+    var goTimer: Float32
+    var animTimer: Float32
+    var spawnTimer: Float32
+    var bonusTimer: Float32
+    var oilTimer: Float32
+    var scoreAcc: Float32
+    var goalFuelBonus: Int32
+    var crashedThisCourse: Bool
+    var paused: Bool
+
+    func roadHere() -> RoadPoint {
+        return roadAt(self.course, self.dist)
+    }
+
+    // Player lane as a fraction of the half width, for the red cars' AI.
+    func playerLaneF() -> Float32 {
+        let road = self.roadHere()
+        return Math.clamp((self.player.x - road.center) / road.halfWidth, -0.8, 0.8)
+    }
+
+    func steerDir(edge: InputEdge) -> Float32 {
+        var dir: Float32 = 0.0
+        if edge.moveLeft {
+            dir = dir - 1.0
+        }
+        if edge.moveRight {
+            dir = dir + 1.0
+        }
+        return dir
+    }
+
+    mutating func resetForCourse() {
+        let road = roadAt(self.course, 0.0)
+        self.player = makePlayerCar(road.center)
+        for index in 0..MAX_ENEMIES {
+            self.enemies[index] = makeEnemy()
+        }
+        for index in 0..MAX_OILS {
+            self.oils[index] = makeOil()
+        }
+        for index in 0..MAX_POPUPS {
+            self.popups[index] = makePopup()
+        }
+        self.dist = 0.0
+        self.fuel = FUEL_MAX
+        self.phase = PHASE_READY
+        self.phaseTimer = READY_DURATION
+        self.goTimer = 0.0
+        self.spawnTimer = 1.0
+        self.bonusTimer = BONUS_FIRST_DELAY
+        self.oilTimer = self.nextOilDelay()
+        self.scoreAcc = 0.0
+        self.goalFuelBonus = 0
+        self.crashedThisCourse = false
+    }
+
+    mutating func fullReset() {
+        self.score = 0
+        self.course = 0
+        self.round = 0
+        self.paused = false
+        self.resetForCourse()
+    }
+
+    // MARK: - Difficulty knobs
+
+    func spawnPace() -> Float32 {
+        let pace: Float32 = 1.0 - 0.07 * Float32(self.course) - 0.1 * Float32(self.round)
+        return Math.clamp(pace, 0.5, 1.0)
+    }
+
+    func enemySpeedFor(kind: Int32) -> Float32 {
+        return enemyBaseSpeed(kind) + Math.min(Float32(self.round) * 12.0, 36.0)
+    }
+
+    func fuelDrainRate() -> Float32 {
+        let speedTerm = FUEL_DRAIN_SPEED * (self.player.speed / HI_GEAR_MAX)
+        return FUEL_DRAIN_BASE + speedTerm + FUEL_DRAIN_PER_LOOP * Float32(self.round)
+    }
+
+    mutating func nextOilDelay() -> Float32 {
+        let scale: Float32 = 1.0 - 0.15 * Float32(self.course)
+        return randRange(&self.rng, 7.0, 12.0) * scale
+    }
+
+    // MARK: - Spawning
+
+    // Traffic mix per course: yellows thin out and cutters/weavers thicken
+    // as the tour progresses.
+    mutating func pickEnemyKind() -> Int32 {
+        let roll = randInt(&self.rng, 100)
+        if self.course == 0 {
+            if roll < 50 {
+                return ENEMY_YELLOW
+            }
+            if roll < 80 {
+                return ENEMY_RED
+            }
+            if roll < 85 {
+                return ENEMY_BLUE
+            }
+            return ENEMY_TRUCK
+        }
+        if self.course == 1 {
+            if roll < 40 {
+                return ENEMY_YELLOW
+            }
+            if roll < 70 {
+                return ENEMY_RED
+            }
+            if roll < 80 {
+                return ENEMY_BLUE
+            }
+            return ENEMY_TRUCK
+        }
+        if self.course == 2 {
+            if roll < 30 {
+                return ENEMY_YELLOW
+            }
+            if roll < 65 {
+                return ENEMY_RED
+            }
+            if roll < 85 {
+                return ENEMY_BLUE
+            }
+            return ENEMY_TRUCK
+        }
+        if roll < 25 {
+            return ENEMY_YELLOW
+        }
+        if roll < 60 {
+            return ENEMY_RED
+        }
+        if roll < 85 {
+            return ENEMY_BLUE
+        }
+        return ENEMY_TRUCK
+    }
+
+    mutating func pickLaneF(spawnD: Float32) -> Float32 {
+        let road = roadAt(self.course, spawnD)
+        if road.halfWidth < NARROW_HALF_WIDTH {
+            return NARROW_LANE_FRACTIONS[randInt(&self.rng, 2)]
+        }
+        return LANE_FRACTIONS[randInt(&self.rng, LANE_COUNT)]
+    }
+
+    // Keep a car length and a bit between spawns that share a lane.
+    func spawnBlocked(spawnD: Float32, laneF: Float32, kind: Int32) -> Bool {
+        let gapM: Float32 = kind == ENEMY_TRUCK ? 70.0 : 45.0
+        for index in 0..MAX_ENEMIES {
+            if !self.enemies[index].active {
+                continue
+            }
+            if Math.abs(self.enemies[index].d - spawnD) < gapM && Math.abs(self.enemies[index].laneF - laneF) < 0.45 {
+                return true
+            }
+        }
+        return false
+    }
+
+    mutating func spawnEnemy(kind: Int32) {
+        let spawnD = self.dist + SPAWN_AHEAD_M
+        let laneF = self.pickLaneF(spawnD)
+        if self.spawnBlocked(spawnD, laneF, kind) {
+            return
+        }
+        for index in 0..MAX_ENEMIES {
+            if self.enemies[index].active {
+                continue
+            }
+            var enemy = makeEnemy()
+            enemy.active = true
+            enemy.kind = kind
+            enemy.d = spawnD
+            enemy.laneF = laneF
+            enemy.homeLaneF = laneF
+            enemy.targetLaneF = laneF
+            enemy.weavePhase = randRange(&self.rng, 0.0, TAU_F)
+            enemy.speed = self.enemySpeedFor(kind)
+            self.enemies[index] = enemy
+            return
+        }
+    }
+
+    func bonusCarActive() -> Bool {
+        for index in 0..MAX_ENEMIES {
+            if self.enemies[index].active && self.enemies[index].kind == ENEMY_BONUS {
+                return true
+            }
+        }
+        return false
+    }
+
+    mutating func spawnOil() {
+        let spawnD = self.dist + SPAWN_AHEAD_M
+        for index in 0..MAX_OILS {
+            if self.oils[index].active {
+                continue
+            }
+            self.oils[index] = Oil(
+                active: true,
+                d: spawnD,
+                laneF: randRange(&self.rng, -0.6, 0.6))
+            return
+        }
+    }
+
+    mutating func stepSpawners(dt: Float32) {
+        if self.player.speed < SPAWN_MIN_SPEED {
+            return
+        }
+
+        self.spawnTimer = self.spawnTimer - dt * (self.player.speed / SPAWN_TICK_SPEED)
+        if self.spawnTimer <= 0.0 {
+            let kind = self.pickEnemyKind()
+            self.spawnEnemy(kind)
+            self.spawnTimer = randRange(&self.rng, 0.55, 1.05) * self.spawnPace()
+        }
+
+        self.bonusTimer = self.bonusTimer - dt
+        if self.bonusTimer <= 0.0 {
+            if !self.bonusCarActive() {
+                self.spawnEnemy(ENEMY_BONUS)
+            }
+            self.bonusTimer = randRange(&self.rng, 16.0, 24.0)
+        }
+
+        self.oilTimer = self.oilTimer - dt
+        if self.oilTimer <= 0.0 {
+            self.spawnOil()
+            self.oilTimer = self.nextOilDelay()
+        }
+    }
+
+    // MARK: - Traffic simulation
+
+    mutating func stepEnemies(dt: Float32, scorePasses: Bool) {
+        let playerLane = self.playerLaneF()
+        for index in 0..MAX_ENEMIES {
+            if !self.enemies[index].active {
+                continue
+            }
+            stepEnemy(&self.enemies[index], dt, self.dist, playerLane, self.player.speed)
+
+            let y = screenYForDistance(self.dist, self.enemies[index].d)
+            if scorePasses && !self.enemies[index].passed && y > PLAYER_SCREEN_Y + 30.0 {
+                self.enemies[index].passed = true
+                if self.enemies[index].kind != ENEMY_BONUS {
+                    self.score = self.score + SCORE_PASS
+                }
+            }
+            // Gone below the viewport, or left far behind above it.
+            if y > Float32(HEIGHT) + 90.0 {
+                self.enemies[index].active = false
+            } else if self.enemies[index].d - self.dist > SPAWN_AHEAD_M + 40.0 {
+                self.enemies[index].active = false
+            }
+        }
+    }
+
+    mutating func stepOils() {
+        for index in 0..MAX_OILS {
+            if !self.oils[index].active {
+                continue
+            }
+            if screenYForDistance(self.dist, self.oils[index].d) > Float32(HEIGHT) + 30.0 {
+                self.oils[index].active = false
+            }
+        }
+    }
+
+    mutating func stepPopups(dt: Float32) {
+        for index in 0..MAX_POPUPS {
+            stepPopup(&self.popups[index], dt)
+        }
+    }
+
+    mutating func addFuelPopup(x: Float32, y: Float32, fuel: Int32) {
+        for index in 0..MAX_POPUPS {
+            if self.popups[index].active {
+                continue
+            }
+            self.popups[index] = Popup(active: true, x: x, y: y, timer: POPUP_DURATION, fuel: fuel)
+            return
+        }
+    }
+
+    // MARK: - Collisions
+
+    mutating func crashPlayer() {
+        startCrash(&self.player)
+        self.crashedThisCourse = true
+    }
+
+    mutating func collectBonusCar(index: Int) {
+        let y = screenYForDistance(self.dist, self.enemies[index].d)
+        let road = roadAt(self.course, self.enemies[index].d)
+        let x = laneCenterX(road, self.enemies[index].laneF)
+        self.fuel = Math.min(self.fuel + BONUS_CAR_FUEL, FUEL_MAX)
+        self.score = self.score + SCORE_BONUS_CAR
+        self.addFuelPopup(x, y, Int32(BONUS_CAR_FUEL))
+        self.enemies[index].active = false
+    }
+
+    mutating func checkCollisions() {
+        // Guard rails first: leaving the tarmac wrecks the car outright.
+        let road = self.roadHere()
+        if Math.abs(self.player.x - road.center) > road.halfWidth - CAR_HALF_W - 1.0 {
+            self.crashPlayer()
+            return
+        }
+
+        for index in 0..MAX_ENEMIES {
+            if !self.enemies[index].active {
+                continue
+            }
+            let kind = self.enemies[index].kind
+            let ey = screenYForDistance(self.dist, self.enemies[index].d)
+            if Math.abs(ey - PLAYER_SCREEN_Y) > CAR_HALF_H + enemyHalfH(kind) {
+                continue
+            }
+            let eroad = roadAt(self.course, self.enemies[index].d)
+            let ex = laneCenterX(eroad, self.enemies[index].laneF)
+            if Math.abs(ex - self.player.x) > CAR_HALF_W + enemyHalfW(kind) {
+                continue
+            }
+
+            if kind == ENEMY_BONUS {
+                self.collectBonusCar(index)
+                continue
+            }
+            if kind == ENEMY_TRUCK {
+                self.crashPlayer()
+                return
+            }
+            // Brushing a car mid-skid is fatal; from clean running it throws
+            // the car into a counter-steerable slide away from the contact.
+            if self.player.state == PLAYER_STATE_SKID {
+                self.crashPlayer()
+                return
+            }
+            let side: Float32 = self.player.x < ex ? -1.0 : 1.0
+            let push: Float32 = 130.0 + self.player.speed * 0.3
+            startSkid(&self.player, side * push)
+            return
+        }
+
+        if self.player.state == PLAYER_STATE_NORMAL && self.player.speed > OIL_SKID_SPEED {
+            for index in 0..MAX_OILS {
+                if !self.oils[index].active {
+                    continue
+                }
+                let oy = screenYForDistance(self.dist, self.oils[index].d)
+                if Math.abs(oy - PLAYER_SCREEN_Y) > 16.0 {
+                    continue
+                }
+                let oroad = roadAt(self.course, self.oils[index].d)
+                let ox = laneCenterX(oroad, self.oils[index].laneF)
+                if Math.abs(ox - self.player.x) > 18.0 {
+                    continue
+                }
+                let side: Float32 = randUnit(&self.rng) < 0.5 ? -1.0 : 1.0
+                let push: Float32 = 110.0 + self.player.speed * 0.25
+                startSkid(&self.player, side * push)
+                return
+            }
+        }
+    }
+
+    // After the wreck is cleared, put the car back on the centre line and
+    // sweep nearby traffic so the restart is not an instant re-crash.
+    mutating func respawnAfterCrash() {
+        self.player.state = PLAYER_STATE_NORMAL
+        self.player.x = self.roadHere().center
+        for index in 0..MAX_ENEMIES {
+            if !self.enemies[index].active {
+                continue
+            }
+            if Math.abs(self.enemies[index].d - self.dist) < RESPAWN_CLEAR_M {
+                self.enemies[index].active = false
+            }
+        }
+    }
+
+    // MARK: - Phase steps
+
+    mutating func stepPlaying(edge: InputEdge, dt: Float32) {
+        self.goTimer = Math.max(self.goTimer - dt, 0.0)
+
+        if self.player.state == PLAYER_STATE_CRASH {
+            self.player.crashTimer = self.player.crashTimer - dt
+            if self.player.crashTimer <= 0.0 {
+                self.respawnAfterCrash()
+            }
+        } else {
+            let steer = self.steerDir(edge)
+            stepPlayerSpeed(&self.player, edge.accelHi, edge.accelLo, edge.brake, self.fuel > 0.0, dt)
+            if self.player.state == PLAYER_STATE_SKID {
+                stepSkid(&self.player, steer, dt)
+            } else {
+                steerPlayer(&self.player, steer, dt)
+            }
+
+            self.fuel = Math.max(self.fuel - self.fuelDrainRate() * dt, 0.0)
+        }
+
+        self.dist = self.dist + playerSpeedMs(&self.player) * dt
+
+        // Continuous speed score, banked whole points at a time.
+        self.scoreAcc = self.scoreAcc + self.player.speed * SCORE_SPEED_RATE * dt
+        if self.scoreAcc >= 1.0 {
+            let whole = Int32(self.scoreAcc)
+            self.score = self.score + whole
+            self.scoreAcc = self.scoreAcc - Float32(whole)
+        }
+
+        self.stepSpawners(dt)
+        self.stepEnemies(dt, true)
+        self.stepOils()
+        self.stepPopups(dt)
+
+        if self.player.state != PLAYER_STATE_CRASH {
+            self.checkCollisions()
+        }
+
+        if self.score > self.highScore {
+            self.highScore = self.score
+        }
+
+        if self.dist >= courseLength(self.course) {
+            self.phase = PHASE_GOAL
+            self.phaseTimer = GOAL_DURATION
+            self.goalFuelBonus = Int32(self.fuel) * SCORE_FUEL_BONUS_PER_UNIT
+            self.score = self.score + self.goalFuelBonus
+            if !self.crashedThisCourse {
+                self.score = self.score + SCORE_PERFECT_RUN
+            }
+            if self.score > self.highScore {
+                self.highScore = self.score
+            }
+            return
+        }
+
+        // Out of fuel and rolled to a stop: the run is over.
+        if self.fuel <= 0.0 && self.player.speed <= 0.5 && self.player.state == PLAYER_STATE_NORMAL {
+            self.phase = PHASE_GAME_OVER
+        }
+    }
+
+    // Victory lap: coast down past the banner, then on to the next course.
+    mutating func stepGoal(dt: Float32) {
+        self.player.speed = Math.max(self.player.speed - GOAL_DECEL * dt, 0.0)
+        self.dist = self.dist + playerSpeedMs(&self.player) * dt
+        self.stepEnemies(dt, false)
+        self.stepOils()
+        self.stepPopups(dt)
+
+        self.phaseTimer = self.phaseTimer - dt
+        if self.phaseTimer <= 0.0 {
+            self.course = self.course + 1
+            if self.course >= COURSE_COUNT {
+                self.course = 0
+                self.round = self.round + 1
+            }
+            self.resetForCourse()
+        }
+    }
+
+    mutating func update(edge: InputEdge, dt: Float32) {
+        self.animTimer = self.animTimer + dt
+
+        if edge.pause && (self.phase == PHASE_PLAYING || self.paused) {
+            self.paused = !self.paused
+        }
+
+        if self.phase == PHASE_GAME_OVER {
+            if edge.restart {
+                self.fullReset()
+            }
+            return
+        }
+
+        if self.paused {
+            return
+        }
+
+        if self.phase == PHASE_READY {
+            self.phaseTimer = self.phaseTimer - dt
+            if self.phaseTimer <= 0.0 {
+                self.phase = PHASE_PLAYING
+                self.goTimer = GO_FLASH_DURATION
+            }
+            return
+        }
+
+        if self.phase == PHASE_GOAL {
+            self.stepGoal(dt)
+            return
+        }
+
+        self.stepPlaying(edge, dt)
+    }
+}
+
+func makeGame() -> Game {
+    var enemies: [Enemy, MAX_ENEMIES] = []
+    var oils: [Oil, MAX_OILS] = []
+    var popups: [Popup, MAX_POPUPS] = []
+    var game = Game(
+        player: makePlayerCar(ROAD_VIEW_CX),
+        enemies: enemies,
+        oils: oils,
+        popups: popups,
+        rng: makeRng(0x51ED270B),
+        course: 0,
+        round: 0,
+        dist: 0.0,
+        fuel: FUEL_MAX,
+        score: 0,
+        highScore: 0,
+        phase: PHASE_READY,
+        phaseTimer: READY_DURATION,
+        goTimer: 0.0,
+        animTimer: 0.0,
+        spawnTimer: 1.0,
+        bonusTimer: BONUS_FIRST_DELAY,
+        oilTimer: 8.0,
+        scoreAcc: 0.0,
+        goalFuelBonus: 0,
+        crashedThisCourse: false,
+        paused: false)
+    game.fullReset()
+    return game
+}

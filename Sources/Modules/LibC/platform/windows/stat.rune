@@ -1,0 +1,33 @@
+public alias mode_t = Int16
+
+@layout(kind: c)
+public struct StatInfo {
+    public var st_dev: Int32
+    public var st_ino: Int16
+    public var st_mode: mode_t
+    public var st_nlink: Int16
+    public var st_uid: Int16
+    public var st_gid: Int16
+    public var st_rdev: Int32
+    public var st_size: Int64
+    public var st_atime: Int64
+    public var st_mtime: Int64
+    public var st_ctime: Int64
+}
+
+public const S_IFMT: Int32 = 61440
+public const S_IFREG: Int32 = 32768
+public const S_IFDIR: Int32 = 16384
+public const S_IFLNK: Int32 = 40960
+
+public const S_IRUSR: Int32 = 256
+public const S_IWUSR: Int32 = 128
+public const S_IXUSR: Int32 = 64
+public const S_IRWXU: Int32 = 448
+
+// struct _stat layout matches MSVC x64.
+@symbol("_stat")
+public func stat(path: CStringSlice?, buf: &StatInfo?) -> Int32
+
+@symbol("_chmod")
+public func chmod(path: CStringSlice?, mode: mode_t) -> Int32

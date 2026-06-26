@@ -1,0 +1,210 @@
+import Standard.*
+import SDL3
+
+const DIGIT_COLS: Int = 5
+const DIGIT_ROWS: Int = 7
+const HUD_PIXEL: Float32 = 2.0
+const HUD_GAP: Float32 = 2.0
+const DIGIT_0: [UInt8, _] = [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E]
+const DIGIT_1: [UInt8, _] = [0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E]
+const DIGIT_2: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x10, 0x10, 0x0E]
+const DIGIT_3: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_4: [UInt8, _] = [0x11, 0x11, 0x11, 0x1F, 0x01, 0x01, 0x01]
+const DIGIT_5: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_6: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_7: [UInt8, _] = [0x0E, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01]
+const DIGIT_8: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_9: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x01, 0x01, 0x0E]
+
+func setColor(renderer: &SDL3.Renderer?, red: UInt8, green: UInt8, blue: UInt8, alpha: UInt8) {
+    SDL3.setRenderDrawColor(renderer, red, green, blue, alpha)
+}
+
+func bubbleColor(color: Int32) -> (red: UInt8, green: UInt8, blue: UInt8) {
+    if color == 0 {
+        return (red: UInt8(255), green: UInt8(86), blue: UInt8(94))
+    }
+    if color == 1 {
+        return (red: UInt8(80), green: UInt8(178), blue: UInt8(255))
+    }
+    if color == 2 {
+        return (red: UInt8(90), green: UInt8(224), blue: UInt8(139))
+    }
+    if color == 3 {
+        return (red: UInt8(255), green: UInt8(212), blue: UInt8(74))
+    }
+    return (red: UInt8(198), green: UInt8(122), blue: UInt8(255))
+}
+
+func drawCircleAlpha(renderer: &SDL3.Renderer?, center: Vec2, radius: Float32, red: UInt8, green: UInt8, blue: UInt8, alpha: UInt8) {
+    setColor(renderer, red, green, blue, alpha)
+    let step: Float32 = PI_F / 18.0
+    var last = vec2(center.x + radius, center.y)
+    for angle in 0.0..=(PI_F * 2.0 + step) by step {
+        let point = vec2(center.x + Math.cos(angle) * radius, center.y + Math.sin(angle) * radius)
+        SDL3.renderLine(renderer, last.x, last.y, point.x, point.y)
+        last = point
+    }
+}
+
+func fillCircle(renderer: &SDL3.Renderer?, center: Vec2, radius: Float32, red: UInt8, green: UInt8, blue: UInt8, alpha: UInt8) {
+    setColor(renderer, red, green, blue, alpha)
+    var y = -Int32(radius)
+    while y <= Int32(radius) {
+        let fy = Float32(y)
+        let half = Math.sqrt(radius * radius - fy * fy)
+        SDL3.renderLine(renderer, center.x - half, center.y + fy, center.x + half, center.y + fy)
+        y = y + 2
+    }
+}
+
+func drawBubble(renderer: &SDL3.Renderer?, position: Vec2, color: Int32, radius: Float32) {
+    let c = bubbleColor(color)
+    fillCircle(renderer, position, radius, c.red, c.green, c.blue, 255)
+    drawCircleAlpha(renderer, position, radius, 245, 250, 255, 210)
+    fillCircle(renderer, vec2(position.x - radius * 0.34, position.y - radius * 0.38), radius * 0.20, 255, 255, 255, 120)
+    drawCircleAlpha(renderer, position, radius + 2.0, c.red, c.green, c.blue, 80)
+}
+
+func drawDigit(renderer: &SDL3.Renderer?, digit: Int, x: Float32, y: Float32, pixel: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    var rows: [UInt8, DIGIT_ROWS] = [0, 0, 0, 0, 0, 0, 0]
+    if digit == 0 {
+        rows = DIGIT_0
+    }
+    if digit == 1 {
+        rows = DIGIT_1
+    }
+    if digit == 2 {
+        rows = DIGIT_2
+    }
+    if digit == 3 {
+        rows = DIGIT_3
+    }
+    if digit == 4 {
+        rows = DIGIT_4
+    }
+    if digit == 5 {
+        rows = DIGIT_5
+    }
+    if digit == 6 {
+        rows = DIGIT_6
+    }
+    if digit == 7 {
+        rows = DIGIT_7
+    }
+    if digit == 8 {
+        rows = DIGIT_8
+    }
+    if digit == 9 {
+        rows = DIGIT_9
+    }
+
+    setColor(renderer, red, green, blue, 255)
+    for row in 0..DIGIT_ROWS {
+        let mask = rows[row]
+        for col in 0..DIGIT_COLS {
+            let bit = UInt8(1 << (DIGIT_COLS - 1 - col))
+            if (mask & bit) != 0 {
+                var rect = SDL3.FRect(x: x + Float32(col) * pixel, y: y + Float32(row) * pixel, w: pixel, h: pixel)
+                SDL3.renderFillRect(renderer, &rect)
+            }
+        }
+    }
+}
+
+func drawNumber(renderer: &SDL3.Renderer?, value: Int32, x: Float32, y: Float32, pixel: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    var remaining = value
+    if remaining == 0 {
+        drawDigit(renderer, 0, x, y, pixel, red, green, blue)
+        return
+    }
+
+    var digits: [Int] = []
+    while remaining > 0 {
+        digits.append(Int(remaining % 10))
+        remaining = remaining / 10
+    }
+
+    for i in 0..digits.count {
+        let digit = digits[digits.count - 1 - i]
+        drawDigit(renderer, digit, x + Float32(i) * ((Float32(DIGIT_COLS) * pixel) + HUD_GAP), y, pixel, red, green, blue)
+    }
+}
+
+func drawBoard(renderer: &SDL3.Renderer?, game: *Game) {
+    setColor(renderer, 13, 17, 26, 255)
+    SDL3.renderClear(renderer)
+
+    setColor(renderer, 27, 33, 45, 255)
+    var well = SDL3.FRect(x: GRID_X - 34.0, y: 34.0, w: WORLD_W - GRID_X * 2.0 + 68.0, h: 668.0)
+    SDL3.renderRect(renderer, &well)
+    setColor(renderer, 40, 48, 64, 120)
+    for row in 0..GRID_ROWS {
+        let y = GRID_Y + Float32(row) * ROW_H
+        SDL3.renderLine(renderer, GRID_X - 30.0, y, WORLD_W - GRID_X + 30.0, y)
+    }
+
+    for row in 0..GRID_ROWS {
+        for col in 0..GRID_COLS {
+            let color = game.cell(row: row, col: col)
+            if color != EMPTY {
+                drawBubble(renderer, game.cellCenter(row: row, col: col), color, BUBBLE_RADIUS)
+            }
+        }
+    }
+}
+
+func drawShooter(renderer: &SDL3.Renderer?, game: *Game) {
+    let muzzle = vec2(SHOOTER_X + Math.cos(game.aim) * 70.0, SHOOTER_Y + Math.sin(game.aim) * 70.0)
+    setColor(renderer, 170, 190, 210, 200)
+    SDL3.renderLine(renderer, SHOOTER_X, SHOOTER_Y, muzzle.x, muzzle.y)
+    drawCircleAlpha(renderer, vec2(SHOOTER_X, SHOOTER_Y), 34.0, 105, 125, 150, 255)
+    drawBubble(renderer, vec2(SHOOTER_X, SHOOTER_Y), game.currentColor, BUBBLE_RADIUS)
+    drawBubble(renderer, vec2(SHOOTER_X + 74.0, SHOOTER_Y + 18.0), game.nextColor, 12.0)
+    setColor(renderer, 190, 205, 220, 255)
+    SDL3.renderDebugText(renderer, SHOOTER_X + 52.0, SHOOTER_Y + 42.0, "NEXT")
+
+    if game.shot.active {
+        drawBubble(renderer, game.shot.position, game.shot.color, BUBBLE_RADIUS)
+    }
+}
+
+func drawEffects(renderer: &SDL3.Renderer?, game: *Game) {
+    for i in 0..MAX_DROPS {
+        if game.drops[i].active {
+            drawBubble(renderer, game.drops[i].position, game.drops[i].color, BUBBLE_RADIUS * clampFloat(game.drops[i].life, 0.35, 1.0))
+        }
+    }
+
+    for i in 0..MAX_PARTICLES {
+        if game.particles[i].active {
+            let c = bubbleColor(game.particles[i].color)
+            fillCircle(renderer, game.particles[i].position, 3.0 + game.particles[i].life * 3.0, c.red, c.green, c.blue, 180)
+        }
+    }
+}
+
+func drawHud(renderer: &SDL3.Renderer?, game: *Game) {
+    setColor(renderer, 224, 236, 246, 255)
+    SDL3.renderDebugText(renderer, 24.0, 14.0, "PUZZLE BOBBLE")
+    SDL3.renderDebugText(renderer, 24.0, 34.0, "SCORE")
+    drawNumber(renderer, game.score, 88.0, 34.0, HUD_PIXEL, 90, 224, 170)
+    SDL3.renderDebugText(renderer, 218.0, 34.0, "SHOTS")
+    drawNumber(renderer, game.shotsFired, 282.0, 34.0, HUD_PIXEL, 255, 214, 96)
+
+    if game.phase == GamePhase.won {
+        SDL3.renderDebugText(renderer, 302.0, 360.0, "CLEAR")
+        SDL3.renderDebugText(renderer, 254.0, 382.0, "R RESTARTS")
+    } else if game.phase == GamePhase.lost {
+        SDL3.renderDebugText(renderer, 292.0, 360.0, "GAME OVER")
+        SDL3.renderDebugText(renderer, 254.0, 382.0, "R RESTARTS")
+    }
+}
+
+func drawWorld(renderer: &SDL3.Renderer?, game: *Game) {
+    drawBoard(renderer, game)
+    drawEffects(renderer, game)
+    drawShooter(renderer, game)
+    drawHud(renderer, game)
+    SDL3.renderPresent(renderer)
+}

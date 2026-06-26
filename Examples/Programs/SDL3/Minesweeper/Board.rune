@@ -1,0 +1,106 @@
+// Board: the fixed window layout and grid geometry for a desktop-style
+// mine-hunting puzzle in the classic Windows mould - a silver face plate
+// with a sunken header (mine counter, face button, timer) above a sunken
+// minefield. The window is sized for the Expert 30x16 grid; smaller boards
+// are centred in the same field area.
+//
+// All layout constants live here so the input handling and the renderer
+// agree on where every cell, counter and button sits on screen.
+
+import Standard.*
+
+// MARK: - Window (sized for the Expert board at 32 px cells)
+
+const WIDTH: Int32 = 984
+const HEIGHT: Int32 = 622
+
+const CELL: Float32 = 32.0
+
+const MARGIN: Float32 = 12.0
+const HEADER_X: Float32 = 12.0
+const HEADER_Y: Float32 = 12.0
+const HEADER_W: Float32 = 960.0
+const HEADER_H: Float32 = 74.0
+
+const BOARD_AREA_X: Float32 = 12.0
+const BOARD_AREA_Y: Float32 = 98.0
+const BOARD_AREA_W: Float32 = 960.0
+const BOARD_AREA_H: Float32 = 512.0
+
+// LCD counters and the face button inside the header.
+const LCD_W: Float32 = 86.0
+const LCD_H: Float32 = 52.0
+const LCD_Y: Float32 = 23.0
+const MINE_LCD_X: Float32 = 28.0
+const TIMER_LCD_X: Float32 = 870.0
+
+const FACE_SIZE: Float32 = 52.0
+const FACE_X: Float32 = 466.0
+const FACE_Y: Float32 = 23.0
+
+// MARK: - Grid limits and difficulties
+
+const MAX_COLS: Int = 30
+const MAX_ROWS: Int = 16
+const MAX_CELLS: Int = 480
+
+const DIFF_COUNT: Int = 3
+const DIFF_COLS: [Int, 3] = [9, 16, 30]
+const DIFF_ROWS: [Int, 3] = [9, 16, 16]
+const DIFF_MINES: [Int, 3] = [10, 40, 99]
+
+// MARK: - Cell marks and game states
+
+const MARK_NONE: UInt8 = 0
+const MARK_FLAG: UInt8 = 1
+const MARK_QUESTION: UInt8 = 2
+
+const STATE_READY: Int32 = 0
+const STATE_PLAYING: Int32 = 1
+const STATE_WON: Int32 = 2
+const STATE_LOST: Int32 = 3
+
+// MARK: - Grid helpers
+
+const NEIGHBOR_DX: [Int, 8] = [-1, 0, 1, -1, 1, -1, 0, 1]
+const NEIGHBOR_DY: [Int, 8] = [-1, -1, -1, 0, 0, 1, 1, 1]
+
+func cellIndex(col: Int, row: Int, cols: Int) -> Int {
+    return row * cols + col
+}
+
+// Top-left corner of the (centred) board for a given grid size.
+func boardOriginX(cols: Int) -> Float32 {
+    return BOARD_AREA_X + (BOARD_AREA_W - Float32(cols) * CELL) * 0.5
+}
+
+func boardOriginY(rows: Int) -> Float32 {
+    return BOARD_AREA_Y + (BOARD_AREA_H - Float32(rows) * CELL) * 0.5
+}
+
+func cellScreenX(col: Int, cols: Int) -> Float32 {
+    return boardOriginX(cols) + Float32(col) * CELL
+}
+
+func cellScreenY(row: Int, rows: Int) -> Float32 {
+    return boardOriginY(rows) + Float32(row) * CELL
+}
+
+// Cell under a screen point, or -1 when the point is off the board.
+func cellAtPoint(x: Float32, y: Float32, cols: Int, rows: Int) -> Int {
+    let bx: Float32 = boardOriginX(cols)
+    let by: Float32 = boardOriginY(rows)
+    if x < bx || y < by {
+        return -1
+    }
+    let col = Int((x - bx) / CELL)
+    let row = Int((y - by) / CELL)
+    if col < 0 || col >= cols || row < 0 || row >= rows {
+        return -1
+    }
+    return cellIndex(col, row, cols)
+}
+
+func pointInFaceButton(x: Float32, y: Float32) -> Bool {
+    return x >= FACE_X && x < FACE_X + FACE_SIZE && y >= FACE_Y && y < FACE_Y + FACE_SIZE
+}

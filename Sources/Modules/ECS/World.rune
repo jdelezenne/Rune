@@ -1,0 +1,77 @@
+public struct World {
+    var nextEntityId: UInt64 = 0
+    var entities: Array<Entity>
+    var alive: Array<Bool>
+
+    public init() {
+        entities = Array<Entity>()
+        alive = Array<Bool>()
+    }
+
+    public entityCount: Int {
+        get {
+            return entities.count
+        }
+    }
+
+    public mutating func spawn() -> Entity {
+        let entity = Entity(id: nextEntityId)
+        nextEntityId += 1
+        entities.append(element: entity)
+        alive.append(element: true)
+        return entity
+    }
+
+    public func isAlive(entity: Entity) -> Bool {
+        if entity.id >= UInt64(alive.count) {
+            return false
+        }
+
+        return alive[Int(entity.id)]
+    }
+
+    public mutating func destroy(entity: Entity) -> Bool {
+        if !isAlive(entity) {
+            return false
+        }
+
+        alive[Int(entity.id)] = false
+        return true
+    }
+
+    public mutating func add<T>(entity: Entity, component: T, to: &ComponentStore<T>) -> Bool {
+        if !isAlive(entity) {
+            return false
+        }
+
+        return to.add(entity, component)
+    }
+
+    public func has<T>(entity: Entity, in: ComponentStore<T>) -> Bool {
+        if !isAlive(entity) {
+            return false
+        }
+
+        return in.has(entity)
+    }
+
+    public func get<T>(entity: Entity, from: ComponentStore<T>) -> T {
+        if !isAlive(entity) {
+            #panic("ECS entity is not alive")
+        }
+
+        return from.get(entity)
+    }
+
+    public mutating func set<T>(entity: Entity, component: T, in: &ComponentStore<T>) -> Bool {
+        if !isAlive(entity) {
+            return false
+        }
+
+        return in.set(entity, component)
+    }
+
+    public mutating func remove<T>(entity: Entity, from: &ComponentStore<T>) -> Bool {
+        return from.remove(entity)
+    }
+}

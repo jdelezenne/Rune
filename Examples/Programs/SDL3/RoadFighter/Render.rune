@@ -1,0 +1,639 @@
+// Render: the scrolling road with its kerbs, lane dashes and per-course
+// scenery, the traffic sprites, the player's car with skid and explosion
+// states, and the instrument panel (score, fuel gauge, speedometer and the
+// course map). Everything is assembled from filled rects and coloured
+// triangles (renderGeometry), the same primitives PacMan and Galaxian use,
+// so no image assets are needed.
+
+import Standard.*
+import SDL3
+
+// MARK: - Primitives
+
+func makeColorVertex(x: Float32, y: Float32, red: Float32, green: Float32, blue: Float32, alpha: Float32) -> SDL3.Vertex {
+    return SDL3.Vertex(
+        position: SDL3.FPoint(x: x, y: y),
+        color: SDL3.FColor(r: red / 255.0, g: green / 255.0, b: blue / 255.0, a: alpha),
+        texCoord: SDL3.FPoint(x: 0.0, y: 0.0))
+}
+
+func drawTri(renderer: &SDL3.Renderer?, x0: Float32, y0: Float32, x1: Float32, y1: Float32, x2: Float32, y2: Float32, red: Float32, green: Float32, blue: Float32) {
+    var v: [SDL3.Vertex, 3] = []
+    v[0] = makeColorVertex(x0, y0, red, green, blue, 1.0)
+    v[1] = makeColorVertex(x1, y1, red, green, blue, 1.0)
+    v[2] = makeColorVertex(x2, y2, red, green, blue, 1.0)
+    SDL3.renderGeometry(renderer, nil, ((v.bytes) as &SDL3.Vertex), 3, nil, 0)
+}
+
+func fillRect(renderer: &SDL3.Renderer?, x: Float32, y: Float32, w: Float32, h: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    SDL3.setRenderDrawColor(renderer, red, green, blue, 255)
+    var rect = SDL3.FRect(x: x, y: y, w: w, h: h)
+    SDL3.renderFillRect(renderer, &rect)
+}
+
+struct Rgb {
+    var r: UInt8
+    var g: UInt8
+    var b: UInt8
+}
+
+// MARK: - Course palettes
+
+func shoulderColor(course: Int, band: Bool) -> Rgb {
+    if course == 0 {
+        return band ? Rgb(r: 34, g: 120, b: 40) : Rgb(r: 28, g: 104, b: 34)
+    }
+    if course == 1 {
+        return band ? Rgb(r: 20, g: 66, b: 158) : Rgb(r: 16, g: 56, b: 140)
+    }
+    if course == 2 {
+        return band ? Rgb(r: 22, g: 88, b: 36) : Rgb(r: 17, g: 74, b: 30)
+    }
+    return band ? Rgb(r: 27, g: 27, b: 46) : Rgb(r: 21, g: 21, b: 38)
+}
+
+func tarmacColor(course: Int, band: Bool) -> Rgb {
+    if course == 3 {
+        return band ? Rgb(r: 74, g: 74, b: 84) : Rgb(r: 68, g: 68, b: 76)
+    }
+    return band ? Rgb(r: 110, g: 110, b: 114) : Rgb(r: 102, g: 102, b: 106)
+}
+
+// MARK: - Road surface
+
+// The road is rasterised in short horizontal strips: for each strip we sample
+// the course geometry at that distance and lay down shoulder, kerb, tarmac,
+// edge lines and lane dashes.
+const ROAD_STRIP_H: Float32 = 4.0
+
+func drawRoad(renderer: &SDL3.Renderer?, game: *Game) {
+    var y: Float32 = 0.0
+    while y < Float32(HEIGHT) {
+        let d = distanceForScreenY(game.dist, y)
+        let road = roadAt(game.course, d)
+        let left = road.center - road.halfWidth
+        let right = road.center + road.halfWidth
+
+        // Shoulders in two alternating tones so the scroll reads at speed.
+        let band = Math.fmod(d, 16.0) < 8.0
+        let ground = shoulderColor(game.course, band)
+        fillRect(renderer, 0.0, y, left, ROAD_STRIP_H, ground.r, ground.g, ground.b)
+        fillRect(renderer, right, y, ROAD_VIEW_W - right, ROAD_STRIP_H, ground.r, ground.g, ground.b)
+
+        // Sand strip against the seaside water.
+        if game.course == 1 {
+            fillRect(renderer, left - 10.0, y, 10.0, ROAD_STRIP_H, 208, 186, 122)
+            fillRect(renderer, right, y, 10.0, ROAD_STRIP_H, 208, 186, 122)
+        }
+
+        let tarmac = tarmacColor(game.course, band)
+        fillRect(renderer, left, y, road.halfWidth * 2.0, ROAD_STRIP_H, tarmac.r, tarmac.g, tarmac.b)
+
+        // Kerbs: alternating red/white blocks along both edges.
+        let kerb = Math.fmod(d, 8.0) < 4.0
+        if kerb {
+            fillRect(renderer, left, y, 6.0, ROAD_STRIP_H, 216, 40, 40)
+            fillRect(renderer, right - 6.0, y, 6.0, ROAD_STRIP_H, 216, 40, 40)
+        } else {
+            fillRect(renderer, left, y, 6.0, ROAD_STRIP_H, 235, 235, 235)
+            fillRect(renderer, right - 6.0, y, 6.0, ROAD_STRIP_H, 235, 235, 235)
+        }
+
+        // Lane dashes: three dividers on the open road, one on bridges.
+        if Math.fmod(d, 12.0) < 6.0 {
+            if road.halfWidth >= NARROW_HALF_WIDTH {
+                fillRect(renderer, road.center - road.halfWidth * 0.5 - 1.5, y, 3.0, ROAD_STRIP_H, 190, 190, 190)
+                fillRect(renderer, road.center - 1.5, y, 3.0, ROAD_STRIP_H, 190, 190, 190)
+                fillRect(renderer, road.center + road.halfWidth * 0.5 - 1.5, y, 3.0, ROAD_STRIP_H, 190, 190, 190)
+            } else {
+                fillRect(renderer, road.center - 1.5, y, 3.0, ROAD_STRIP_H, 190, 190, 190)
+            }
+        }
+
+        y = y + ROAD_STRIP_H
+    }
+}
+
+// MARK: - Start and finish lines
+
+func drawCheckerLine(renderer: &SDL3.Renderer?, game: *Game, d: Float32) {
+    let y = screenYForDistance(game.dist, d)
+    if y < -24.0 || y > Float32(HEIGHT) + 24.0 {
+        return
+    }
+    let road = roadAt(game.course, d)
+    let left = road.center - road.halfWidth
+    let cells = Int(road.halfWidth * 2.0 / 16.0)
+    for row in 0..2 {
+        for cell in 0..cells {
+            let dark = (row + cell) % 2 == 0
+            let shade: UInt8 = dark ? 30 : 240
+            fillRect(renderer, left + Float32(cell) * 16.0, y + Float32(row) * 8.0, 16.0, 8.0, shade, shade, shade)
+        }
+    }
+}
+
+// MARK: - Roadside scenery
+
+func sceneryHash(i: Int, salt: Float32) -> Float32 {
+    let v = Math.sin(Float32(i) * 12.9898 + salt * 78.233) * 43758.5453
+    return Math.abs(Math.fmod(v, 1.0))
+}
+
+func drawTree(renderer: &SDL3.Renderer?, x: Float32, y: Float32, dark: Bool) {
+    let g: UInt8 = dark ? 96 : 128
+    fillRect(renderer, x - 2.0, y + 4.0, 4.0, 8.0, 96, 64, 30)
+    drawTri(renderer, x - 11.0, y + 6.0, x + 11.0, y + 6.0, x, y - 14.0, 20.0, Float32(g), 34.0)
+    drawTri(renderer, x - 8.0, y - 2.0, x + 8.0, y - 2.0, x, y - 18.0, 26.0, Float32(g) + 18.0, 40.0)
+}
+
+func drawWave(renderer: &SDL3.Renderer?, x: Float32, y: Float32) {
+    fillRect(renderer, x - 8.0, y, 16.0, 2.0, 120, 180, 255)
+    fillRect(renderer, x - 3.0, y - 3.0, 8.0, 2.0, 90, 150, 235)
+}
+
+func drawRock(renderer: &SDL3.Renderer?, x: Float32, y: Float32) {
+    drawTri(renderer, x - 10.0, y + 6.0, x + 10.0, y + 6.0, x - 2.0, y - 8.0, 120.0, 118.0, 124.0)
+    drawTri(renderer, x - 2.0, y + 6.0, x + 12.0, y + 6.0, x + 5.0, y - 3.0, 96.0, 94.0, 102.0)
+}
+
+func drawStreetLight(renderer: &SDL3.Renderer?, x: Float32, y: Float32, side: Float32) {
+    fillRect(renderer, x - 1.0, y - 16.0, 2.0, 22.0, 150, 150, 160)
+    fillRect(renderer, x - 1.0 + side * -6.0, y - 18.0, 8.0, 2.0, 150, 150, 160)
+    fillRect(renderer, x + side * -6.0, y - 17.0, 4.0, 4.0, 255, 240, 150)
+}
+
+// Scenery items sit every few metres along both shoulders, placed by a
+// deterministic hash so the roadside stays stable as it scrolls.
+const SCENERY_SPACING_M: Float32 = 22.0
+
+func drawScenery(renderer: &SDL3.Renderer?, game: *Game) {
+    let dBottom = distanceForScreenY(game.dist, Float32(HEIGHT) + 20.0)
+    let dTop = distanceForScreenY(game.dist, -20.0)
+    var item = Int(dBottom / SCENERY_SPACING_M)
+    if item < 0 {
+        item = 0
+    }
+
+    while Float32(item) * SCENERY_SPACING_M < dTop {
+        let d = Float32(item) * SCENERY_SPACING_M
+        let y = screenYForDistance(game.dist, d)
+        let road = roadAt(game.course, d)
+        let side: Float32 = item % 2 == 0 ? -1.0 : 1.0
+        let jitter = sceneryHash(item, 5.0)
+        let x = road.center + side * (road.halfWidth + 26.0 + jitter * 34.0)
+
+        if x > 8.0 && x < ROAD_VIEW_W - 8.0 {
+            if game.course == 0 {
+                drawTree(renderer, x, y, jitter < 0.4)
+            } else if game.course == 1 {
+                drawWave(renderer, x, y)
+            } else if game.course == 2 {
+                if jitter < 0.55 {
+                    drawTree(renderer, x, y, true)
+                } else {
+                    drawRock(renderer, x, y)
+                }
+            } else {
+                drawStreetLight(renderer, x, y, side)
+            }
+        }
+        item = item + 1
+    }
+}
+
+// MARK: - Cars
+
+func enemyBodyColor(kind: Int32, animTimer: Float32) -> Rgb {
+    if kind == ENEMY_YELLOW {
+        return Rgb(r: 235, g: 195, b: 40)
+    }
+    if kind == ENEMY_RED {
+        return Rgb(r: 225, g: 60, b: 50)
+    }
+    if kind == ENEMY_BLUE {
+        return Rgb(r: 70, g: 150, b: 240)
+    }
+    // Bonus car: cycles its paint every few frames.
+    let step = Int(animTimer * 8.0) % 4
+    if step == 0 {
+        return Rgb(r: 250, g: 90, b: 90)
+    }
+    if step == 1 {
+        return Rgb(r: 250, g: 220, b: 80)
+    }
+    if step == 2 {
+        return Rgb(r: 90, g: 230, b: 120)
+    }
+    return Rgb(r: 130, g: 140, b: 255)
+}
+
+// Shared coupe body: four tyres, hull, cabin glass, front and rear bumpers.
+func drawCar(renderer: &SDL3.Renderer?, cx: Float32, cy: Float32, body: Rgb, stripe: Bool) {
+    // Tyres.
+    fillRect(renderer, cx - 13.0, cy - 17.0, 5.0, 9.0, 22, 22, 26)
+    fillRect(renderer, cx + 8.0, cy - 17.0, 5.0, 9.0, 22, 22, 26)
+    fillRect(renderer, cx - 13.0, cy + 8.0, 5.0, 9.0, 22, 22, 26)
+    fillRect(renderer, cx + 8.0, cy + 8.0, 5.0, 9.0, 22, 22, 26)
+
+    // Hull with a narrower nose and tail.
+    fillRect(renderer, cx - 10.0, cy - 16.0, 20.0, 32.0, body.r, body.g, body.b)
+    fillRect(renderer, cx - 7.0, cy - 20.0, 14.0, 5.0, body.r, body.g, body.b)
+    fillRect(renderer, cx - 7.0, cy + 15.0, 14.0, 5.0, body.r, body.g, body.b)
+
+    // Cabin glass.
+    fillRect(renderer, cx - 6.0, cy - 9.0, 12.0, 7.0, 40, 46, 60)
+    fillRect(renderer, cx - 6.0, cy + 4.0, 12.0, 5.0, 40, 46, 60)
+
+    if stripe {
+        fillRect(renderer, cx - 1.5, cy - 20.0, 3.0, 40.0, 245, 245, 245)
+    }
+}
+
+func drawTruck(renderer: &SDL3.Renderer?, cx: Float32, cy: Float32) {
+    // Six tyres.
+    fillRect(renderer, cx - 16.0, cy - 34.0, 5.0, 10.0, 22, 22, 26)
+    fillRect(renderer, cx + 11.0, cy - 34.0, 5.0, 10.0, 22, 22, 26)
+    fillRect(renderer, cx - 16.0, cy - 6.0, 5.0, 10.0, 22, 22, 26)
+    fillRect(renderer, cx + 11.0, cy - 6.0, 5.0, 10.0, 22, 22, 26)
+    fillRect(renderer, cx - 16.0, cy + 24.0, 5.0, 10.0, 22, 22, 26)
+    fillRect(renderer, cx + 11.0, cy + 24.0, 5.0, 10.0, 22, 22, 26)
+
+    // Trailer.
+    fillRect(renderer, cx - 13.0, cy - 20.0, 26.0, 58.0, 168, 168, 176)
+    fillRect(renderer, cx - 13.0, cy - 20.0, 26.0, 3.0, 130, 130, 140)
+    fillRect(renderer, cx - 13.0, cy + 35.0, 26.0, 3.0, 130, 130, 140)
+
+    // Cab ahead of the trailer.
+    fillRect(renderer, cx - 12.0, cy - 38.0, 24.0, 14.0, 60, 110, 190)
+    fillRect(renderer, cx - 8.0, cy - 36.0, 16.0, 5.0, 40, 46, 60)
+}
+
+func drawEnemy(renderer: &SDL3.Renderer?, game: *Game, index: Int) {
+    let kind = game.enemies[index].kind
+    let y = screenYForDistance(game.dist, game.enemies[index].d)
+    if y < -90.0 || y > Float32(HEIGHT) + 90.0 {
+        return
+    }
+    let road = roadAt(game.course, game.enemies[index].d)
+    let x = laneCenterX(road, game.enemies[index].laneF)
+
+    if kind == ENEMY_TRUCK {
+        drawTruck(renderer, x, y)
+    } else {
+        drawCar(renderer, x, y, enemyBodyColor(kind, game.animTimer), false)
+    }
+}
+
+// MARK: - Player car, skid and explosion
+
+func drawPlayerCar(renderer: &SDL3.Renderer?, game: *Game) {
+    let x = game.player.x
+    let y = PLAYER_SCREEN_Y
+
+    if game.player.state == PLAYER_STATE_CRASH {
+        let t: Float32 = 1.0 - game.player.crashTimer / CRASH_DURATION
+        drawExplosion(renderer, x, y, t)
+        return
+    }
+
+    if game.player.state == PLAYER_STATE_SKID {
+        // Tyre streaks trail behind the sliding car.
+        let trail: Float32 = game.player.skidVx > 0.0 ? -1.0 : 1.0
+        fillRect(renderer, x - 12.0 + trail * 6.0, y + 18.0, 4.0, 14.0, 34, 34, 38)
+        fillRect(renderer, x + 8.0 + trail * 6.0, y + 18.0, 4.0, 14.0, 34, 34, 38)
+        let wobble = Math.sin(game.player.skidTimer * 28.0) * 3.0
+        drawCar(renderer, x + wobble, y, Rgb(r: 220, g: 40, b: 40), true)
+        return
+    }
+
+    drawCar(renderer, x, y, Rgb(r: 220, g: 40, b: 40), true)
+}
+
+// Expanding fireball, then lingering smoke. `t` runs 0 -> 1 over the crash.
+func drawExplosion(renderer: &SDL3.Renderer?, cx: Float32, cy: Float32, t: Float32) {
+    if t < 0.62 {
+        let grow: Float32 = 10.0 + t * 42.0
+        let flicker = Int(t * 24.0) % 2 == 0
+        let outerR: Float32 = flicker ? 255.0 : 235.0
+        let outerG: Float32 = flicker ? 130.0 : 90.0
+
+        drawTri(renderer, cx - grow, cy + grow * 0.6, cx + grow, cy + grow * 0.6, cx, cy - grow, outerR, outerG, 20.0)
+        drawTri(renderer, cx - grow, cy - grow * 0.6, cx + grow, cy - grow * 0.6, cx, cy + grow, outerR, outerG, 20.0)
+        drawTri(renderer, cx - grow * 0.6, cy, cx + grow * 0.6, cy, cx, cy - grow * 1.1, 255.0, 210.0, 60.0)
+        drawTri(renderer, cx - grow * 0.6, cy + grow * 0.5, cx + grow * 0.6, cy + grow * 0.5, cx, cy + grow * 1.1, 255.0, 210.0, 60.0)
+        fillRect(renderer, cx - grow * 0.3, cy - grow * 0.3, grow * 0.6, grow * 0.6, 255, 250, 220)
+        return
+    }
+
+    // Smoke puffs drifting up.
+    let s: Float32 = (t - 0.62) / 0.38
+    let rise: Float32 = s * 26.0
+    let smoke: Float32 = 120.0 - s * 60.0
+    let shade = UInt8(smoke)
+    fillRect(renderer, cx - 14.0, cy - 6.0 - rise, 12.0, 12.0, shade, shade, shade)
+    fillRect(renderer, cx + 2.0, cy - 14.0 - rise, 14.0, 14.0, shade, shade, shade)
+    fillRect(renderer, cx - 5.0, cy + 2.0 - rise * 0.7, 10.0, 10.0, shade, shade, shade)
+}
+
+// MARK: - Oil slicks and popups
+
+func drawOil(renderer: &SDL3.Renderer?, game: *Game, index: Int) {
+    let y = screenYForDistance(game.dist, game.oils[index].d)
+    if y < -20.0 || y > Float32(HEIGHT) + 20.0 {
+        return
+    }
+    let road = roadAt(game.course, game.oils[index].d)
+    let x = laneCenterX(road, game.oils[index].laneF)
+    fillRect(renderer, x - 12.0, y - 5.0, 24.0, 10.0, 30, 30, 36)
+    fillRect(renderer, x - 8.0, y - 8.0, 16.0, 4.0, 30, 30, 36)
+    fillRect(renderer, x - 7.0, y + 5.0, 14.0, 3.0, 30, 30, 36)
+    fillRect(renderer, x - 4.0, y - 4.0, 5.0, 3.0, 70, 76, 94)
+}
+
+func drawPopups(renderer: &SDL3.Renderer?, game: *Game) {
+    for index in 0..MAX_POPUPS {
+        if !game.popups[index].active {
+            continue
+        }
+        let blink = Int(game.popups[index].timer * 10.0) % 2 == 0
+        if blink {
+            SDL3.setRenderDrawColor(renderer, 255, 230, 90, 255)
+        } else {
+            SDL3.setRenderDrawColor(renderer, 255, 255, 255, 255)
+        }
+        SDL3.renderDebugText(renderer, game.popups[index].x - 16.0, game.popups[index].y, "FUEL")
+    }
+}
+
+// MARK: - HUD digit font (5x7 bitmap, same approach as PacMan/Galaxian)
+
+const DIGIT_COLS: Int = 5
+const DIGIT_ROWS: Int = 7
+const HUD_PIXEL: Float32 = 2.0
+const HUD_GAP: Float32 = 2.0
+
+const DIGIT_0: [UInt8, _] = [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E]
+const DIGIT_1: [UInt8, _] = [0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E]
+const DIGIT_2: [UInt8, _] = [0x0E, 0x11, 0x01, 0x0E, 0x10, 0x10, 0x1F]
+const DIGIT_3: [UInt8, _] = [0x0E, 0x11, 0x01, 0x06, 0x01, 0x11, 0x0E]
+const DIGIT_4: [UInt8, _] = [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02]
+const DIGIT_5: [UInt8, _] = [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E]
+const DIGIT_6: [UInt8, _] = [0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E]
+const DIGIT_7: [UInt8, _] = [0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08]
+const DIGIT_8: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_9: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C]
+
+func drawDigit(renderer: &SDL3.Renderer?, digit: Int, x: Float32, y: Float32, pixel: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    var rows: [UInt8, DIGIT_ROWS] = [0, 0, 0, 0, 0, 0, 0]
+    if digit == 0 {
+        rows = DIGIT_0
+    }
+    if digit == 1 {
+        rows = DIGIT_1
+    }
+    if digit == 2 {
+        rows = DIGIT_2
+    }
+    if digit == 3 {
+        rows = DIGIT_3
+    }
+    if digit == 4 {
+        rows = DIGIT_4
+    }
+    if digit == 5 {
+        rows = DIGIT_5
+    }
+    if digit == 6 {
+        rows = DIGIT_6
+    }
+    if digit == 7 {
+        rows = DIGIT_7
+    }
+    if digit == 8 {
+        rows = DIGIT_8
+    }
+    if digit == 9 {
+        rows = DIGIT_9
+    }
+
+    for row in 0..DIGIT_ROWS {
+        let mask = rows[row]
+        for col in 0..DIGIT_COLS {
+            let bit = UInt8(1 << (DIGIT_COLS - 1 - col))
+            if (mask & bit) != 0 {
+                fillRect(renderer, x + Float32(col) * pixel, y + Float32(row) * pixel, pixel, pixel, red, green, blue)
+            }
+        }
+    }
+}
+
+func drawNumber(renderer: &SDL3.Renderer?, value: Int32, x: Float32, y: Float32, pixel: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    var remaining = value
+    if remaining <= 0 {
+        drawDigit(renderer, 0, x, y, pixel, red, green, blue)
+        return
+    }
+
+    var digits: [Int] = []
+    while remaining > 0 {
+        digits.append(Int(remaining % 10))
+        remaining = remaining / 10
+    }
+
+    for digitIndex in 0..digits.count {
+        let digit = digits[digits.count - 1 - digitIndex]
+        drawDigit(renderer, digit, x + Float32(digitIndex) * (Float32(DIGIT_COLS) * pixel + HUD_GAP), y, pixel, red, green, blue)
+    }
+}
+
+// MARK: - Instrument panel
+
+const FUEL_CELLS: Int = 20
+
+func drawFuelGauge(renderer: &SDL3.Renderer?, game: *Game, x: Float32, y: Float32) {
+    SDL3.setRenderDrawColor(renderer, 200, 200, 210, 255)
+    SDL3.renderDebugText(renderer, x, y, "FUEL")
+    SDL3.setRenderDrawColor(renderer, 235, 90, 90, 255)
+    SDL3.renderDebugText(renderer, x, y + 16.0, "E")
+    SDL3.setRenderDrawColor(renderer, 120, 230, 140, 255)
+    SDL3.renderDebugText(renderer, x + 152.0, y + 16.0, "F")
+
+    let filled = Int(game.fuel / FUEL_MAX * Float32(FUEL_CELLS) + 0.999)
+    let low = game.fuel < FUEL_MAX * 0.25
+    let blink = Int(game.animTimer * 4.0) % 2 == 0
+    for cell in 0..FUEL_CELLS {
+        let cx = x + 12.0 + Float32(cell) * 7.0
+        if cell < filled {
+            if low {
+                if blink {
+                    fillRect(renderer, cx, y + 14.0, 5.0, 12.0, 235, 60, 50)
+                } else {
+                    fillRect(renderer, cx, y + 14.0, 5.0, 12.0, 160, 40, 34)
+                }
+            } else {
+                fillRect(renderer, cx, y + 14.0, 5.0, 12.0, 245, 170, 40)
+            }
+        } else {
+            fillRect(renderer, cx, y + 14.0, 5.0, 12.0, 52, 52, 64)
+        }
+    }
+}
+
+// The course map: the actual centre-line of the course drawn as a vertical
+// wiggle, with a marker riding it as the player advances.
+func drawCourseMap(renderer: &SDL3.Renderer?, game: *Game, cx: Float32, top: Float32, bottom: Float32) {
+    SDL3.setRenderDrawColor(renderer, 200, 200, 210, 255)
+    SDL3.renderDebugText(renderer, cx - 16.0, top - 18.0, "GOAL")
+    SDL3.renderDebugText(renderer, cx - 20.0, bottom + 10.0, "START")
+
+    let length = courseLength(game.course)
+    let steps = 44
+    for k in 0..steps {
+        let d = length * Float32(k) / Float32(steps - 1)
+        let off = roadAt(game.course, d).center - ROAD_VIEW_CX
+        let x = cx + off * 0.18
+        let y = bottom - (bottom - top) * Float32(k) / Float32(steps - 1)
+        fillRect(renderer, x - 1.5, y - 2.0, 3.0, 4.0, 140, 140, 156)
+    }
+
+    let progress = Math.clamp(game.dist / length, 0.0, 1.0)
+    let carOff = roadAt(game.course, game.dist).center - ROAD_VIEW_CX
+    let carX = cx + carOff * 0.18
+    let carY = bottom - (bottom - top) * progress
+    fillRect(renderer, carX - 3.0, carY - 4.0, 6.0, 8.0, 235, 60, 50)
+}
+
+func drawPanel(renderer: &SDL3.Renderer?, game: *Game) {
+    fillRect(renderer, PANEL_X, 0.0, PANEL_W, Float32(HEIGHT), 14, 14, 30)
+    fillRect(renderer, PANEL_X, 0.0, 3.0, Float32(HEIGHT), 90, 90, 120)
+
+    let x = PANEL_X + 18.0
+
+    SDL3.setRenderDrawColor(renderer, 235, 90, 90, 255)
+    SDL3.renderDebugText(renderer, x, 24.0, "SCORE")
+    drawNumber(renderer, game.score, x, 40.0, HUD_PIXEL, 235, 235, 245)
+
+    SDL3.setRenderDrawColor(renderer, 235, 90, 90, 255)
+    SDL3.renderDebugText(renderer, x, 76.0, "TOP")
+    drawNumber(renderer, game.highScore, x, 92.0, HUD_PIXEL, 235, 235, 245)
+
+    drawFuelGauge(renderer, game, x, 132.0)
+
+    SDL3.setRenderDrawColor(renderer, 200, 200, 210, 255)
+    SDL3.renderDebugText(renderer, x, 186.0, "SPEED")
+    drawNumber(renderer, Int32(game.player.speed), x, 202.0, 3.0, 130, 220, 255)
+    SDL3.setRenderDrawColor(renderer, 130, 150, 170, 255)
+    SDL3.renderDebugText(renderer, x + 72.0, 212.0, "KM/H")
+
+    SDL3.setRenderDrawColor(renderer, 255, 220, 90, 255)
+    let courseText = CString("COURSE ${game.course + 1}")
+    SDL3.renderDebugText(renderer, x, 252.0, courseText.asCStringSlice())
+    SDL3.setRenderDrawColor(renderer, 160, 170, 200, 255)
+    let roundText = CString("ROUND ${game.round + 1}")
+    SDL3.renderDebugText(renderer, x, 268.0, roundText.asCStringSlice())
+
+    drawCourseMap(renderer, game, PANEL_X + PANEL_W * 0.5, 330.0, 660.0)
+}
+
+// MARK: - Overlays
+
+func drawStartLights(renderer: &SDL3.Renderer?, game: *Game) {
+    let cx = ROAD_VIEW_CX
+    let top: Float32 = 200.0
+    fillRect(renderer, cx - 18.0, top - 8.0, 36.0, 92.0, 30, 30, 36)
+
+    let remaining = game.phaseTimer
+    // Lamps light top to bottom as the countdown runs: red, amber, green.
+    if remaining < READY_DURATION {
+        fillRect(renderer, cx - 10.0, top, 20.0, 20.0, 235, 50, 40)
+    }
+    if remaining < READY_DURATION * 0.62 {
+        fillRect(renderer, cx - 10.0, top + 28.0, 20.0, 20.0, 245, 200, 40)
+    }
+    if remaining < READY_DURATION * 0.27 {
+        fillRect(renderer, cx - 10.0, top + 56.0, 20.0, 20.0, 60, 220, 80)
+    }
+
+    SDL3.setRenderDrawColor(renderer, 255, 220, 90, 255)
+    let courseText = CString("COURSE ${game.course + 1}")
+    SDL3.renderDebugText(renderer, cx - 32.0, top + 110.0, courseText.asCStringSlice())
+}
+
+func drawOverlay(renderer: &SDL3.Renderer?, game: *Game) {
+    let cx = ROAD_VIEW_CX
+
+    if game.paused {
+        SDL3.setRenderDrawColor(renderer, 230, 235, 240, 255)
+        SDL3.renderDebugText(renderer, cx - 24.0, Float32(HEIGHT) * 0.5, "PAUSED")
+        return
+    }
+
+    if game.phase == PHASE_READY {
+        drawStartLights(renderer, game)
+        return
+    }
+
+    if game.phase == PHASE_PLAYING && game.goTimer > 0.0 {
+        if Int(game.goTimer * 8.0) % 2 == 0 {
+            SDL3.setRenderDrawColor(renderer, 120, 240, 170, 255)
+            SDL3.renderDebugText(renderer, cx - 12.0, 240.0, "GO!")
+        }
+        return
+    }
+
+    if game.phase == PHASE_GOAL {
+        SDL3.setRenderDrawColor(renderer, 120, 240, 170, 255)
+        SDL3.renderDebugText(renderer, cx - 32.0, 220.0, "GOAL IN!")
+        SDL3.setRenderDrawColor(renderer, 255, 220, 90, 255)
+        let bonusText = CString("FUEL BONUS ${game.goalFuelBonus}")
+        SDL3.renderDebugText(renderer, cx - 60.0, 244.0, bonusText.asCStringSlice())
+        if !game.crashedThisCourse {
+            SDL3.setRenderDrawColor(renderer, 130, 220, 255, 255)
+            let perfectText = CString("PERFECT ${SCORE_PERFECT_RUN}")
+            SDL3.renderDebugText(renderer, cx - 52.0, 268.0, perfectText.asCStringSlice())
+        }
+        return
+    }
+
+    if game.phase == PHASE_GAME_OVER {
+        SDL3.setRenderDrawColor(renderer, 245, 90, 90, 255)
+        SDL3.renderDebugText(renderer, cx - 36.0, Float32(HEIGHT) * 0.5 - 10.0, "GAME OVER")
+        SDL3.setRenderDrawColor(renderer, 210, 210, 210, 255)
+        SDL3.renderDebugText(renderer, cx - 84.0, Float32(HEIGHT) * 0.5 + 12.0, "PRESS R TO PLAY AGAIN")
+    }
+}
+
+// MARK: - Frame
+
+func drawGame(renderer: &SDL3.Renderer?, game: *Game) {
+    SDL3.setRenderDrawColor(renderer, 6, 6, 14, 255)
+    SDL3.renderClear(renderer)
+
+    drawRoad(renderer, game)
+    drawScenery(renderer, game)
+
+    // Start banner just up the road, finish banner at the course end.
+    drawCheckerLine(renderer, game, 12.0)
+    drawCheckerLine(renderer, game, courseLength(game.course))
+
+    for index in 0..MAX_OILS {
+        if game.oils[index].active {
+            drawOil(renderer, game, index)
+        }
+    }
+
+    for index in 0..MAX_ENEMIES {
+        if game.enemies[index].active {
+            drawEnemy(renderer, game, index)
+        }
+    }
+
+    drawPlayerCar(renderer, game)
+    drawPopups(renderer, game)
+
+    drawPanel(renderer, game)
+    drawOverlay(renderer, game)
+
+    SDL3.renderPresent(renderer)
+}

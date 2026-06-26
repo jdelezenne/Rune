@@ -1,0 +1,7 @@
+/// Represents a single byte of raw memory.
+/// Not an arithmetic type; use explicit casts to integer types for arithmetic.
+@builtin
+public struct Byte {
+    @runtime
+    public init()
+}

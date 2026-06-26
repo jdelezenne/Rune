@@ -1,0 +1,242 @@
+// World/chunk data model and terrain generation. Block storage per chunk
+// is a fixed-size InlineArray (chunk dimensions are compile-time
+// constants), but each chunk's generated MESH is a dynamic Array<Vertex>
+// -- the number of visible faces depends entirely on the terrain shape
+// and isn't known until generation runs, which is exactly the case
+// Array<T>.bytes/.byteLength (added to Code/Modules/Rune/Array.rune this
+// session) exists for: uploading a genuinely runtime-sized vertex buffer
+// to the GPU, the same way InlineArray<T,N>.bytes already does for
+// fixed-size meshes elsewhere in these examples.
+
+import Standard.*
+import OpenGL
+
+const CHUNK_SIZE_X: Int = 16
+const CHUNK_SIZE_Y: Int = 32
+const CHUNK_SIZE_Z: Int = 16
+const CHUNK_VOLUME: Int = CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z
+
+const WORLD_CHUNKS_X: Int = 6
+const WORLD_CHUNKS_Z: Int = 6
+const WORLD_CHUNK_COUNT: Int = WORLD_CHUNKS_X * WORLD_CHUNKS_Z
+const WORLD_SIZE_X: Int = CHUNK_SIZE_X * WORLD_CHUNKS_X
+const WORLD_SIZE_Z: Int = CHUNK_SIZE_Z * WORLD_CHUNKS_Z
+
+const SEA_LEVEL: Int32 = 9
+const TERRAIN_BASE_HEIGHT: Float32 = 6.0
+const TERRAIN_HEIGHT_RANGE: Float32 = 20.0
+const TERRAIN_NOISE_SCALE: Float32 = 0.06
+
+const CRYSTAL_COUNT: Int = 14
+
+// air=0 stone=1 dirt=2 grass=3 sand=4 water=5 wood=6 leaves=7
+const BLOCK_AIR: UInt8 = 0
+const BLOCK_STONE: UInt8 = 1
+const BLOCK_DIRT: UInt8 = 2
+const BLOCK_GRASS: UInt8 = 3
+const BLOCK_SAND: UInt8 = 4
+const BLOCK_WATER: UInt8 = 5
+const BLOCK_WOOD: UInt8 = 6
+const BLOCK_LEAVES: UInt8 = 7
+
+// Same LCG PRNG as Examples/Programs/SDL3/AsteroidsShared/Model.rune --
+// Standard has no random-number facility.
+struct Rng {
+    var state: UInt32
+}
+
+func seedRng(seed: UInt32) -> Rng {
+    if seed == 0 {
+        return Rng(state: 0xC0FFEE01)
+    }
+    return Rng(state: seed)
+}
+
+func randUnit(rng: &Rng) -> Float32 {
+    rng.state = rng.state * 1664525 + 1013904223
+    return Float32(rng.state) / 4294967295.0
+}
+
+func randInt(rng: &Rng, upperExclusive: Int32) -> Int32 {
+    if upperExclusive <= 0 {
+        return 0
+    }
+    return Int32(randUnit(rng) * Float32(upperExclusive))
+}
+
+struct Chunk {
+    var blocks: [UInt8, CHUNK_VOLUME]
+    var vertexBuffer: OpenGL.GLuint
+    var vertexCount: Int32
+    var chunkX: Int32
+    var chunkZ: Int32
+    var meshed: Bool
+}
+
+struct Crystal {
+    var position: Vector3
+    var collected: Bool
+    var spinAngle: Float32
+}
+
+struct World {
+    var chunks: [Chunk, WORLD_CHUNK_COUNT]
+    var crystals: [Crystal, CRYSTAL_COUNT]
+    var seed: UInt32
+}
+
+func chunkIndexAt(chunkX: Int32, chunkZ: Int32) -> Int {
+    return Int(chunkX) * WORLD_CHUNKS_Z + Int(chunkZ)
+}
+
+func blockIndexAt(localX: Int32, localY: Int32, localZ: Int32) -> Int {
+    return Int(localX) + Int(localZ) * CHUNK_SIZE_X + Int(localY) * CHUNK_SIZE_X * CHUNK_SIZE_Z
+}
+
+func inChunkBounds(localX: Int32, localY: Int32, localZ: Int32) -> Bool {
+    return localX >= 0 && localX < Int32(CHUNK_SIZE_X) &&
+        localY >= 0 && localY < Int32(CHUNK_SIZE_Y) &&
+        localZ >= 0 && localZ < Int32(CHUNK_SIZE_Z)
+}
+
+// Reads a block at WORLD (not chunk-local) coordinates, returning air for
+// anything outside the generated world (including above/below it) so
+// meshing always treats the world's outer boundary as exposed.
+func worldBlockAt(world: &World, worldX: Int32, worldY: Int32, worldZ: Int32) -> UInt8 {
+    if worldX < 0 || worldX >= Int32(WORLD_SIZE_X) ||
+        worldZ < 0 || worldZ >= Int32(WORLD_SIZE_Z) ||
+        worldY < 0 || worldY >= Int32(CHUNK_SIZE_Y) {
+        return BLOCK_AIR
+    }
+
+    let chunkX = worldX / Int32(CHUNK_SIZE_X)
+    let chunkZ = worldZ / Int32(CHUNK_SIZE_Z)
+    let localX = worldX - chunkX * Int32(CHUNK_SIZE_X)
+    let localZ = worldZ - chunkZ * Int32(CHUNK_SIZE_Z)
+    return world.chunks[chunkIndexAt(chunkX, chunkZ)].blocks[blockIndexAt(localX, worldY, localZ)]
+}
+
+func isSolidBlock(block: UInt8) -> Bool {
+    return block != BLOCK_AIR && block != BLOCK_WATER
+}
+
+func columnHeight(worldX: Int32, worldZ: Int32, seed: UInt32) -> Int32 {
+    let n = fractalNoise2D(Float32(worldX) * TERRAIN_NOISE_SCALE, Float32(worldZ) * TERRAIN_NOISE_SCALE, seed, 4)
+    return Int32(TERRAIN_BASE_HEIGHT + n * TERRAIN_HEIGHT_RANGE)
+}
+
+func generateChunkBlocks(chunkX: Int32, chunkZ: Int32, seed: UInt32) -> Chunk {
+    var chunk = Chunk(
+        blocks: [],
+        vertexBuffer: 0,
+        vertexCount: 0,
+        chunkX: chunkX,
+        chunkZ: chunkZ,
+        meshed: false)
+
+    for localX in 0..CHUNK_SIZE_X {
+        for localZ in 0..CHUNK_SIZE_Z {
+            let worldX = chunkX * Int32(CHUNK_SIZE_X) + Int32(localX)
+            let worldZ = chunkZ * Int32(CHUNK_SIZE_Z) + Int32(localZ)
+            let height = columnHeight(worldX, worldZ, seed)
+            let isBeach = height <= SEA_LEVEL + 1
+
+            for localY in 0..CHUNK_SIZE_Y {
+                let y = Int32(localY)
+                var block = BLOCK_AIR
+                if y < height - 3 {
+                    block = BLOCK_STONE
+                } else if y < height - 1 {
+                    block = isBeach ? BLOCK_SAND : BLOCK_DIRT
+                } else if y < height {
+                    block = isBeach ? BLOCK_SAND : BLOCK_GRASS
+                } else if y <= SEA_LEVEL {
+                    block = BLOCK_WATER
+                }
+                chunk.blocks[blockIndexAt(Int32(localX), y, Int32(localZ))] = block
+            }
+        }
+    }
+
+    return chunk
+}
+
+// Scatters simple 1-trunk, single-canopy trees on grass columns after all
+// chunks' base terrain exists (so tree placement can safely stay within a
+// single chunk's own array without needing cross-chunk block writes).
+func placeTreesInChunk(chunk: &Chunk, seed: UInt32) {
+    for localX in 2..(CHUNK_SIZE_X - 2) {
+        for localZ in 2..(CHUNK_SIZE_Z - 2) {
+            let worldX = chunk.chunkX * Int32(CHUNK_SIZE_X) + Int32(localX)
+            let worldZ = chunk.chunkZ * Int32(CHUNK_SIZE_Z) + Int32(localZ)
+            let roll = hashLattice2D(worldX, worldZ, seed + 991)
+            if roll > 0.06 {
+                continue
+            }
+
+            var groundY: Int32 = -1
+            for y in 0..(CHUNK_SIZE_Y - 8) {
+                let index = blockIndexAt(Int32(localX), Int32(y), Int32(localZ))
+                if chunk.blocks[index] == BLOCK_GRASS {
+                    groundY = Int32(y)
+                }
+            }
+            if groundY < 0 {
+                continue
+            }
+
+            let trunkHeight = 3 + Int32(hashLattice2D(worldX, worldZ, seed + 773) * 2.0)
+            for step in 0..trunkHeight {
+                chunk.blocks[blockIndexAt(Int32(localX), groundY + 1 + Int32(step), Int32(localZ))] = BLOCK_WOOD
+            }
+
+            let canopyBaseY = groundY + trunkHeight
+            for dx in -2..3 {
+                for dz in -2..3 {
+                    for dy in 0..3 {
+                        let lx = Int32(localX) + Int32(dx)
+                        let lz = Int32(localZ) + Int32(dz)
+                        let ly = canopyBaseY + Int32(dy)
+                        if !inChunkBounds(lx, ly, lz) {
+                            continue
+                        }
+                        let index = blockIndexAt(lx, ly, lz)
+                        if chunk.blocks[index] == BLOCK_AIR {
+                            chunk.blocks[index] = BLOCK_LEAVES
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+func placeCrystals(world: &World, seed: UInt32) {
+    var rng = seedRng(seed + 5555)
+    for i in 0..CRYSTAL_COUNT {
+        let worldX = randInt(&rng, Int32(WORLD_SIZE_X) - 4) + 2
+        let worldZ = randInt(&rng, Int32(WORLD_SIZE_Z) - 4) + 2
+        let height = columnHeight(worldX, worldZ, seed)
+        let groundY = height <= SEA_LEVEL + 1 ? SEA_LEVEL + 2 : height
+        let y = Float32(groundY) + 1.5
+        world.crystals[i] = Crystal(
+            position: Vector3(x: Float32(worldX) + 0.5, y: y, z: Float32(worldZ) + 0.5),
+            collected: false,
+            spinAngle: Float32(i) * 0.7)
+    }
+}
+
+func generateWorld(seed: UInt32) -> World {
+    var world = World(chunks: [], crystals: [], seed: seed)
+    for chunkX in 0..WORLD_CHUNKS_X {
+        for chunkZ in 0..WORLD_CHUNKS_Z {
+            let index = chunkIndexAt(Int32(chunkX), Int32(chunkZ))
+            world.chunks[index] = generateChunkBlocks(Int32(chunkX), Int32(chunkZ), seed)
+        }
+    }
+    for i in 0..WORLD_CHUNK_COUNT {
+        placeTreesInChunk(&world.chunks[i], seed)
+    }
+    placeCrystals(&world, seed)
+    return world
+}

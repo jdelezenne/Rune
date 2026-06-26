@@ -1,0 +1,876 @@
+@symbol("WGPUStringView")
+@layout(kind: c)
+public struct StringView {
+    public var data: *Int8? = nil
+    public var length: UInt = STRLEN
+}
+
+@symbol("WGPUChainedStruct")
+@layout(kind: c)
+public struct ChainedStruct {
+    public var next: *ChainedStruct? = nil
+    public var sType: SType = .shaderSourceWGSL
+}
+
+@symbol("WGPUFuture")
+@layout(kind: c)
+public struct Future {
+    public var id: UInt64 = 0
+}
+
+@symbol("WGPUPopErrorScopeCallbackInfo")
+@layout(kind: c)
+public struct PopErrorScopeCallbackInfo {
+    public var nextInChain: *ChainedStruct?
+    public var mode: CallbackMode
+    public var callback: PopErrorScopeCallback
+    public var userdata1: &Byte?
+    public var userdata2: &Byte?
+}
+
+@symbol("WGPUInstanceDescriptor")
+@layout(kind: c)
+public struct InstanceDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var requiredFeatureCount: UInt = 0
+    public var requiredFeatures: *InstanceFeatureName? = nil
+    public var requiredLimits: *InstanceLimits? = nil
+}
+
+@symbol("WGPUInstanceLimits")
+@layout(kind: c)
+public struct InstanceLimits {
+    public var nextInChain: *ChainedStruct? = nil
+    public var timedWaitAnyMaxCount: UInt = 0
+}
+
+@symbol("WGPUEmscriptenSurfaceSourceCanvasHTMLSelector")
+@layout(kind: c)
+public struct EmscriptenSurfaceSourceCanvasHTMLSelector {
+    public var chain: ChainedStruct
+    public var selector: StringView
+}
+
+@symbol("WGPUSurfaceDescriptor")
+@layout(kind: c)
+public struct SurfaceDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+}
+
+@symbol("WGPUShaderSourceWGSL")
+@layout(kind: c)
+public struct ShaderSourceWGSL {
+    public var chain: ChainedStruct
+    public var code: StringView
+}
+
+@symbol("WGPUShaderModuleDescriptor")
+@layout(kind: c)
+public struct ShaderModuleDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+}
+
+@symbol("WGPUSurfaceCapabilities")
+@layout(kind: c)
+public struct SurfaceCapabilities {
+    public var nextInChain: *ChainedStruct? = nil
+    public var usages: UInt64 = 0
+    public var formatCount: UInt = 0
+    public var formats: *TextureFormat? = nil
+    public var presentModeCount: UInt = 0
+    public var presentModes: *PresentMode? = nil
+    public var alphaModeCount: UInt = 0
+    public var alphaModes: *CompositeAlphaMode? = nil
+}
+
+@symbol("WGPUSurfaceConfiguration")
+@layout(kind: c)
+public struct SurfaceConfiguration {
+    public var nextInChain: *ChainedStruct? = nil
+    public var device: &DeviceHandle? = nil
+    public var format: TextureFormat = .undefined
+    public var usage: UInt64 = TEXTURE_USAGE_RENDER_ATTACHMENT
+    public var width: UInt32 = 0
+    public var height: UInt32 = 0
+    public var viewFormatCount: UInt = 0
+    public var viewFormats: *TextureFormat? = nil
+    public var alphaMode: CompositeAlphaMode = .auto
+    public var presentMode: PresentMode = .undefined
+}
+
+@symbol("WGPUSurfaceTexture")
+@layout(kind: c)
+public struct SurfaceTexture {
+    public var nextInChain: *ChainedStruct? = nil
+    public var texture: &TextureHandle? = nil
+    public var status: SurfaceGetCurrentTextureStatus = .error
+}
+
+@symbol("WGPUBufferDescriptor")
+@layout(kind: c)
+public struct BufferDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+    public var usage: UInt64 = 0
+    public var size: UInt64 = 0
+    public var mappedAtCreation: UInt32 = 0
+}
+
+@symbol("WGPUExtent3D")
+@layout(kind: c)
+public struct Extent3D {
+    public var width: UInt32 = 0
+    public var height: UInt32 = 1
+    public var depthOrArrayLayers: UInt32 = 1
+}
+
+@symbol("WGPUOrigin3D")
+@layout(kind: c)
+public struct Origin3D {
+    public var x: UInt32 = 0
+    public var y: UInt32 = 0
+    public var z: UInt32 = 0
+}
+
+@symbol("WGPUTextureDescriptor")
+@layout(kind: c)
+public struct TextureDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+    public var usage: UInt64 = 0
+    public var dimension: TextureDimension = .d2
+    public var size: Extent3D = Extent3D()
+    public var format: TextureFormat = .undefined
+    public var mipLevelCount: UInt32 = 1
+    public var sampleCount: UInt32 = 1
+    public var viewFormatCount: UInt = 0
+    public var viewFormats: *TextureFormat? = nil
+}
+
+@symbol("WGPUSamplerDescriptor")
+@layout(kind: c)
+public struct SamplerDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+    public var addressModeU: AddressMode = .clampToEdge
+    public var addressModeV: AddressMode = .clampToEdge
+    public var addressModeW: AddressMode = .clampToEdge
+    public var magFilter: FilterMode = .nearest
+    public var minFilter: FilterMode = .nearest
+    public var mipmapFilter: MipmapFilterMode = .nearest
+    public var lodMinClamp: Float32 = 0.0
+    public var lodMaxClamp: Float32 = 32.0
+    public var compare: CompareFunction = .undefined
+    public var maxAnisotropy: UInt16 = 1
+}
+
+@symbol("WGPUTexelCopyTextureInfo")
+@layout(kind: c)
+public struct TexelCopyTextureInfo {
+    public var texture: &TextureHandle? = nil
+    public var mipLevel: UInt32 = 0
+    public var origin: Origin3D = Origin3D()
+    public var aspect: TextureAspect = .all
+}
+
+@symbol("WGPUTexelCopyBufferLayout")
+@layout(kind: c)
+public struct TexelCopyBufferLayout {
+    public var offset: UInt64 = 0
+    public var bytesPerRow: UInt32 = 0
+    public var rowsPerImage: UInt32 = 0
+}
+
+@symbol("WGPUVertexAttribute")
+@layout(kind: c)
+public struct VertexAttribute {
+    public var nextInChain: *ChainedStruct? = nil
+    public var format: VertexFormat = .float32x3
+    public var offset: UInt64 = 0
+    public var shaderLocation: UInt32 = 0
+}
+
+@symbol("WGPUVertexBufferLayout")
+@layout(kind: c)
+public struct VertexBufferLayout {
+    public var nextInChain: *ChainedStruct? = nil
+    public var stepMode: VertexStepMode = .vertex
+    public var arrayStride: UInt64 = 0
+    public var attributeCount: UInt = 0
+    public var attributes: *VertexAttribute? = nil
+}
+
+@symbol("WGPUVertexState")
+@layout(kind: c)
+public struct VertexState {
+    public var nextInChain: *ChainedStruct? = nil
+    public var module: &ShaderModuleHandle? = nil
+    public var entryPoint: StringView = StringView()
+    public var constantCount: UInt = 0
+    public var constants: *ConstantEntry? = nil
+    public var bufferCount: UInt = 0
+    public var buffers: *VertexBufferLayout? = nil
+}
+
+@symbol("WGPUColorTargetState")
+@layout(kind: c)
+public struct ColorTargetState {
+    public var nextInChain: *ChainedStruct? = nil
+    public var format: TextureFormat = .undefined
+    public var blend: *BlendState? = nil
+    public var writeMask: UInt64 = COLOR_WRITE_MASK_ALL
+}
+
+@symbol("WGPUFragmentState")
+@layout(kind: c)
+public struct FragmentState {
+    public var nextInChain: *ChainedStruct? = nil
+    public var module: &ShaderModuleHandle? = nil
+    public var entryPoint: StringView = StringView()
+    public var constantCount: UInt = 0
+    public var constants: *ConstantEntry? = nil
+    public var targetCount: UInt = 0
+    public var targets: *ColorTargetState? = nil
+}
+
+@symbol("WGPUPrimitiveState")
+@layout(kind: c)
+public struct PrimitiveState {
+    public var nextInChain: *ChainedStruct? = nil
+    public var topology: PrimitiveTopology = .triangleList
+    public var stripIndexFormat: IndexFormat = .undefined
+    public var frontFace: FrontFace = .ccw
+    public var cullMode: CullMode = .back
+    public var unclippedDepth: UInt32 = 0
+}
+
+@symbol("WGPUMultisampleState")
+@layout(kind: c)
+public struct MultisampleState {
+    public var nextInChain: *ChainedStruct? = nil
+    public var count: UInt32 = 1
+    public var mask: UInt32 = UInt32.max
+    public var alphaToCoverageEnabled: UInt32 = 0
+}
+
+@symbol("WGPURenderPipelineDescriptor")
+@layout(kind: c)
+public struct RenderPipelineDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+    public var layout: &PipelineLayoutHandle? = nil
+    public var vertex: VertexState
+    public var primitive: PrimitiveState = PrimitiveState()
+    public var depthStencil: *DepthStencilState? = nil
+    public var multisample: MultisampleState = MultisampleState()
+    public var fragment: *FragmentState? = nil
+}
+
+@symbol("WGPUBindGroupEntry")
+@layout(kind: c)
+public struct BindGroupEntry {
+    public var nextInChain: *ChainedStruct? = nil
+    public var binding: UInt32 = 0
+    public var buffer: &BufferHandle? = nil
+    public var offset: UInt64 = 0
+    public var size: UInt64 = WHOLE_SIZE
+    public var sampler: &SamplerHandle? = nil
+    public var textureView: &TextureViewHandle? = nil
+}
+
+@symbol("WGPUBindGroupDescriptor")
+@layout(kind: c)
+public struct BindGroupDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+    public var layout: &BindGroupLayoutHandle? = nil
+    public var entryCount: UInt = 0
+    public var entries: *BindGroupEntry? = nil
+}
+
+@symbol("WGPUColor")
+@layout(kind: c)
+public struct Color {
+    public var r: Float64 = 0.0
+    public var g: Float64 = 0.0
+    public var b: Float64 = 0.0
+    public var a: Float64 = 0.0
+}
+
+@symbol("WGPURenderPassColorAttachment")
+@layout(kind: c)
+public struct RenderPassColorAttachment {
+    public var nextInChain: *ChainedStruct? = nil
+    public var view: &TextureViewHandle? = nil
+    public var depthSlice: UInt32 = DEPTH_SLICE_UNDEFINED
+    public var resolveTarget: &TextureViewHandle? = nil
+    public var loadOp: LoadOp = .clear
+    public var storeOp: StoreOp = .store
+    public var clearValue: Color = Color()
+}
+
+@symbol("WGPURenderPassDescriptor")
+@layout(kind: c)
+public struct RenderPassDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+    public var colorAttachmentCount: UInt = 0
+    public var colorAttachments: *RenderPassColorAttachment? = nil
+    public var depthStencilAttachment: *RenderPassDepthStencilAttachment? = nil
+    public var occlusionQuerySet: &QuerySetHandle? = nil
+    public var timestampWrites: *PassTimestampWrites? = nil
+}
+
+@symbol("WGPUCommandBufferDescriptor")
+@layout(kind: c)
+public struct CommandBufferDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+}
+
+@symbol("WGPUCommandEncoderDescriptor")
+@layout(kind: c)
+public struct CommandEncoderDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+}
+
+@symbol("WGPUConstantEntry")
+@layout(kind: c)
+public struct ConstantEntry {
+    public var nextInChain: *ChainedStruct? = nil
+    public var key: StringView = StringView()
+    public var value: Float64 = 0.0
+}
+
+@symbol("WGPUBlendComponent")
+@layout(kind: c)
+public struct BlendComponent {
+    public var operation: BlendOperation = .undefined
+    public var srcFactor: BlendFactor = .undefined
+    public var dstFactor: BlendFactor = .undefined
+}
+
+@symbol("WGPUBlendState")
+@layout(kind: c)
+public struct BlendState {
+    public var color: BlendComponent = BlendComponent()
+    public var alpha: BlendComponent = BlendComponent()
+}
+
+@symbol("WGPUStencilFaceState")
+@layout(kind: c)
+public struct StencilFaceState {
+    public var compare: CompareFunction = .undefined
+    public var failOp: StencilOperation = .undefined
+    public var depthFailOp: StencilOperation = .undefined
+    public var passOp: StencilOperation = .undefined
+}
+
+@symbol("WGPUDepthStencilState")
+@layout(kind: c)
+public struct DepthStencilState {
+    public var nextInChain: *ChainedStruct? = nil
+    public var format: TextureFormat = .undefined
+    public var depthWriteEnabled: OptionalBool = .undefined
+    public var depthCompare: CompareFunction = .undefined
+    public var stencilFront: StencilFaceState = StencilFaceState()
+    public var stencilBack: StencilFaceState = StencilFaceState()
+    public var stencilReadMask: UInt32 = UInt32.max
+    public var stencilWriteMask: UInt32 = UInt32.max
+    public var depthBias: Int32 = 0
+    public var depthBiasSlopeScale: Float32 = 0.0
+    public var depthBiasClamp: Float32 = 0.0
+}
+
+@symbol("WGPURenderPassDepthStencilAttachment")
+@layout(kind: c)
+public struct RenderPassDepthStencilAttachment {
+    public var nextInChain: *ChainedStruct? = nil
+    public var view: &TextureViewHandle? = nil
+    public var depthLoadOp: LoadOp = .undefined
+    public var depthStoreOp: StoreOp = .undefined
+    public var depthClearValue: Float32 = 0.0
+    public var depthReadOnly: UInt32 = 0
+    public var stencilLoadOp: LoadOp = .undefined
+    public var stencilStoreOp: StoreOp = .undefined
+    public var stencilClearValue: UInt32 = 0
+    public var stencilReadOnly: UInt32 = 0
+}
+
+@symbol("WGPUPassTimestampWrites")
+@layout(kind: c)
+public struct PassTimestampWrites {
+    public var nextInChain: *ChainedStruct? = nil
+    public var querySet: &QuerySetHandle? = nil
+    public var beginningOfPassWriteIndex: UInt32 = QUERY_SET_INDEX_UNDEFINED
+    public var endOfPassWriteIndex: UInt32 = QUERY_SET_INDEX_UNDEFINED
+}
+
+@symbol("WGPUTextureViewDescriptor")
+@layout(kind: c)
+public struct TextureViewDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+    public var format: TextureFormat = .undefined
+    public var dimension: TextureViewDimension = .undefined
+    public var baseMipLevel: UInt32 = 0
+    public var mipLevelCount: UInt32 = MIP_LEVEL_COUNT_UNDEFINED
+    public var baseArrayLayer: UInt32 = 0
+    public var arrayLayerCount: UInt32 = ARRAY_LAYER_COUNT_UNDEFINED
+    public var aspect: TextureAspect = .undefined
+    public var usage: UInt64 = 0
+}
+
+// MARK: - Callback info
+
+@symbol("WGPUBufferMapCallbackInfo")
+@layout(kind: c)
+public struct BufferMapCallbackInfo {
+    public var nextInChain: *ChainedStruct?
+    public var mode: CallbackMode
+    public var callback: BufferMapCallback
+    public var userdata1: &Byte?
+    public var userdata2: &Byte?
+}
+
+@symbol("WGPUCompilationInfoCallbackInfo")
+@layout(kind: c)
+public struct CompilationInfoCallbackInfo {
+    public var nextInChain: *ChainedStruct?
+    public var mode: CallbackMode
+    public var callback: CompilationInfoCallback
+    public var userdata1: &Byte?
+    public var userdata2: &Byte?
+}
+
+@symbol("WGPUCreateComputePipelineAsyncCallbackInfo")
+@layout(kind: c)
+public struct CreateComputePipelineAsyncCallbackInfo {
+    public var nextInChain: *ChainedStruct?
+    public var mode: CallbackMode
+    public var callback: CreateComputePipelineAsyncCallback
+    public var userdata1: &Byte?
+    public var userdata2: &Byte?
+}
+
+@symbol("WGPUCreateRenderPipelineAsyncCallbackInfo")
+@layout(kind: c)
+public struct CreateRenderPipelineAsyncCallbackInfo {
+    public var nextInChain: *ChainedStruct?
+    public var mode: CallbackMode
+    public var callback: CreateRenderPipelineAsyncCallback
+    public var userdata1: &Byte?
+    public var userdata2: &Byte?
+}
+
+@symbol("WGPUDeviceLostCallbackInfo")
+@layout(kind: c)
+public struct DeviceLostCallbackInfo {
+    public var nextInChain: *ChainedStruct?
+    public var mode: CallbackMode
+    public var callback: DeviceLostCallback
+    public var userdata1: &Byte?
+    public var userdata2: &Byte?
+}
+
+@symbol("WGPUQueueWorkDoneCallbackInfo")
+@layout(kind: c)
+public struct QueueWorkDoneCallbackInfo {
+    public var nextInChain: *ChainedStruct?
+    public var mode: CallbackMode
+    public var callback: QueueWorkDoneCallback
+    public var userdata1: &Byte?
+    public var userdata2: &Byte?
+}
+
+@symbol("WGPURequestAdapterCallbackInfo")
+@layout(kind: c)
+public struct RequestAdapterCallbackInfo {
+    public var nextInChain: *ChainedStruct?
+    public var mode: CallbackMode
+    public var callback: RequestAdapterCallback
+    public var userdata1: &Byte?
+    public var userdata2: &Byte?
+}
+
+@symbol("WGPURequestDeviceCallbackInfo")
+@layout(kind: c)
+public struct RequestDeviceCallbackInfo {
+    public var nextInChain: *ChainedStruct?
+    public var mode: CallbackMode
+    public var callback: RequestDeviceCallback
+    public var userdata1: &Byte?
+    public var userdata2: &Byte?
+}
+
+@symbol("WGPUUncapturedErrorCallbackInfo")
+@layout(kind: c)
+public struct UncapturedErrorCallbackInfo {
+    public var nextInChain: *ChainedStruct?
+    public var callback: UncapturedErrorCallback
+    public var userdata1: &Byte?
+    public var userdata2: &Byte?
+}
+
+// MARK: - Adapter / device / limits
+
+@symbol("WGPUAdapterInfo")
+@layout(kind: c)
+public struct AdapterInfo {
+    public var nextInChain: *ChainedStruct? = nil
+    public var vendor: StringView = StringView()
+    public var architecture: StringView = StringView()
+    public var device: StringView = StringView()
+    public var description: StringView = StringView()
+    public var backendType: BackendType = .undefined
+    public var adapterType: AdapterType = .unknown
+    public var vendorID: UInt32 = 0
+    public var deviceID: UInt32 = 0
+    public var subgroupMinSize: UInt32 = 0
+    public var subgroupMaxSize: UInt32 = 0
+}
+
+@symbol("WGPUQueueDescriptor")
+@layout(kind: c)
+public struct QueueDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+}
+
+@symbol("WGPULimits")
+@layout(kind: c)
+public struct Limits {
+    public var nextInChain: *ChainedStruct? = nil
+    public var maxTextureDimension1D: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxTextureDimension2D: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxTextureDimension3D: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxTextureArrayLayers: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxBindGroups: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxBindGroupsPlusVertexBuffers: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxBindingsPerBindGroup: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxDynamicUniformBuffersPerPipelineLayout: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxDynamicStorageBuffersPerPipelineLayout: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxSampledTexturesPerShaderStage: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxSamplersPerShaderStage: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxStorageBuffersPerShaderStage: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxStorageTexturesPerShaderStage: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxUniformBuffersPerShaderStage: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxUniformBufferBindingSize: UInt64 = LIMIT_U64_UNDEFINED
+    public var maxStorageBufferBindingSize: UInt64 = LIMIT_U64_UNDEFINED
+    public var minUniformBufferOffsetAlignment: UInt32 = LIMIT_U32_UNDEFINED
+    public var minStorageBufferOffsetAlignment: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxVertexBuffers: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxBufferSize: UInt64 = LIMIT_U64_UNDEFINED
+    public var maxVertexAttributes: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxVertexBufferArrayStride: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxInterStageShaderVariables: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxColorAttachments: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxColorAttachmentBytesPerSample: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxComputeWorkgroupStorageSize: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxComputeInvocationsPerWorkgroup: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxComputeWorkgroupSizeX: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxComputeWorkgroupSizeY: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxComputeWorkgroupSizeZ: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxComputeWorkgroupsPerDimension: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxImmediateSize: UInt32 = LIMIT_U32_UNDEFINED
+}
+
+@symbol("WGPUDeviceDescriptor")
+@layout(kind: c)
+public struct DeviceDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+    public var requiredFeatureCount: UInt = 0
+    public var requiredFeatures: *FeatureName? = nil
+    public var requiredLimits: *Limits? = nil
+    public var defaultQueue: QueueDescriptor = QueueDescriptor()
+    public var deviceLostCallbackInfo: DeviceLostCallbackInfo
+    public var uncapturedErrorCallbackInfo: UncapturedErrorCallbackInfo
+}
+
+@symbol("WGPURequestAdapterOptions")
+@layout(kind: c)
+public struct RequestAdapterOptions {
+    public var nextInChain: *ChainedStruct? = nil
+    public var featureLevel: FeatureLevel = .undefined
+    public var powerPreference: PowerPreference = .undefined
+    public var forceFallbackAdapter: UInt32 = 0
+    public var backendType: BackendType = .undefined
+    public var compatibleSurface: &SurfaceHandle? = nil
+}
+
+@symbol("WGPUSupportedFeatures")
+@layout(kind: c)
+public struct SupportedFeatures {
+    public var featureCount: UInt = 0
+    public var features: *FeatureName? = nil
+}
+
+@symbol("WGPUSupportedInstanceFeatures")
+@layout(kind: c)
+public struct SupportedInstanceFeatures {
+    public var featureCount: UInt = 0
+    public var features: *InstanceFeatureName? = nil
+}
+
+@symbol("WGPUSupportedWGSLLanguageFeatures")
+@layout(kind: c)
+public struct SupportedWGSLLanguageFeatures {
+    public var featureCount: UInt = 0
+    public var features: *WGSLLanguageFeatureName? = nil
+}
+
+@symbol("WGPUFutureWaitInfo")
+@layout(kind: c)
+public struct FutureWaitInfo {
+    public var future: Future = Future()
+    public var completed: UInt32 = 0
+}
+
+// MARK: - Bind group layout
+
+@symbol("WGPUBufferBindingLayout")
+@layout(kind: c)
+public struct BufferBindingLayout {
+    public var nextInChain: *ChainedStruct? = nil
+    public var type: BufferBindingType = .undefined
+    public var hasDynamicOffset: UInt32 = 0
+    public var minBindingSize: UInt64 = 0
+}
+
+@symbol("WGPUSamplerBindingLayout")
+@layout(kind: c)
+public struct SamplerBindingLayout {
+    public var nextInChain: *ChainedStruct? = nil
+    public var type: SamplerBindingType = .undefined
+}
+
+@symbol("WGPUTextureBindingLayout")
+@layout(kind: c)
+public struct TextureBindingLayout {
+    public var nextInChain: *ChainedStruct? = nil
+    public var sampleType: TextureSampleType = .undefined
+    public var viewDimension: TextureViewDimension = .undefined
+    public var multisampled: UInt32 = 0
+}
+
+@symbol("WGPUStorageTextureBindingLayout")
+@layout(kind: c)
+public struct StorageTextureBindingLayout {
+    public var nextInChain: *ChainedStruct? = nil
+    public var access: StorageTextureAccess = .undefined
+    public var format: TextureFormat = .undefined
+    public var viewDimension: TextureViewDimension = .undefined
+}
+
+@symbol("WGPUBindGroupLayoutEntry")
+@layout(kind: c)
+public struct BindGroupLayoutEntry {
+    public var nextInChain: *ChainedStruct? = nil
+    public var binding: UInt32 = 0
+    public var visibility: UInt64 = 0
+    public var bindingArraySize: UInt32 = 0
+    public var buffer: BufferBindingLayout = BufferBindingLayout()
+    public var sampler: SamplerBindingLayout = SamplerBindingLayout()
+    public var texture: TextureBindingLayout = TextureBindingLayout()
+    public var storageTexture: StorageTextureBindingLayout = StorageTextureBindingLayout()
+}
+
+@symbol("WGPUBindGroupLayoutDescriptor")
+@layout(kind: c)
+public struct BindGroupLayoutDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+    public var entryCount: UInt = 0
+    public var entries: *BindGroupLayoutEntry? = nil
+}
+
+@symbol("WGPUPipelineLayoutDescriptor")
+@layout(kind: c)
+public struct PipelineLayoutDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+    public var bindGroupLayoutCount: UInt = 0
+    public var bindGroupLayouts: *(&BindGroupLayoutHandle?)? = nil
+    public var immediateSize: UInt32 = 0
+}
+
+// MARK: - Compute
+
+@symbol("WGPUComputeState")
+@layout(kind: c)
+public struct ComputeState {
+    public var nextInChain: *ChainedStruct? = nil
+    public var module: &ShaderModuleHandle? = nil
+    public var entryPoint: StringView = StringView()
+    public var constantCount: UInt = 0
+    public var constants: *ConstantEntry? = nil
+}
+
+@symbol("WGPUComputePipelineDescriptor")
+@layout(kind: c)
+public struct ComputePipelineDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+    public var layout: &PipelineLayoutHandle? = nil
+    public var compute: ComputeState
+}
+
+@symbol("WGPUComputePassDescriptor")
+@layout(kind: c)
+public struct ComputePassDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+    public var timestampWrites: *PassTimestampWrites? = nil
+}
+
+// MARK: - Query / copy / bundle
+
+@symbol("WGPUQuerySetDescriptor")
+@layout(kind: c)
+public struct QuerySetDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+    public var type: QueryType = .occlusion
+    public var count: UInt32 = 0
+}
+
+@symbol("WGPUTexelCopyBufferInfo")
+@layout(kind: c)
+public struct TexelCopyBufferInfo {
+    public var layout: TexelCopyBufferLayout = TexelCopyBufferLayout()
+    public var buffer: &BufferHandle? = nil
+}
+
+@symbol("WGPURenderBundleDescriptor")
+@layout(kind: c)
+public struct RenderBundleDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+}
+
+@symbol("WGPURenderBundleEncoderDescriptor")
+@layout(kind: c)
+public struct RenderBundleEncoderDescriptor {
+    public var nextInChain: *ChainedStruct? = nil
+    public var label: StringView = StringView()
+    public var colorFormatCount: UInt = 0
+    public var colorFormats: *TextureFormat? = nil
+    public var depthStencilFormat: TextureFormat = .undefined
+    public var sampleCount: UInt32 = 1
+    public var depthReadOnly: UInt32 = 0
+    public var stencilReadOnly: UInt32 = 0
+}
+
+// MARK: - Compilation / shader extras
+
+@symbol("WGPUCompilationMessage")
+@layout(kind: c)
+public struct CompilationMessage {
+    public var nextInChain: *ChainedStruct? = nil
+    public var message: StringView = StringView()
+    public var type: CompilationMessageType = .error
+    public var lineNum: UInt64 = 0
+    public var linePos: UInt64 = 0
+    public var offset: UInt64 = 0
+    public var length: UInt64 = 0
+}
+
+@symbol("WGPUCompilationInfo")
+@layout(kind: c)
+public struct CompilationInfo {
+    public var nextInChain: *ChainedStruct? = nil
+    public var messageCount: UInt = 0
+    public var messages: *CompilationMessage? = nil
+}
+
+@symbol("WGPUShaderSourceSPIRV")
+@layout(kind: c)
+public struct ShaderSourceSPIRV {
+    public var chain: ChainedStruct
+    public var codeSize: UInt32 = 0
+    public var code: *UInt32? = nil
+}
+
+// MARK: - Chained extension structs
+
+@symbol("WGPUCompatibilityModeLimits")
+@layout(kind: c)
+public struct CompatibilityModeLimits {
+    public var chain: ChainedStruct
+    public var maxStorageBuffersInVertexStage: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxStorageTexturesInVertexStage: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxStorageBuffersInFragmentStage: UInt32 = LIMIT_U32_UNDEFINED
+    public var maxStorageTexturesInFragmentStage: UInt32 = LIMIT_U32_UNDEFINED
+}
+
+@symbol("WGPUDawnCompilationMessageUtf16")
+@layout(kind: c)
+public struct DawnCompilationMessageUtf16 {
+    public var chain: ChainedStruct
+    public var linePos: UInt64 = 0
+    public var offset: UInt64 = 0
+    public var length: UInt64 = 0
+}
+
+@symbol("WGPUExternalTextureBindingEntry")
+@layout(kind: c)
+public struct ExternalTextureBindingEntry {
+    public var chain: ChainedStruct
+    public var externalTexture: &ExternalTextureHandle? = nil
+}
+
+@symbol("WGPUExternalTextureBindingLayout")
+@layout(kind: c)
+public struct ExternalTextureBindingLayout {
+    public var chain: ChainedStruct
+}
+
+@symbol("WGPURenderPassMaxDrawCount")
+@layout(kind: c)
+public struct RenderPassMaxDrawCount {
+    public var chain: ChainedStruct
+    public var maxDrawCount: UInt64 = 50000000
+}
+
+@symbol("WGPURequestAdapterWebXROptions")
+@layout(kind: c)
+public struct RequestAdapterWebXROptions {
+    public var chain: ChainedStruct
+    public var xrCompatible: UInt32 = 0
+}
+
+@symbol("WGPUSurfaceColorManagement")
+@layout(kind: c)
+public struct SurfaceColorManagement {
+    public var chain: ChainedStruct
+    public var colorSpace: PredefinedColorSpace = .srgb
+    public var toneMappingMode: ToneMappingMode = .standard
+}
+
+@symbol("WGPUTextureBindingViewDimension")
+@layout(kind: c)
+public struct TextureBindingViewDimension {
+    public var chain: ChainedStruct
+    public var textureBindingViewDimension: TextureViewDimension = .undefined
+}
+
+@symbol("WGPUTextureComponentSwizzle")
+@layout(kind: c)
+public struct TextureComponentSwizzle {
+    public var r: ComponentSwizzle = .undefined
+    public var g: ComponentSwizzle = .undefined
+    public var b: ComponentSwizzle = .undefined
+    public var a: ComponentSwizzle = .undefined
+}
+
+@symbol("WGPUTextureComponentSwizzleDescriptor")
+@layout(kind: c)
+public struct TextureComponentSwizzleDescriptor {
+    public var chain: ChainedStruct
+    public var swizzle: TextureComponentSwizzle = TextureComponentSwizzle()
+}
+

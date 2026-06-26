@@ -1,0 +1,82 @@
+// SIMD types for the Rune standard library.
+
+// MARK: - Float32x4
+
+/// 4-lane single-precision floating-point vector (128-bit).
+/// Backed by float32x4_t (NEON) or __m128 (SSE) at the C ABI level.
+@builtin
+public struct Float32x4 {
+    /// Initializes all four lanes explicitly.
+    @runtime("rune_float32x4_make4")
+    public init(x: Float32, y: Float32, z: Float32, w: Float32)
+
+    /// Broadcasts a single value to all four lanes.
+    @runtime("rune_float32x4_splat")
+    public init(value: Float32)
+
+    /// Component-wise addition.
+    @runtime("rune_float32x4_add")
+    public func add(rhs: Float32x4) -> Float32x4
+
+    /// Component-wise subtraction.
+    @runtime("rune_float32x4_sub")
+    public func sub(rhs: Float32x4) -> Float32x4
+
+    /// Component-wise multiplication.
+    @runtime("rune_float32x4_mul")
+    public func mul(rhs: Float32x4) -> Float32x4
+
+    /// Component-wise division.
+    @runtime("rune_float32x4_div")
+    public func div(rhs: Float32x4) -> Float32x4
+
+    /// Component-wise square root.
+    @runtime("rune_float32x4_sqrt")
+    public func sqrt() -> Float32x4
+
+    /// Component-wise absolute value.
+    @runtime("rune_float32x4_abs")
+    public func abs() -> Float32x4
+
+    /// Component-wise negation.
+    @runtime("rune_float32x4_neg")
+    public func neg() -> Float32x4
+
+    /// Component-wise minimum.
+    @runtime("rune_float32x4_min")
+    public func min(rhs: Float32x4) -> Float32x4
+
+    /// Component-wise maximum.
+    @runtime("rune_float32x4_max")
+    public func max(rhs: Float32x4) -> Float32x4
+
+    /// 4-component dot product: sum of component-wise products.
+    @runtime("rune_float32x4_dot")
+    public func dot(rhs: Float32x4) -> Float32
+
+    /// Horizontal sum of all four lanes.
+    @runtime("rune_float32x4_sum")
+    public func sum() -> Float32
+}
+
+public extension Float32x4 {
+    public x: Float32 {
+        @runtime("rune_float32x4_get_x")
+        get
+    }
+
+    public y: Float32 {
+        @runtime("rune_float32x4_get_y")
+        get
+    }
+
+    public z: Float32 {
+        @runtime("rune_float32x4_get_z")
+        get
+    }
+
+    public w: Float32 {
+        @runtime("rune_float32x4_get_w")
+        get
+    }
+}

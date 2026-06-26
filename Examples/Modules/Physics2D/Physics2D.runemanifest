@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "name": "Physics2D",
+  "kind": "library",
+  "sources": [
+    "RigidBody2D.rune",
+    "Collision2D.rune",
+    "World2D.rune"
+  ],
+  "dependencies": [
+    "../../../Code/Modules/Standard/Standard.runemanifest"
+  ],
+  "output": "Physics2D.runemodule"
+}

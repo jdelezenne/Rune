@@ -1,0 +1,35 @@
+{
+  "version": "1.0.0",
+  "name": "WebGPU",
+  "kind": "library",
+  "unsafe": true,
+  "sources": [
+    { "path": "webgpu.rune", "platforms": ["wasm"] },
+    { "path": "api.rune", "platforms": ["wasm"] },
+    { "path": "descriptors.rune", "platforms": ["wasm"] },
+    { "path": "instance.rune", "platforms": ["wasm"] },
+    { "path": "adapter.rune", "platforms": ["wasm"] },
+    { "path": "device.rune", "platforms": ["wasm"] },
+    { "path": "surface.rune", "platforms": ["wasm"] },
+    { "path": "queue.rune", "platforms": ["wasm"] },
+    { "path": "buffer.rune", "platforms": ["wasm"] },
+    { "path": "texture.rune", "platforms": ["wasm"] },
+    { "path": "sampler.rune", "platforms": ["wasm"] },
+    { "path": "shader.rune", "platforms": ["wasm"] },
+    { "path": "pipeline.rune", "platforms": ["wasm"] },
+    { "path": "bindings.rune", "platforms": ["wasm"] },
+    { "path": "commands.rune", "platforms": ["wasm"] },
+    { "path": "render_pass.rune", "platforms": ["wasm"] },
+    { "path": "compute.rune", "platforms": ["wasm"] },
+    { "path": "query.rune", "platforms": ["wasm"] },
+    { "path": "bundle.rune", "platforms": ["wasm"] }
+  ],
+  "dependencies": [
+    "../../../Code/Modules/Rune/Rune.runemanifest"
+  ],
+  "includeHeaders": [
+    { "path": "webgpu/webgpu.h", "platforms": ["wasm"] },
+    { "path": "WebGPUAdapter.h", "platforms": ["wasm"] }
+  ],
+  "output": "WebGPU.runemodule"
+}

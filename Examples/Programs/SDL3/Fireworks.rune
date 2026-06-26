@@ -1,0 +1,285 @@
+// SDL3 Fireworks
+
+import Standard.*
+import SDL3
+
+const SCREEN_W: Int32 = 720
+const SCREEN_H: Int32 = 480
+const GRAVITY: Float32 = 220.0
+const PARTICLES_PER_BURST: Int = 160
+const AUTO_SPAWN_INTERVAL: Float32 = 1.1
+
+struct ArenaAllocator implements Allocator {
+    let storage: &Byte
+    let capacity: UInt
+    var offset: UInt = 0
+
+    init(capacity: UInt) {
+        self.capacity = capacity
+        self.offset = 0
+        self.storage = try! Memory.systemAllocate(size: capacity)
+    }
+
+    public mutating func allocate(size: UInt, alignment: UInt) throws -> &Byte {
+        let start = Memory.alignUp(value: self.offset, alignment: alignment)
+        let end = start + size
+        if end > self.capacity {
+            throw
+        }
+        self.offset = end
+        return (Int(self.storage) + Int(start)) as &Byte
+    }
+
+    public mutating func deallocate(address: *Byte) {
+    }
+
+    public mutating func release() {
+        Memory.systemDeallocate(address: self.storage)
+    }
+}
+
+struct Particle {
+    var x: Float32
+    var y: Float32
+    var vx: Float32
+    var vy: Float32
+    var life: Float32
+    var maxLife: Float32
+    var red: UInt8
+    var green: UInt8
+    var blue: UInt8
+}
+
+struct Burst {
+    var arena: ArenaAllocator
+    var particles: [&Particle]
+}
+
+struct Rng {
+    var state: UInt32
+}
+
+func randUnit(rng: &Rng) -> Float32 {
+    rng.state = rng.state * 1664525 + 1013904223
+    return Float32(rng.state) / 4294967295.0
+}
+
+func randRange(rng: &Rng, low: Float32, high: Float32) -> Float32 {
+    return low + randUnit(rng) * (high - low)
+}
+
+func spawnBurst(x: Float32, y: Float32, rng: &Rng) -> Burst {
+    let stride = Memory.alignUp(value: #sizeOf<Particle>(), alignment: #alignmentOf<Particle>())
+    let capacity = stride * UInt(PARTICLES_PER_BURST) + UInt(#alignmentOf<Particle>())
+    var arena = ArenaAllocator(capacity: capacity)
+    var particles: [&Particle] = []
+
+    let red = UInt8(randRange(rng, 120.0, 255.0))
+    let green = UInt8(randRange(rng, 120.0, 255.0))
+    let blue = UInt8(randRange(rng, 120.0, 255.0))
+
+    for _ in 0..PARTICLES_PER_BURST {
+        let angle = randRange(rng, 0.0, Float32(Math.TAU))
+        let speed = randRange(rng, 40.0, 220.0)
+        let particle = make!(arena) Particle(
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 1.0,
+            maxLife: randRange(rng, 0.6, 1.4),
+            red: red,
+            green: green,
+            blue: blue)
+        particles.append(particle)
+    }
+
+    return Burst(arena: arena, particles: particles)
+}
+
+func updateBurst(burst: &Burst, dt: Float32) -> Int {
+    var aliveCount = 0
+    for particle in burst.particles {
+        if particle.life <= 0.0 {
+            continue
+        }
+
+        particle.vy = particle.vy + GRAVITY * dt
+        particle.x = particle.x + particle.vx * dt
+        particle.y = particle.y + particle.vy * dt
+        particle.life = particle.life - dt
+        if particle.y > Float32(SCREEN_H) + 50.0 {
+            particle.life = 0.0
+        }
+
+        if particle.life > 0.0 {
+            aliveCount = aliveCount + 1
+        }
+    }
+
+    return aliveCount
+}
+
+func drawBurst(renderer: &SDL3.Renderer?, burst: *Burst) {
+    for p in burst.particles {
+        if p.life <= 0.0 {
+            continue
+        }
+
+        let fade = Math.clamp(p.life / p.maxLife, 0.0, 1.0)
+        let alpha = UInt8(fade * 255.0)
+        SDL3.setRenderDrawColor(renderer, p.red, p.green, p.blue, alpha)
+        let size: Float32 = 1.5 + fade * 2.5
+        var rect = SDL3.FRect(x: p.x - size * 0.5, y: p.y - size * 0.5, w: size, h: size)
+        SDL3.renderFillRect(renderer, &rect)
+    }
+}
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var rng = Rng(state: 1)
+var bursts: [Burst] = []
+var spawnTimer: Float32 = 0.0
+var burstsSpawned = 0
+var arenasReleased = 0
+var event = SDL3.Event()
+var lastCounter: UInt64 = 0
+var frequency: Float64 = 1.0
+var running = true
+
+func quit() {
+    for burst in &bursts {
+        burst.arena.release()
+    }
+
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    Console.printLine("Fireworks finished: ${burstsSpawned} arenas allocated, ${arenasReleased + bursts.count} freed.")
+}
+
+func mainLoop() {
+    var shouldQuit = false
+    while SDL3.pollEvent(&event) {
+        if event.type == SDL3.EventType.quit {
+            shouldQuit = true
+        }
+        if event.type == SDL3.EventType.keyDown && event.down && !event.repeat {
+            if event.scancode == SDL3.Scancode.escape {
+                shouldQuit = true
+            }
+            if event.scancode == SDL3.Scancode.space {
+                let x = randRange(&rng, 80.0, Float32(SCREEN_W) - 80.0)
+                let y = randRange(&rng, 60.0, 220.0)
+                bursts.append(spawnBurst(x: x, y: y, rng: &rng))
+                burstsSpawned = burstsSpawned + 1
+            }
+        }
+        if event.type == SDL3.EventType.mouseButtonDown {
+            var mx: Float32 = 0.0
+            var my: Float32 = 0.0
+            SDL3.getMouseState(&mx, &my)
+            bursts.append(spawnBurst(x: mx, y: my, rng: &rng))
+            burstsSpawned = burstsSpawned + 1
+        }
+    }
+
+    if shouldQuit {
+        quit()
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        running = false
+        return
+    }
+
+    let now = SDL3.getPerformanceCounter()
+    var dt = Float32(Float64(now - lastCounter) / frequency)
+    lastCounter = now
+    dt = Math.clamp(dt, 0.0, 0.033)
+
+    spawnTimer = spawnTimer + dt
+    if spawnTimer >= AUTO_SPAWN_INTERVAL {
+        spawnTimer = 0.0
+        let x = randRange(&rng, 80.0, Float32(SCREEN_W) - 80.0)
+        let y = randRange(&rng, 60.0, 220.0)
+        bursts.append(spawnBurst(x: x, y: y, rng: &rng))
+        burstsSpawned = burstsSpawned + 1
+    }
+
+    var liveParticles = 0
+    var writeIndex = 0
+    for readIndex in 0..bursts.count {
+        let aliveCount = updateBurst(&bursts[readIndex], dt)
+        if aliveCount > 0 {
+            liveParticles = liveParticles + aliveCount
+            if writeIndex != readIndex {
+                bursts[writeIndex] = bursts[readIndex]
+            }
+            writeIndex = writeIndex + 1
+        } else {
+            bursts[readIndex].arena.release()
+            arenasReleased = arenasReleased + 1
+        }
+    }
+    while bursts.count > writeIndex {
+        bursts.remove(at: bursts.count - 1)
+    }
+
+    SDL3.setRenderDrawColor(renderer, 10, 12, 20, 255)
+    SDL3.renderClear(renderer)
+
+    for burst in *bursts {
+        drawBurst(renderer, burst)
+    }
+
+    SDL3.setRenderDrawColor(renderer, 160, 175, 230, 255)
+    SDL3.renderDebugText(renderer, 8.0, 8.0, "FIREWORKS  |  click or SPACE: burst   esc: quit")
+    let hud = CString(
+        "active bursts: ${bursts.count}   live particles: ${liveParticles}" +
+        "   arenas allocated: ${burstsSpawned}   arenas released: ${arenasReleased}")
+    SDL3.renderDebugText(renderer, 8.0, 22.0, hud.asCStringSlice())
+
+    SDL3.renderPresent(renderer)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_Init failed")
+        } else {
+            Console.printLine("SDL_Init failed: ${message!}")
+        }
+
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Fireworks", SCREEN_W, SCREEN_H, 0, &window, &renderer) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_CreateWindowAndRenderer failed")
+        } else {
+            Console.printLine("SDL_CreateWindowAndRenderer failed: ${message!}")
+        }
+        SDL3.quit()
+        return 1
+    }
+
+    SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.blend)
+
+    rng = Rng(state: UInt32(SDL3.getTicks()) | 1)
+    lastCounter = SDL3.getPerformanceCounter()
+    frequency = Float64(SDL3.getPerformanceFrequency())
+
+    Console.printLine("Fireworks: click or SPACE for a burst, each burst owns its own arena allocator. Esc quits.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

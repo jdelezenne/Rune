@@ -1,0 +1,34 @@
+struct State {
+    var tiles: [UInt8, 400]
+
+    mutating func reset() {
+        self.tiles = []
+        self.tiles[5] = 1
+        self.tiles[77] = 2
+        self.tiles[399] = 3
+    }
+}
+
+var globalText: String? = nil
+
+func main() -> Int {
+    let source = "Rune"
+    globalText = source
+    #assert(globalText != nil && globalText! == source)
+    let cString = CString(source)
+    #assert(cString.toString() == source)
+
+    var state = State(tiles: [])
+    state.tiles[0] = 9
+    state.tiles[120] = 8
+    state.tiles[398] = 7
+    state.reset()
+
+    #assert(state.tiles[0] == 0)
+    #assert(state.tiles[5] == 1)
+    #assert(state.tiles[77] == 2)
+    #assert(state.tiles[120] == 0)
+    #assert(state.tiles[398] == 0)
+    #assert(state.tiles[399] == 3)
+    return 0
+}

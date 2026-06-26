@@ -1,0 +1,108 @@
+/// Interactive terminal control.
+public struct TerminalSize {
+    public var columns: UInt32
+    public var rows: UInt32
+
+    public init(columns: UInt32, rows: UInt32) {
+        self.columns = columns
+        self.rows = rows
+    }
+}
+
+public static Terminal {
+    @runtime("rune_runtime_terminal_is_interactive")
+    public func isInteractive() -> Bool
+
+    @runtime("rune_runtime_terminal_size")
+    private func sizeInternal(columns: &UInt32, rows: &UInt32, error: &String) -> Bool
+
+    @runtime("rune_runtime_terminal_enable_raw_mode")
+    private func enableRawModeInternal(error: &String) -> Bool
+
+    @runtime("rune_runtime_terminal_disable_raw_mode")
+    public func disableRawMode() -> Void
+
+    @runtime("rune_runtime_terminal_enter_alternate_screen")
+    private func enterAlternateScreenInternal(error: &String) -> Bool
+
+    @runtime("rune_runtime_terminal_leave_alternate_screen")
+    public func leaveAlternateScreen() -> Void
+
+    @runtime("rune_runtime_terminal_clear")
+    public func clear() -> Void
+
+    @runtime("rune_runtime_terminal_move_cursor")
+    public func moveCursor(row: UInt32, column: UInt32) -> Void
+
+    @runtime("rune_runtime_terminal_set_cursor_visible")
+    public func setCursorVisible(visible: Bool) -> Void
+
+    @runtime("rune_runtime_terminal_write")
+    public func write(value: String) -> Void
+
+    @runtime("rune_runtime_terminal_read_available")
+    private func readAvailableInternal(input: &String, error: &String) -> Bool
+
+    public func enableRawMode() throws(String) {
+        var error = ""
+        if !enableRawModeInternal(error: &error) {
+            throw error
+        }
+    }
+
+    public func size() throws(String) -> TerminalSize {
+        var columns: UInt32 = 0
+        var rows: UInt32 = 0
+        var error = ""
+        if !sizeInternal(columns: &columns, rows: &rows, error: &error) {
+            throw error
+        }
+
+        return TerminalSize(columns: columns, rows: rows)
+    }
+
+    public func enterAlternateScreen() throws(String) {
+        var error = ""
+        if !enterAlternateScreenInternal(error: &error) {
+            throw error
+        }
+    }
+
+    public func readAvailable() throws(String) -> String? {
+        var input = ""
+        var error = ""
+        if !readAvailableInternal(input: &input, error: &error) {
+            throw error
+        }
+        if input.isEmpty {
+            return nil
+        }
+
+        return input
+    }
+
+    public func reset() {
+        write(value: "\u{1b}[0m")
+    }
+
+    public func writeLine(value: String) {
+        write(value: value)
+        write(value: "\n")
+    }
+
+    public func bold() {
+        write(value: "\u{1b}[1m")
+    }
+
+    public func dim() {
+        write(value: "\u{1b}[2m")
+    }
+
+    public func foreground(color: UInt8) {
+        write(value: "\u{1b}[38;5;${color}m")
+    }
+
+    public func background(color: UInt8) {
+        write(value: "\u{1b}[48;5;${color}m")
+    }
+}

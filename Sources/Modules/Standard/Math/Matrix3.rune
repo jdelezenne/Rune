@@ -1,0 +1,194 @@
+/// Column-major 3x3 matrix, the natural companion to Matrix4 for rotation-only
+/// and normal-matrix work as well as 2D affine transforms. Storage matches
+/// Matrix4: `m` is a flat column-major InlineArray exposed directly so GPU
+/// upload call sites can use `matrix.m.bytes` / `matrix.m.byteLength` like any
+/// other vertex/uniform data.
+///
+/// Element layout (column-major), where `m[column * 3 + row]`:
+///
+///     | m[0] m[3] m[6] |
+///     | m[1] m[4] m[7] |
+///     | m[2] m[5] m[8] |
+public struct Matrix3 {
+    public var m: [Float32, 9]
+
+    public static func identity() -> Matrix3 {
+        return Matrix3(m: [
+            1.0, 0.0, 0.0,
+            0.0, 1.0, 0.0,
+            0.0, 0.0, 1.0,
+        ])
+    }
+
+    /// Zero matrix (all elements 0).
+    public static func zero() -> Matrix3 {
+        return Matrix3(m: [
+            0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0,
+        ])
+    }
+
+    /// Uniform scale about the origin.
+    public static func scale(uniform: Float32) -> Matrix3 {
+        var result = Matrix3.identity()
+        result.m[0] = uniform
+        result.m[4] = uniform
+        result.m[8] = uniform
+        return result
+    }
+
+    /// Non-uniform scale about the origin.
+    public static func scale(x: Float32, y: Float32, z: Float32) -> Matrix3 {
+        var result = Matrix3.identity()
+        result.m[0] = x
+        result.m[4] = y
+        result.m[8] = z
+        return result
+    }
+
+    /// Rotation about the X axis by `angle` radians.
+    public static func rotationX(angle: Float32) -> Matrix3 {
+        let c = Math.cos(angle)
+        let s = Math.sin(angle)
+        var result = Matrix3.identity()
+        result.m[4] = c
+        result.m[5] = s
+        result.m[7] = 0.0 - s
+        result.m[8] = c
+        return result
+    }
+
+    /// Rotation about the Y axis by `angle` radians.
+    public static func rotationY(angle: Float32) -> Matrix3 {
+        let c = Math.cos(angle)
+        let s = Math.sin(angle)
+        var result = Matrix3.identity()
+        result.m[0] = c
+        result.m[2] = 0.0 - s
+        result.m[6] = s
+        result.m[8] = c
+        return result
+    }
+
+    /// Rotation about the Z axis by `angle` radians (the usual 2D rotation).
+    public static func rotationZ(angle: Float32) -> Matrix3 {
+        let c = Math.cos(angle)
+        let s = Math.sin(angle)
+        var result = Matrix3.identity()
+        result.m[0] = c
+        result.m[1] = s
+        result.m[3] = 0.0 - s
+        result.m[4] = c
+        return result
+    }
+
+    /// Rotation about an arbitrary unit `axis` (Rodrigues' formula).
+    public static func rotation(axis: Vector3, angle: Float32) -> Matrix3 {
+        let c = Math.cos(angle)
+        let s = Math.sin(angle)
+        let oneMinusC = 1.0 - c
+        let x = axis.x
+        let y = axis.y
+        let z = axis.z
+
+        var result = Matrix3.identity()
+        result.m[0] = c + x * x * oneMinusC
+        result.m[1] = y * x * oneMinusC + z * s
+        result.m[2] = z * x * oneMinusC - y * s
+        result.m[3] = x * y * oneMinusC - z * s
+        result.m[4] = c + y * y * oneMinusC
+        result.m[5] = z * y * oneMinusC + x * s
+        result.m[6] = x * z * oneMinusC + y * s
+        result.m[7] = y * z * oneMinusC - x * s
+        result.m[8] = c + z * z * oneMinusC
+        return result
+    }
+
+    /// Extracts the upper-left 3x3 (rotation/scale) block of a Matrix4,
+    /// discarding translation.
+    public static func fromMatrix4(matrix: Matrix4) -> Matrix3 {
+        return Matrix3(m: [
+            matrix.m[0], matrix.m[1], matrix.m[2],
+            matrix.m[4], matrix.m[5], matrix.m[6],
+            matrix.m[8], matrix.m[9], matrix.m[10],
+        ])
+    }
+
+    /// Returns the transpose of this matrix.
+    public func transposed() -> Matrix3 {
+        return Matrix3(m: [
+            m[0], m[3], m[6],
+            m[1], m[4], m[7],
+            m[2], m[5], m[8],
+        ])
+    }
+
+    /// Determinant of the matrix.
+    public func determinant() -> Float32 {
+        return m[0] * (m[4] * m[8] - m[7] * m[5])
+             - m[3] * (m[1] * m[8] - m[7] * m[2])
+             + m[6] * (m[1] * m[5] - m[4] * m[2])
+    }
+
+    /// Returns the inverse of this matrix, or the identity if it is singular
+    /// (determinant near zero).
+    public func inverse() -> Matrix3 {
+        let det = determinant()
+        if Math.abs(det) < Math.EPSILON_F32 {
+            return Matrix3.identity()
+        }
+        let invDet = 1.0 / det
+
+        var result = Matrix3.zero()
+        result.m[0] = (m[4] * m[8] - m[7] * m[5]) * invDet
+        result.m[1] = (m[7] * m[2] - m[1] * m[8]) * invDet
+        result.m[2] = (m[1] * m[5] - m[4] * m[2]) * invDet
+        result.m[3] = (m[6] * m[5] - m[3] * m[8]) * invDet
+        result.m[4] = (m[0] * m[8] - m[6] * m[2]) * invDet
+        result.m[5] = (m[3] * m[2] - m[0] * m[5]) * invDet
+        result.m[6] = (m[3] * m[7] - m[6] * m[4]) * invDet
+        result.m[7] = (m[6] * m[1] - m[0] * m[7]) * invDet
+        result.m[8] = (m[0] * m[4] - m[3] * m[1]) * invDet
+        return result
+    }
+
+    /// The normal matrix (inverse transpose) for transforming normals under a
+    /// non-uniform scale/shear without distorting their direction.
+    public func normalMatrix() -> Matrix3 {
+        return inverse().transposed()
+    }
+
+    public static operator *(lhs: Matrix3, rhs: Matrix3) -> Matrix3 {
+        var result = Matrix3.zero()
+        for column in 0..3 {
+            for row in 0..3 {
+                var sum: Float32 = 0.0
+                for k in 0..3 {
+                    sum = sum + lhs.m[k * 3 + row] * rhs.m[column * 3 + k]
+                }
+                result.m[column * 3 + row] = sum
+            }
+        }
+        return result
+    }
+
+    /// Transforms a vector by this matrix (no translation; 3x3 only).
+    public static operator *(lhs: Matrix3, rhs: Vector3) -> Vector3 {
+        let x = rhs.x
+        let y = rhs.y
+        let z = rhs.z
+        return Vector3(
+            x: lhs.m[0] * x + lhs.m[3] * y + lhs.m[6] * z,
+            y: lhs.m[1] * x + lhs.m[4] * y + lhs.m[7] * z,
+            z: lhs.m[2] * x + lhs.m[5] * y + lhs.m[8] * z)
+    }
+
+    public static operator *(lhs: Matrix3, rhs: Float32) -> Matrix3 {
+        var result = Matrix3.zero()
+        for i in 0..9 {
+            result.m[i] = lhs.m[i] * rhs
+        }
+        return result
+    }
+}

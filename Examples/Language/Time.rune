@@ -1,0 +1,26 @@
+// Time is a time of day without date or timezone information.
+
+import Standard.*
+
+func main() -> Int {
+    let time = Time(hour: 9, minute: 30, second: 15, nanosecond: 25)
+
+    if time.hour != 9 {
+        return 1
+    }
+
+    if time.minute != 30 {
+        return 2
+    }
+
+    if time.second != 15 {
+        return 3
+    }
+
+    if time.nanosecond != 25 {
+        return 4
+    }
+
+    #printLn("time smoke: ${time.hour}:${time.minute}:${time.second}.${time.nanosecond}")
+    return 0
+}

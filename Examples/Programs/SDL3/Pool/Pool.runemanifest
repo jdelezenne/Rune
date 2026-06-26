@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "name": "Pool",
+  "kind": "executable",
+  "unsafe": true,
+  "sources": ["Pool.rune"],
+  "resources": [
+    {
+      "path": "../../../Resources/DejaVuSansMono.ttf",
+      "destination": "DejaVuSansMono.ttf"
+    }
+  ],
+  "dependencies": [
+    "../../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../../Modules/SDL3/SDL3.runemanifest",
+    "../../../Modules/SDL3_ttf/SDL3_ttf.runemanifest",
+    "../../../Modules/Physics2D/Physics2D.runemanifest"
+  ]
+}

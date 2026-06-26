@@ -1,0 +1,11 @@
+func answer() -> Int {
+    return 40 + 2
+}
+
+func main() -> Int {
+    const value = eval answer()
+    if value == 42 {
+        return 0
+    }
+    return 1
+}

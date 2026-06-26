@@ -1,0 +1,282 @@
+/// Easing curves and spline evaluators for animation and tweening. These sit
+/// apart from the scalar interpolation primitives in `Math` (lerp, inverseLerp,
+/// smoothstep, remap, moveTowards): `Math` holds the fundamentals, while
+/// `Interpolation` holds the curve library.
+///
+/// Easing functions take a normalized time `t` in [0, 1] and return the eased
+/// value (also nominally [0, 1], though Back/Elastic overshoot). They are
+/// provided in Float32, the native precision for animation; the spline
+/// evaluators additionally have Vector3 overloads for motion/camera paths.
+public static Interpolation {
+    //region Linear
+
+    /// The identity curve (no easing).
+    public func linear(t: Float32) -> Float32 { return t }
+
+    //endregion
+
+    //region Polynomial Easing (Quad / Cubic / Quart / Quint)
+
+    public func easeInQuad(t: Float32) -> Float32 { return t * t }
+
+    public func easeOutQuad(t: Float32) -> Float32 {
+        let u = 1.0 - t
+        return 1.0 - u * u
+    }
+
+    public func easeInOutQuad(t: Float32) -> Float32 {
+        if t < 0.5 { return 2.0 * t * t }
+        let u = 2.0 - 2.0 * t
+        return 1.0 - u * u * 0.5
+    }
+
+    public func easeInCubic(t: Float32) -> Float32 { return t * t * t }
+
+    public func easeOutCubic(t: Float32) -> Float32 {
+        let u = 1.0 - t
+        return 1.0 - u * u * u
+    }
+
+    public func easeInOutCubic(t: Float32) -> Float32 {
+        if t < 0.5 { return 4.0 * t * t * t }
+        let u = 2.0 - 2.0 * t
+        return 1.0 - u * u * u * 0.5
+    }
+
+    public func easeInQuart(t: Float32) -> Float32 { return t * t * t * t }
+
+    public func easeOutQuart(t: Float32) -> Float32 {
+        let u = 1.0 - t
+        return 1.0 - u * u * u * u
+    }
+
+    public func easeInOutQuart(t: Float32) -> Float32 {
+        if t < 0.5 { return 8.0 * t * t * t * t }
+        let u = 2.0 - 2.0 * t
+        return 1.0 - u * u * u * u * 0.5
+    }
+
+    public func easeInQuint(t: Float32) -> Float32 { return t * t * t * t * t }
+
+    public func easeOutQuint(t: Float32) -> Float32 {
+        let u = 1.0 - t
+        return 1.0 - u * u * u * u * u
+    }
+
+    public func easeInOutQuint(t: Float32) -> Float32 {
+        if t < 0.5 { return 16.0 * t * t * t * t * t }
+        let u = 2.0 - 2.0 * t
+        return 1.0 - u * u * u * u * u * 0.5
+    }
+
+    //endregion
+
+    //region Sine / Exponential / Circular Easing
+
+    public func easeInSine(t: Float32) -> Float32 {
+        return 1.0 - Math.cos(t * Math.PI_2_F32)
+    }
+
+    public func easeOutSine(t: Float32) -> Float32 {
+        return Math.sin(t * Math.PI_2_F32)
+    }
+
+    public func easeInOutSine(t: Float32) -> Float32 {
+        return (1.0 - Math.cos(Math.PI_F32 * t)) * 0.5
+    }
+
+    public func easeInExpo(t: Float32) -> Float32 {
+        if t <= 0.0 { return 0.0 }
+        return Math.pow(2.0, 10.0 * t - 10.0)
+    }
+
+    public func easeOutExpo(t: Float32) -> Float32 {
+        if t >= 1.0 { return 1.0 }
+        return 1.0 - Math.pow(2.0, 0.0 - 10.0 * t)
+    }
+
+    public func easeInOutExpo(t: Float32) -> Float32 {
+        if t <= 0.0 { return 0.0 }
+        if t >= 1.0 { return 1.0 }
+        if t < 0.5 { return Math.pow(2.0, 20.0 * t - 10.0) * 0.5 }
+        return (2.0 - Math.pow(2.0, 10.0 - 20.0 * t)) * 0.5
+    }
+
+    public func easeInCirc(t: Float32) -> Float32 {
+        return 1.0 - Math.sqrt(1.0 - t * t)
+    }
+
+    public func easeOutCirc(t: Float32) -> Float32 {
+        let u = t - 1.0
+        return Math.sqrt(1.0 - u * u)
+    }
+
+    public func easeInOutCirc(t: Float32) -> Float32 {
+        if t < 0.5 {
+            let x = 2.0 * t
+            return (1.0 - Math.sqrt(1.0 - x * x)) * 0.5
+        }
+        let u = 2.0 - 2.0 * t
+        return (Math.sqrt(1.0 - u * u) + 1.0) * 0.5
+    }
+
+    //endregion
+
+    //region Back / Elastic / Bounce Easing
+
+    public func easeInBack(t: Float32) -> Float32 {
+        let c1: Float32 = 1.70158
+        let c3 = c1 + 1.0
+        return c3 * t * t * t - c1 * t * t
+    }
+
+    public func easeOutBack(t: Float32) -> Float32 {
+        let c1: Float32 = 1.70158
+        let c3 = c1 + 1.0
+        let u = t - 1.0
+        return 1.0 + c3 * u * u * u + c1 * u * u
+    }
+
+    public func easeInOutBack(t: Float32) -> Float32 {
+        let c2: Float32 = 1.70158 * 1.525
+        if t < 0.5 {
+            let x = 2.0 * t
+            return (x * x * ((c2 + 1.0) * x - c2)) * 0.5
+        }
+        let u = 2.0 * t - 2.0
+        return (u * u * ((c2 + 1.0) * u + c2) + 2.0) * 0.5
+    }
+
+    public func easeInElastic(t: Float32) -> Float32 {
+        if t <= 0.0 { return 0.0 }
+        if t >= 1.0 { return 1.0 }
+        let c4 = Math.TAU_F32 / 3.0
+        return 0.0 - Math.pow(2.0, 10.0 * t - 10.0) * Math.sin((10.0 * t - 10.75) * c4)
+    }
+
+    public func easeOutElastic(t: Float32) -> Float32 {
+        if t <= 0.0 { return 0.0 }
+        if t >= 1.0 { return 1.0 }
+        let c4 = Math.TAU_F32 / 3.0
+        return Math.pow(2.0, 0.0 - 10.0 * t) * Math.sin((10.0 * t - 0.75) * c4) + 1.0
+    }
+
+    public func easeInOutElastic(t: Float32) -> Float32 {
+        if t <= 0.0 { return 0.0 }
+        if t >= 1.0 { return 1.0 }
+        let c5 = Math.TAU_F32 / 4.5
+        if t < 0.5 {
+            return 0.0 - (Math.pow(2.0, 20.0 * t - 10.0) * Math.sin((20.0 * t - 11.125) * c5)) * 0.5
+        }
+        return (Math.pow(2.0, 10.0 - 20.0 * t) * Math.sin((20.0 * t - 11.125) * c5)) * 0.5 + 1.0
+    }
+
+    public func easeOutBounce(t: Float32) -> Float32 {
+        let n1: Float32 = 7.5625
+        let d1: Float32 = 2.75
+        if t < 1.0 / d1 {
+            return n1 * t * t
+        } else if t < 2.0 / d1 {
+            let u = t - 1.5 / d1
+            return n1 * u * u + 0.75
+        } else if t < 2.5 / d1 {
+            let u = t - 2.25 / d1
+            return n1 * u * u + 0.9375
+        }
+        let u = t - 2.625 / d1
+        return n1 * u * u + 0.984375
+    }
+
+    public func easeInBounce(t: Float32) -> Float32 {
+        return 1.0 - easeOutBounce(t: 1.0 - t)
+    }
+
+    public func easeInOutBounce(t: Float32) -> Float32 {
+        if t < 0.5 {
+            return (1.0 - easeOutBounce(t: 1.0 - 2.0 * t)) * 0.5
+        }
+        return (1.0 + easeOutBounce(t: 2.0 * t - 1.0)) * 0.5
+    }
+
+    //endregion
+
+    //region Spline Evaluators (Float32)
+
+    /// Quadratic Bézier at `t` for control points p0..p2.
+    public func quadraticBezier(p0: Float32, p1: Float32, p2: Float32, t: Float32) -> Float32 {
+        let u = 1.0 - t
+        return u * u * p0 + 2.0 * u * t * p1 + t * t * p2
+    }
+
+    /// Cubic Bézier at `t` for control points p0..p3.
+    public func cubicBezier(p0: Float32, p1: Float32, p2: Float32, p3: Float32, t: Float32) -> Float32 {
+        let u = 1.0 - t
+        let uu = u * u
+        let tt = t * t
+        return uu * u * p0 + 3.0 * uu * t * p1 + 3.0 * u * tt * p2 + tt * t * p3
+    }
+
+    /// Catmull-Rom spline through p1 and p2, using p0 and p3 as tangent
+    /// neighbours; `t` in [0, 1] moves from p1 to p2.
+    public func catmullRom(p0: Float32, p1: Float32, p2: Float32, p3: Float32, t: Float32) -> Float32 {
+        let t2 = t * t
+        let t3 = t2 * t
+        return 0.5 * (2.0 * p1
+            + (0.0 - p0 + p2) * t
+            + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+            + (0.0 - p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3)
+    }
+
+    /// Cubic Hermite spline from p0 (tangent m0) to p1 (tangent m1) at `t`.
+    public func hermite(p0: Float32, m0: Float32, p1: Float32, m1: Float32, t: Float32) -> Float32 {
+        let t2 = t * t
+        let t3 = t2 * t
+        let h00 = 2.0 * t3 - 3.0 * t2 + 1.0
+        let h10 = t3 - 2.0 * t2 + t
+        let h01 = 0.0 - 2.0 * t3 + 3.0 * t2
+        let h11 = t3 - t2
+        return h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1
+    }
+
+    //endregion
+
+    //region Spline Evaluators (Vector3)
+
+    /// Quadratic Bézier at `t` for control points p0..p2.
+    public func quadraticBezier(p0: Vector3, p1: Vector3, p2: Vector3, t: Float32) -> Vector3 {
+        let u = 1.0 - t
+        return u * u * p0 + 2.0 * u * t * p1 + t * t * p2
+    }
+
+    /// Cubic Bézier at `t` for control points p0..p3.
+    public func cubicBezier(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, t: Float32) -> Vector3 {
+        let u = 1.0 - t
+        let uu = u * u
+        let tt = t * t
+        return uu * u * p0 + 3.0 * uu * t * p1 + 3.0 * u * tt * p2 + tt * t * p3
+    }
+
+    /// Catmull-Rom spline through p1 and p2, using p0 and p3 as tangent
+    /// neighbours; `t` in [0, 1] moves from p1 to p2.
+    public func catmullRom(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, t: Float32) -> Vector3 {
+        let t2 = t * t
+        let t3 = t2 * t
+        return 0.5 * (2.0 * p1
+            + (-p0 + p2) * t
+            + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+            + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3)
+    }
+
+    /// Cubic Hermite spline from p0 (tangent m0) to p1 (tangent m1) at `t`.
+    public func hermite(p0: Vector3, m0: Vector3, p1: Vector3, m1: Vector3, t: Float32) -> Vector3 {
+        let t2 = t * t
+        let t3 = t2 * t
+        let h00 = 2.0 * t3 - 3.0 * t2 + 1.0
+        let h10 = t3 - 2.0 * t2 + t
+        let h01 = 0.0 - 2.0 * t3 + 3.0 * t2
+        let h11 = t3 - t2
+        return h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1
+    }
+
+    //endregion
+}

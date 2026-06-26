@@ -1,0 +1,64 @@
+// Free-flight camera controls: mouse-look yaw/pitch plus WASD + Space/Ctrl
+// for movement along the view's forward/right/world-up axes, using the
+// SDL_GetKeyboardState pointer-arithmetic pattern.
+
+import Standard.*
+import SDL3
+
+func keyboardDown(state: *Bool?, scancode: SDL3.Scancode) -> Bool {
+    if state == nil {
+        return false
+    }
+    let slot = (Int(state!) + Int(scancode as Int32)) as *Bool
+    return slot^
+}
+
+const MOUSE_SENSITIVITY: Float32 = 0.0025
+
+struct InputState {
+    var moveForward: Float32
+    var moveRight: Float32
+    var moveUp: Float32
+    var yawDelta: Float32
+    var pitchDelta: Float32
+}
+
+func emptyInput() -> InputState {
+    return InputState(
+        moveForward: 0.0,
+        moveRight: 0.0,
+        moveUp: 0.0,
+        yawDelta: 0.0,
+        pitchDelta: 0.0)
+}
+
+func readInput(keyboard: *Bool?) -> InputState {
+    var input = emptyInput()
+
+    if keyboardDown(keyboard, SDL3.Scancode.w) {
+        input.moveForward = input.moveForward + 1.0
+    }
+    if keyboardDown(keyboard, SDL3.Scancode.s) {
+        input.moveForward = input.moveForward - 1.0
+    }
+    if keyboardDown(keyboard, SDL3.Scancode.d) {
+        input.moveRight = input.moveRight + 1.0
+    }
+    if keyboardDown(keyboard, SDL3.Scancode.a) {
+        input.moveRight = input.moveRight - 1.0
+    }
+    if keyboardDown(keyboard, SDL3.Scancode.space) {
+        input.moveUp = input.moveUp + 1.0
+    }
+    if keyboardDown(keyboard, SDL3.Scancode.lshift) {
+        input.moveUp = input.moveUp - 1.0
+    }
+
+    var relX: Float32 = 0.0
+    var relY: Float32 = 0.0
+    _ = SDL3.getRelativeMouseState(&relX, &relY)
+    input.yawDelta = relX * MOUSE_SENSITIVITY / (1.0 / 60.0)
+    input.pitchDelta = -relY * MOUSE_SENSITIVITY / (1.0 / 60.0)
+
+    return input
+}

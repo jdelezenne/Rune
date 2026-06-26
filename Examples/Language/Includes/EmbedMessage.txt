@@ -1,0 +1,1 @@
+Rune embeds this text at compile time.

@@ -1,0 +1,548 @@
+// Render: the black arena inside its grey surround, the four terrain tiles
+// (quarter-eroding bricks, bevelled steel, animated water and the tree
+// canopy that hides tanks), the tanks themselves drawn in four orientations
+// with rolling tracks, the eagle, pick-ups, explosions and the roster
+// panel. Everything is assembled from filled rects and coloured triangles
+// (renderGeometry), the same primitives the other arcade examples use, so
+// no image assets are needed.
+
+import Standard.*
+import SDL3
+
+// MARK: - Primitives
+
+func makeColorVertex(x: Float32, y: Float32, red: Float32, green: Float32, blue: Float32, alpha: Float32) -> SDL3.Vertex {
+    return SDL3.Vertex(
+        position: SDL3.FPoint(x: x, y: y),
+        color: SDL3.FColor(r: red / 255.0, g: green / 255.0, b: blue / 255.0, a: alpha),
+        texCoord: SDL3.FPoint(x: 0.0, y: 0.0))
+}
+
+func drawTri(renderer: &SDL3.Renderer?, x0: Float32, y0: Float32, x1: Float32, y1: Float32, x2: Float32, y2: Float32, red: Float32, green: Float32, blue: Float32) {
+    var v: [SDL3.Vertex, 3] = []
+    v[0] = makeColorVertex(x0, y0, red, green, blue, 1.0)
+    v[1] = makeColorVertex(x1, y1, red, green, blue, 1.0)
+    v[2] = makeColorVertex(x2, y2, red, green, blue, 1.0)
+    SDL3.renderGeometry(renderer, nil, ((v.bytes) as &SDL3.Vertex), 3, nil, 0)
+}
+
+func fillRect(renderer: &SDL3.Renderer?, x: Float32, y: Float32, w: Float32, h: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    SDL3.setRenderDrawColor(renderer, red, green, blue, 255)
+    var rect = SDL3.FRect(x: x, y: y, w: w, h: h)
+    SDL3.renderFillRect(renderer, &rect)
+}
+
+struct Rgb {
+    var r: UInt8
+    var g: UInt8
+    var b: UInt8
+}
+
+// Rect in tank-local coordinates (up-facing, origin at the tank centre),
+// rotated into place for the tank's heading.
+func fillRectDir(renderer: &SDL3.Renderer?, cx: Float32, cy: Float32, dir: Int32, lx: Float32, ly: Float32, w: Float32, h: Float32, color: Rgb) {
+    if dir == DIR_UP {
+        fillRect(renderer, cx + lx, cy + ly, w, h, color.r, color.g, color.b)
+    } else if dir == DIR_DOWN {
+        fillRect(renderer, cx - lx - w, cy - ly - h, w, h, color.r, color.g, color.b)
+    } else if dir == DIR_RIGHT {
+        fillRect(renderer, cx - ly - h, cy + lx, h, w, color.r, color.g, color.b)
+    } else {
+        fillRect(renderer, cx + ly, cy - lx - w, h, w, color.r, color.g, color.b)
+    }
+}
+
+// MARK: - Terrain tiles
+
+func drawBrickQuarter(renderer: &SDL3.Renderer?, x: Float32, y: Float32) {
+    fillRect(renderer, x, y, 24.0, 24.0, 176, 64, 24)
+    // Mortar: one horizontal seam and staggered vertical joints.
+    fillRect(renderer, x, y + 10.0, 24.0, 3.0, 88, 30, 12)
+    fillRect(renderer, x + 10.0, y, 3.0, 10.0, 88, 30, 12)
+    fillRect(renderer, x + 4.0, y + 13.0, 3.0, 11.0, 88, 30, 12)
+    fillRect(renderer, x + 16.0, y + 13.0, 3.0, 11.0, 88, 30, 12)
+}
+
+func drawBrickCell(renderer: &SDL3.Renderer?, x: Float32, y: Float32, mask: UInt8) {
+    if (mask & QUARTER_TL) != 0 {
+        drawBrickQuarter(renderer, x, y)
+    }
+    if (mask & QUARTER_TR) != 0 {
+        drawBrickQuarter(renderer, x + 24.0, y)
+    }
+    if (mask & QUARTER_BL) != 0 {
+        drawBrickQuarter(renderer, x, y + 24.0)
+    }
+    if (mask & QUARTER_BR) != 0 {
+        drawBrickQuarter(renderer, x + 24.0, y + 24.0)
+    }
+}
+
+func drawSteelCell(renderer: &SDL3.Renderer?, x: Float32, y: Float32) {
+    fillRect(renderer, x, y, CELL, CELL, 168, 168, 176)
+    fillRect(renderer, x, y, CELL, 5.0, 224, 224, 230)
+    fillRect(renderer, x, y, 5.0, CELL, 224, 224, 230)
+    fillRect(renderer, x, y + CELL - 5.0, CELL, 5.0, 96, 96, 104)
+    fillRect(renderer, x + CELL - 5.0, y, 5.0, CELL, 96, 96, 104)
+    fillRect(renderer, x + 16.0, y + 16.0, 16.0, 16.0, 224, 224, 230)
+}
+
+func drawWaterCell(renderer: &SDL3.Renderer?, x: Float32, y: Float32, animTimer: Float32) {
+    fillRect(renderer, x, y, CELL, CELL, 24, 60, 172)
+    let shift: Float32 = Math.fmod(animTimer * 12.0, 16.0)
+    var wave: Float32 = 6.0
+    while wave < CELL {
+        fillRect(renderer, x + shift * 0.5, y + wave, 14.0, 3.0, 70, 120, 220)
+        fillRect(renderer, x + 24.0 + shift * 0.5, y + wave + 8.0, 14.0, 3.0, 70, 120, 220)
+        wave = wave + 16.0
+    }
+}
+
+func drawTreeCell(renderer: &SDL3.Renderer?, x: Float32, y: Float32) {
+    fillRect(renderer, x + 2.0, y + 2.0, CELL - 4.0, CELL - 4.0, 20, 96, 24)
+    // Four canopy tufts.
+    for tuft in 0..4 {
+        let tx: Float32 = x + 6.0 + Float32(tuft % 2) * 22.0
+        let ty: Float32 = y + 6.0 + Float32(tuft / 2) * 22.0
+        drawTri(renderer, tx, ty + 14.0, tx + 16.0, ty + 14.0, tx + 8.0, ty, 40.0, 150.0, 46.0)
+        fillRect(renderer, tx + 4.0, ty + 8.0, 8.0, 6.0, 56, 178, 60)
+    }
+}
+
+func drawTiles(renderer: &SDL3.Renderer?, game: *Game) {
+    for row in 0..GRID {
+        for col in 0..GRID {
+            let index = cellIndex(col, row)
+            let tile = game.tiles[index]
+            if tile == TILE_EMPTY || tile == TILE_TREES {
+                continue
+            }
+            let x: Float32 = FIELD_X + Float32(col) * CELL
+            let y: Float32 = FIELD_Y + Float32(row) * CELL
+            if tile == TILE_BRICK {
+                drawBrickCell(renderer, x, y, game.quarters[index])
+            } else if tile == TILE_STEEL {
+                drawSteelCell(renderer, x, y)
+            } else if tile == TILE_WATER {
+                drawWaterCell(renderer, x, y, game.animTimer)
+            }
+        }
+    }
+}
+
+// The canopy is painted after the tanks so vehicles slip out of sight
+// beneath it.
+func drawCanopy(renderer: &SDL3.Renderer?, game: *Game) {
+    for row in 0..GRID {
+        for col in 0..GRID {
+            if game.tiles[cellIndex(col, row)] == TILE_TREES {
+                drawTreeCell(renderer, FIELD_X + Float32(col) * CELL, FIELD_Y + Float32(row) * CELL)
+            }
+        }
+    }
+}
+
+// MARK: - Tanks
+
+func playerBody() -> Rgb {
+    return Rgb(r: 224, g: 176, b: 48)
+}
+
+func enemyBody(kind: Int32, hp: Int) -> Rgb {
+    if kind == ENEMY_LIGHT {
+        return Rgb(r: 128, g: 184, b: 200)
+    }
+    if kind == ENEMY_POWER {
+        return Rgb(r: 208, g: 132, b: 88)
+    }
+    if kind == ENEMY_ARMOR {
+        // Armour pales as it takes hits.
+        if hp >= 4 {
+            return Rgb(r: 96, g: 180, b: 104)
+        }
+        if hp == 3 {
+            return Rgb(r: 140, g: 196, b: 120)
+        }
+        if hp == 2 {
+            return Rgb(r: 184, g: 208, b: 144)
+        }
+        return Rgb(r: 216, g: 216, b: 168)
+    }
+    return Rgb(r: 176, g: 176, b: 176)
+}
+
+func dimmed(color: Rgb) -> Rgb {
+    return Rgb(
+        r: UInt8(Float32(color.r) * 0.55),
+        g: UInt8(Float32(color.g) * 0.55),
+        b: UInt8(Float32(color.b) * 0.55))
+}
+
+func drawTank(renderer: &SDL3.Renderer?, cx: Float32, cy: Float32, dir: Int32, trackPhase: Float32, body: Rgb) {
+    let dark = dimmed(body)
+
+    // Tracks with rolling tread notches.
+    fillRectDir(renderer, cx, cy, dir, -19.0, -18.0, 8.0, 36.0, dark)
+    fillRectDir(renderer, cx, cy, dir, 11.0, -18.0, 8.0, 36.0, dark)
+    let offset: Float32 = Math.fmod(trackPhase * 0.35, 9.0)
+    for notch in 0..4 {
+        let ny: Float32 = -18.0 + offset + Float32(notch) * 9.0
+        if ny <= 15.0 {
+            fillRectDir(renderer, cx, cy, dir, -19.0, ny, 8.0, 3.0, body)
+            fillRectDir(renderer, cx, cy, dir, 11.0, ny, 8.0, 3.0, body)
+        }
+    }
+
+    // Hull, turret and barrel.
+    fillRectDir(renderer, cx, cy, dir, -11.0, -14.0, 22.0, 28.0, body)
+    fillRectDir(renderer, cx, cy, dir, -8.0, -4.0, 16.0, 14.0, dark)
+    fillRectDir(renderer, cx, cy, dir, -3.0, -19.0, 6.0, 17.0, body)
+}
+
+func drawShield(renderer: &SDL3.Renderer?, cx: Float32, cy: Float32, animTimer: Float32) {
+    if Int(animTimer * 12.0) % 2 == 0 {
+        return
+    }
+    let half: Float32 = TANK_HALF + 4.0
+    fillRect(renderer, cx - half, cy - half, half * 2.0, 3.0, 235, 235, 245)
+    fillRect(renderer, cx - half, cy + half - 3.0, half * 2.0, 3.0, 235, 235, 245)
+    fillRect(renderer, cx - half, cy - half, 3.0, half * 2.0, 235, 235, 245)
+    fillRect(renderer, cx + half - 3.0, cy - half, 3.0, half * 2.0, 235, 235, 245)
+}
+
+func drawSpawnStar(renderer: &SDL3.Renderer?, cx: Float32, cy: Float32, timer: Float32) {
+    let pulse: Float32 = 8.0 + Math.abs(Math.sin(timer * 12.0)) * 12.0
+    drawTri(renderer, cx - pulse, cy, cx + pulse, cy, cx, cy - pulse * 1.4, 235.0, 235.0, 245.0)
+    drawTri(renderer, cx - pulse, cy, cx + pulse, cy, cx, cy + pulse * 1.4, 235.0, 235.0, 245.0)
+    drawTri(renderer, cx, cy - pulse, cx, cy + pulse, cx - pulse * 1.4, cy, 200.0, 200.0, 215.0)
+    drawTri(renderer, cx, cy - pulse, cx, cy + pulse, cx + pulse * 1.4, cy, 200.0, 200.0, 215.0)
+}
+
+func drawTanks(renderer: &SDL3.Renderer?, game: *Game) {
+    for slot in 0..MAX_ENEMIES {
+        if game.enemies[slot].state == ENEMY_STATE_SPAWNING {
+            drawSpawnStar(renderer, game.enemies[slot].x, game.enemies[slot].y, game.enemies[slot].spawnTimer)
+            continue
+        }
+        if game.enemies[slot].state != ENEMY_STATE_ACTIVE {
+            continue
+        }
+        var body = enemyBody(game.enemies[slot].kind, game.enemies[slot].hp)
+        // Pick-up carriers flash red.
+        if game.enemies[slot].carriesPowerUp && Int(game.animTimer * 6.0) % 2 == 0 {
+            body = Rgb(r: 224, g: 72, b: 56)
+        }
+        drawTank(renderer, game.enemies[slot].x, game.enemies[slot].y, game.enemies[slot].dir, game.enemies[slot].trackPhase, body)
+    }
+
+    if game.player.alive && game.phase != PHASE_GAME_OVER {
+        drawTank(renderer, game.player.x, game.player.y, game.player.dir, game.player.trackPhase, playerBody())
+        if game.player.shieldTimer > 0.0 {
+            drawShield(renderer, game.player.x, game.player.y, game.animTimer)
+        }
+    }
+}
+
+// MARK: - The eagle
+
+func drawBase(renderer: &SDL3.Renderer?, game: *Game) {
+    let x: Float32 = FIELD_X + Float32(BASE_COL) * CELL
+    let y: Float32 = FIELD_Y + Float32(BASE_ROW) * CELL
+    let cx: Float32 = x + CELL * 0.5
+
+    if !game.baseAlive {
+        // Rubble and a drooping standard.
+        drawTri(renderer, x + 8.0, y + 42.0, x + 22.0, y + 42.0, x + 14.0, y + 26.0, 96.0, 96.0, 104.0)
+        drawTri(renderer, x + 20.0, y + 42.0, x + 40.0, y + 42.0, x + 32.0, y + 22.0, 120.0, 120.0, 128.0)
+        fillRect(renderer, cx - 1.0, y + 10.0, 2.0, 32.0, 80, 80, 88)
+        drawTri(renderer, cx + 1.0, y + 12.0, cx + 14.0, y + 20.0, cx + 1.0, y + 22.0, 120.0, 120.0, 128.0)
+        return
+    }
+
+    // Pedestal.
+    fillRect(renderer, x + 6.0, y + 38.0, 36.0, 8.0, 120, 120, 128)
+    fillRect(renderer, x + 12.0, y + 32.0, 24.0, 8.0, 150, 150, 158)
+    // Wings.
+    drawTri(renderer, x + 4.0, y + 34.0, cx - 2.0, y + 16.0, cx - 2.0, y + 34.0, 216.0, 216.0, 224.0)
+    drawTri(renderer, x + 44.0, y + 34.0, cx + 2.0, y + 16.0, cx + 2.0, y + 34.0, 216.0, 216.0, 224.0)
+    // Body and head.
+    fillRect(renderer, cx - 6.0, y + 14.0, 12.0, 20.0, 235, 235, 242)
+    fillRect(renderer, cx - 3.0, y + 8.0, 8.0, 8.0, 235, 235, 242)
+    fillRect(renderer, cx + 5.0, y + 10.0, 4.0, 3.0, 224, 176, 48)
+}
+
+// MARK: - Bullets, pick-ups and effects
+
+func drawBullets(renderer: &SDL3.Renderer?, game: *Game) {
+    for index in 0..MAX_BULLETS {
+        if !game.bullets[index].active {
+            continue
+        }
+        let bx = game.bullets[index].x
+        let by = game.bullets[index].y
+        fillRectDir(renderer, bx, by, game.bullets[index].dir, -3.0, -5.0, 6.0, 10.0, Rgb(r: 224, g: 224, b: 232))
+        fillRectDir(renderer, bx, by, game.bullets[index].dir, -2.0, -7.0, 4.0, 3.0, Rgb(r: 160, g: 160, b: 170))
+    }
+}
+
+func drawPowerUp(renderer: &SDL3.Renderer?, game: *Game) {
+    if !game.powerUp.active {
+        return
+    }
+    if Int(game.animTimer * 6.0) % 4 == 0 {
+        return
+    }
+    let x: Float32 = game.powerUp.x - 20.0
+    let y: Float32 = game.powerUp.y - 20.0
+    fillRect(renderer, x, y, 40.0, 40.0, 24, 44, 120)
+    fillRect(renderer, x, y, 40.0, 3.0, 235, 235, 245)
+    fillRect(renderer, x, y + 37.0, 40.0, 3.0, 90, 90, 110)
+    fillRect(renderer, x, y, 3.0, 40.0, 235, 235, 245)
+    fillRect(renderer, x + 37.0, y, 3.0, 40.0, 90, 90, 110)
+
+    let cx: Float32 = game.powerUp.x
+    let cy: Float32 = game.powerUp.y
+    let kind = game.powerUp.kind
+    if kind == POWERUP_GRENADE {
+        fillRect(renderer, cx - 7.0, cy - 4.0, 14.0, 14.0, 224, 208, 96)
+        fillRect(renderer, cx - 2.0, cy - 9.0, 4.0, 5.0, 160, 160, 170)
+        drawTri(renderer, cx + 2.0, cy - 9.0, cx + 9.0, cy - 13.0, cx + 6.0, cy - 5.0, 235.0, 120.0, 40.0)
+    } else if kind == POWERUP_HELMET {
+        drawTri(renderer, cx - 11.0, cy + 4.0, cx + 11.0, cy + 4.0, cx, cy - 11.0, 224.0, 208.0, 96.0)
+        fillRect(renderer, cx - 11.0, cy + 4.0, 22.0, 5.0, 224, 208, 96)
+    } else if kind == POWERUP_SHOVEL {
+        fillRect(renderer, cx - 2.0, cy - 11.0, 4.0, 14.0, 200, 160, 90)
+        drawTri(renderer, cx - 8.0, cy + 3.0, cx + 8.0, cy + 3.0, cx, cy + 13.0, 200.0, 200.0, 210.0)
+    } else if kind == POWERUP_STAR {
+        drawTri(renderer, cx - 11.0, cy - 2.0, cx + 11.0, cy - 2.0, cx, cy + 11.0, 224.0, 208.0, 96.0)
+        drawTri(renderer, cx - 11.0, cy + 5.0, cx + 11.0, cy + 5.0, cx, cy - 11.0, 224.0, 208.0, 96.0)
+    } else if kind == POWERUP_TANK {
+        fillRect(renderer, cx - 10.0, cy - 6.0, 4.0, 14.0, 224, 208, 96)
+        fillRect(renderer, cx + 6.0, cy - 6.0, 4.0, 14.0, 224, 208, 96)
+        fillRect(renderer, cx - 6.0, cy - 4.0, 12.0, 10.0, 224, 208, 96)
+        fillRect(renderer, cx - 1.0, cy - 11.0, 3.0, 8.0, 224, 208, 96)
+    } else {
+        fillRect(renderer, cx - 9.0, cy - 9.0, 18.0, 18.0, 224, 208, 96)
+        fillRect(renderer, cx - 1.0, cy - 6.0, 2.0, 7.0, 24, 44, 120)
+        fillRect(renderer, cx, cy - 1.0, 6.0, 2.0, 24, 44, 120)
+    }
+}
+
+func drawEffects(renderer: &SDL3.Renderer?, game: *Game) {
+    for index in 0..MAX_EFFECTS {
+        if !game.effects[index].active {
+            continue
+        }
+        let cx = game.effects[index].x
+        let cy = game.effects[index].y
+        let t: Float32 = 1.0 - game.effects[index].timer / game.effects[index].duration
+
+        if game.effects[index].score > 0 {
+            // Floating score label.
+            let rise: Float32 = t * 22.0
+            drawNumber(renderer, game.effects[index].score, cx - 12.0, cy - 10.0 - rise, 2.0, 235, 235, 245)
+            continue
+        }
+
+        let grow: Float32 = game.effects[index].big ? 10.0 + t * 26.0 : 5.0 + t * 9.0
+        let flicker = Int(t * 20.0) % 2 == 0
+        let red: Float32 = flicker ? 255.0 : 235.0
+        let green: Float32 = flicker ? 140.0 : 96.0
+        drawTri(renderer, cx - grow, cy + grow * 0.6, cx + grow, cy + grow * 0.6, cx, cy - grow, red, green, 24.0)
+        drawTri(renderer, cx - grow, cy - grow * 0.6, cx + grow, cy - grow * 0.6, cx, cy + grow, red, green, 24.0)
+        fillRect(renderer, cx - grow * 0.3, cy - grow * 0.3, grow * 0.6, grow * 0.6, 255, 240, 200)
+    }
+}
+
+// MARK: - HUD digit font (5x7 bitmap, same approach as the other examples)
+
+const DIGIT_COLS: Int = 5
+const DIGIT_ROWS: Int = 7
+
+const DIGIT_0: [UInt8, _] = [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E]
+const DIGIT_1: [UInt8, _] = [0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E]
+const DIGIT_2: [UInt8, _] = [0x0E, 0x11, 0x01, 0x0E, 0x10, 0x10, 0x1F]
+const DIGIT_3: [UInt8, _] = [0x0E, 0x11, 0x01, 0x06, 0x01, 0x11, 0x0E]
+const DIGIT_4: [UInt8, _] = [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02]
+const DIGIT_5: [UInt8, _] = [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E]
+const DIGIT_6: [UInt8, _] = [0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E]
+const DIGIT_7: [UInt8, _] = [0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08]
+const DIGIT_8: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_9: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C]
+
+func drawDigit(renderer: &SDL3.Renderer?, digit: Int, x: Float32, y: Float32, pixel: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    var rows: [UInt8, DIGIT_ROWS] = [0, 0, 0, 0, 0, 0, 0]
+    if digit == 0 {
+        rows = DIGIT_0
+    }
+    if digit == 1 {
+        rows = DIGIT_1
+    }
+    if digit == 2 {
+        rows = DIGIT_2
+    }
+    if digit == 3 {
+        rows = DIGIT_3
+    }
+    if digit == 4 {
+        rows = DIGIT_4
+    }
+    if digit == 5 {
+        rows = DIGIT_5
+    }
+    if digit == 6 {
+        rows = DIGIT_6
+    }
+    if digit == 7 {
+        rows = DIGIT_7
+    }
+    if digit == 8 {
+        rows = DIGIT_8
+    }
+    if digit == 9 {
+        rows = DIGIT_9
+    }
+
+    for row in 0..DIGIT_ROWS {
+        let mask = rows[row]
+        for col in 0..DIGIT_COLS {
+            let bit = UInt8(1 << (DIGIT_COLS - 1 - col))
+            if (mask & bit) != 0 {
+                fillRect(renderer, x + Float32(col) * pixel, y + Float32(row) * pixel, pixel, pixel, red, green, blue)
+            }
+        }
+    }
+}
+
+func drawNumber(renderer: &SDL3.Renderer?, value: Int32, x: Float32, y: Float32, pixel: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    var remaining = value
+    if remaining <= 0 {
+        drawDigit(renderer, 0, x, y, pixel, red, green, blue)
+        return
+    }
+
+    var digits: [Int] = []
+    while remaining > 0 {
+        digits.append(Int(remaining % 10))
+        remaining = remaining / 10
+    }
+
+    for digitIndex in 0..digits.count {
+        let digit = digits[digits.count - 1 - digitIndex]
+        drawDigit(renderer, digit, x + Float32(digitIndex) * (Float32(DIGIT_COLS) * pixel + 2.0), y, pixel, red, green, blue)
+    }
+}
+
+// MARK: - Roster panel
+
+func drawReserveIcon(renderer: &SDL3.Renderer?, x: Float32, y: Float32) {
+    fillRect(renderer, x, y + 2.0, 4.0, 12.0, 40, 40, 44)
+    fillRect(renderer, x + 12.0, y + 2.0, 4.0, 12.0, 40, 40, 44)
+    fillRect(renderer, x + 4.0, y + 4.0, 8.0, 10.0, 40, 40, 44)
+    fillRect(renderer, x + 7.0, y, 3.0, 6.0, 40, 40, 44)
+}
+
+func drawLifeIcon(renderer: &SDL3.Renderer?, x: Float32, y: Float32) {
+    fillRect(renderer, x, y + 2.0, 4.0, 14.0, 224, 176, 48)
+    fillRect(renderer, x + 14.0, y + 2.0, 4.0, 14.0, 224, 176, 48)
+    fillRect(renderer, x + 4.0, y + 4.0, 10.0, 12.0, 224, 176, 48)
+    fillRect(renderer, x + 7.0, y - 2.0, 4.0, 8.0, 224, 176, 48)
+}
+
+func drawStageFlag(renderer: &SDL3.Renderer?, x: Float32, y: Float32) {
+    fillRect(renderer, x, y, 3.0, 30.0, 60, 60, 66)
+    drawTri(renderer, x + 3.0, y, x + 24.0, y + 7.0, x + 3.0, y + 14.0, 224.0, 96.0, 60.0)
+    fillRect(renderer, x - 5.0, y + 30.0, 13.0, 4.0, 60, 60, 66)
+}
+
+func drawPanel(renderer: &SDL3.Renderer?, game: *Game) {
+    // Enemy reserve, two icons per row.
+    for index in 0..game.reserve {
+        let px: Float32 = PANEL_X + 18.0 + Float32(index % 2) * 26.0
+        let py: Float32 = 40.0 + Float32(index / 2) * 24.0
+        drawReserveIcon(renderer, px, py)
+    }
+
+    SDL3.setRenderDrawColor(renderer, 30, 30, 34, 255)
+    SDL3.renderDebugText(renderer, PANEL_X + 18.0, 330.0, "1P")
+    drawLifeIcon(renderer, PANEL_X + 18.0, 348.0)
+    drawNumber(renderer, Int32(game.lives), PANEL_X + 48.0, 350.0, 2.0, 30, 30, 34)
+
+    drawStageFlag(renderer, PANEL_X + 22.0, 402.0)
+    let stageNumber = Int32(game.stage + 1 + game.round * STAGE_COUNT)
+    drawNumber(renderer, stageNumber, PANEL_X + 52.0, 420.0, 2.0, 30, 30, 34)
+
+    SDL3.setRenderDrawColor(renderer, 30, 30, 34, 255)
+    SDL3.renderDebugText(renderer, PANEL_X + 18.0, 480.0, "SCORE")
+    drawNumber(renderer, game.score, PANEL_X + 18.0, 496.0, 2.0, 30, 30, 34)
+    SDL3.renderDebugText(renderer, PANEL_X + 18.0, 530.0, "HI")
+    drawNumber(renderer, game.highScore, PANEL_X + 18.0, 546.0, 2.0, 30, 30, 34)
+
+    // Active effect reminders.
+    if game.freezeTimer > 0.0 {
+        SDL3.setRenderDrawColor(renderer, 30, 30, 120, 255)
+        SDL3.renderDebugText(renderer, PANEL_X + 18.0, 586.0, "FREEZE")
+    }
+    if game.shovelTimer > 0.0 {
+        SDL3.setRenderDrawColor(renderer, 30, 90, 30, 255)
+        SDL3.renderDebugText(renderer, PANEL_X + 18.0, 604.0, "SHOVEL")
+    }
+}
+
+// MARK: - Overlays
+
+func drawOverlay(renderer: &SDL3.Renderer?, game: *Game) {
+    let cx: Float32 = FIELD_X + FIELD_W * 0.5
+
+    if game.paused {
+        if Int(game.animTimer * 3.0) % 2 == 0 {
+            SDL3.setRenderDrawColor(renderer, 224, 96, 60, 255)
+            SDL3.renderDebugText(renderer, cx - 20.0, FIELD_Y + FIELD_H * 0.5, "PAUSE")
+        }
+        return
+    }
+
+    if game.phase == PHASE_READY {
+        fillRect(renderer, FIELD_X, FIELD_Y + FIELD_H * 0.5 - 30.0, FIELD_W, 60.0, 102, 102, 102)
+        SDL3.setRenderDrawColor(renderer, 20, 20, 24, 255)
+        let stageNumber = game.stage + 1 + game.round * STAGE_COUNT
+        let banner = CString("STAGE ${stageNumber}")
+        SDL3.renderDebugText(renderer, cx - 30.0, FIELD_Y + FIELD_H * 0.5 - 4.0, banner.asCStringSlice())
+        return
+    }
+
+    if game.phase == PHASE_CLEAR {
+        SDL3.setRenderDrawColor(renderer, 120, 240, 170, 255)
+        SDL3.renderDebugText(renderer, cx - 44.0, FIELD_Y + 200.0, "STAGE CLEAR")
+        return
+    }
+
+    if game.phase == PHASE_GAME_OVER {
+        SDL3.setRenderDrawColor(renderer, 224, 72, 56, 255)
+        SDL3.renderDebugText(renderer, cx - 36.0, FIELD_Y + FIELD_H * 0.5 - 10.0, "GAME OVER")
+        SDL3.setRenderDrawColor(renderer, 210, 210, 210, 255)
+        SDL3.renderDebugText(renderer, cx - 84.0, FIELD_Y + FIELD_H * 0.5 + 12.0, "PRESS R TO PLAY AGAIN")
+    }
+}
+
+// MARK: - Frame
+
+func drawGame(renderer: &SDL3.Renderer?, game: *Game) {
+    // Grey surround, black arena.
+    SDL3.setRenderDrawColor(renderer, 102, 102, 102, 255)
+    SDL3.renderClear(renderer)
+    fillRect(renderer, FIELD_X, FIELD_Y, FIELD_W, FIELD_H, 8, 8, 8)
+
+    drawTiles(renderer, game)
+    drawBase(renderer, game)
+    drawBullets(renderer, game)
+    drawTanks(renderer, game)
+    drawCanopy(renderer, game)
+    drawPowerUp(renderer, game)
+    drawEffects(renderer, game)
+
+    drawPanel(renderer, game)
+    drawOverlay(renderer, game)
+
+    SDL3.renderPresent(renderer)
+}

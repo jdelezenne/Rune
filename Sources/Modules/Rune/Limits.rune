@@ -1,0 +1,159 @@
+// Builtin Numeric Limits
+
+// MARK: Signed Integer Types
+
+extension Int {
+    /// Minimum representable value.
+    @runtime("rune_limits_int_min")
+    public const min: Self
+
+    /// Maximum representable value.
+    @runtime("rune_limits_int_max")
+    public const max: Self
+}
+
+extension Int8 {
+    /// Minimum representable value.
+    @runtime("rune_limits_int8_min")
+    public const min: Self
+
+    /// Maximum representable value.
+    @runtime("rune_limits_int8_max")
+    public const max: Self
+}
+
+extension Int16 {
+    /// Minimum representable value.
+    @runtime("rune_limits_int16_min")
+    public const min: Self
+
+    /// Maximum representable value.
+    @runtime("rune_limits_int16_max")
+    public const max: Self
+}
+
+extension Int32 {
+    /// Minimum representable value.
+    @runtime("rune_limits_int32_min")
+    public const min: Self
+
+    /// Maximum representable value.
+    @runtime("rune_limits_int32_max")
+    public const max: Self
+}
+
+extension Int64 {
+    /// Minimum representable value.
+    @runtime("rune_limits_int64_min")
+    public const min: Self
+
+    /// Maximum representable value.
+    @runtime("rune_limits_int64_max")
+    public const max: Self
+}
+
+// MARK: Unsigned Integer Types
+
+extension UInt {
+    /// Minimum representable value.
+    @runtime("rune_limits_uint_min")
+    public const min: Self
+
+    /// Maximum representable value.
+    @runtime("rune_limits_uint_max")
+    public const max: Self
+}
+
+extension UInt8 {
+    /// Minimum representable value.
+    @runtime("rune_limits_uint8_min")
+    public const min: Self
+
+    /// Maximum representable value.
+    @runtime("rune_limits_uint8_max")
+    public const max: Self
+}
+
+extension UInt16 {
+    /// Minimum representable value.
+    @runtime("rune_limits_uint16_min")
+    public const min: Self
+
+    /// Maximum representable value.
+    @runtime("rune_limits_uint16_max")
+    public const max: Self
+}
+
+extension UInt32 {
+    /// Minimum representable value.
+    @runtime("rune_limits_uint32_min")
+    public const min: Self
+
+    /// Maximum representable value.
+    @runtime("rune_limits_uint32_max")
+    public const max: Self
+}
+
+extension UInt64 {
+    /// Minimum representable value.
+    @runtime("rune_limits_uint64_min")
+    public const min: Self
+
+    /// Maximum representable value.
+    @runtime("rune_limits_uint64_max")
+    public const max: Self
+}
+
+// MARK: Floating Point Types
+
+extension Float32 {
+    /// Minimum normalized positive value.
+    @runtime("rune_limits_float32_min")
+    public const min: Self
+
+    /// Maximum finite value.
+    @runtime("rune_limits_float32_max")
+    public const max: Self
+
+    /// Most negative finite value.
+    @runtime("rune_limits_float32_lowest")
+    public const lowest: Self
+
+    /// Difference between 1.0 and the next representable value.
+    @runtime("rune_limits_float32_epsilon")
+    public const epsilon: Self
+
+    /// Positive infinity.
+    @runtime("rune_limits_float32_inf")
+    public const inf: Self
+
+    /// Not-a-number value.
+    @runtime("rune_limits_float32_nan")
+    public const nan: Self
+}
+
+extension Float64 {
+    /// Minimum normalized positive value.
+    @runtime("rune_limits_float64_min")
+    public const min: Self
+
+    /// Maximum finite value.
+    @runtime("rune_limits_float64_max")
+    public const max: Self
+
+    /// Most negative finite value.
+    @runtime("rune_limits_float64_lowest")
+    public const lowest: Self
+
+    /// Difference between 1.0 and the next representable value.
+    @runtime("rune_limits_float64_epsilon")
+    public const epsilon: Self
+
+    /// Positive infinity.
+    @runtime("rune_limits_float64_inf")
+    public const inf: Self
+
+    /// Not-a-number value.
+    @runtime("rune_limits_float64_nan")
+    public const nan: Self
+}

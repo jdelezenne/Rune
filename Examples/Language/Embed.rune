@@ -1,0 +1,23 @@
+const message: String = #embedString("Includes/EmbedMessage.txt")
+const staticPayload: InlineArray<Byte, 4> = #embedBytes("Includes/EmbedPayload.bin")
+
+func main() -> Int {
+    let payload: Array<Byte> = #embedBytes("Includes/EmbedPayload.bin")
+
+    #printLn("Embedded message length: ", message.length)
+    #printLn("Embedded payload bytes: ", payload.count)
+
+    if message.length == 0 {
+        return 1
+    }
+
+    if payload.count != 4 {
+        return 2
+    }
+
+    if staticPayload.count != 4 {
+        return 3
+    }
+
+    return 0
+}

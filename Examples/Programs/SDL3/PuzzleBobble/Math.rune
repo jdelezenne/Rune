@@ -1,0 +1,69 @@
+import Standard.*
+
+let SCREEN_W: Int32 = 720
+let SCREEN_H: Int32 = 760
+let WORLD_W: Float32 = 720.0
+let WORLD_H: Float32 = 760.0
+let PI_F: Float32 = 3.1415927
+
+struct Vec2 {
+    var x: Float32
+    var y: Float32
+}
+
+func vec2(x: Float32, y: Float32) -> Vec2 {
+    return Vec2(x: x, y: y)
+}
+
+func add(a: Vec2, b: Vec2) -> Vec2 {
+    return Vec2(x: a.x + b.x, y: a.y + b.y)
+}
+
+func sub(a: Vec2, b: Vec2) -> Vec2 {
+    return Vec2(x: a.x - b.x, y: a.y - b.y)
+}
+
+func scale(v: Vec2, amount: Float32) -> Vec2 {
+    return Vec2(x: v.x * amount, y: v.y * amount)
+}
+
+func lengthSquared(v: Vec2) -> Float32 {
+    return v.x * v.x + v.y * v.y
+}
+
+func distanceSquared(a: Vec2, b: Vec2) -> Float32 {
+    return lengthSquared(sub(a, b))
+}
+
+func clampFloat(value: Float32, low: Float32, high: Float32) -> Float32 {
+    return Math.max(low, Math.min(value, high))
+}
+
+struct Rng {
+    var state: UInt32
+}
+
+func seedRng(rng: &Rng, seed: UInt32) {
+    if seed == 0 {
+        rng.state = 0x9E3779B9
+    } else {
+        rng.state = seed
+    }
+}
+
+func nextRandom(rng: &Rng) -> UInt32 {
+    var x = rng.state
+    x = x ^ (x << 13)
+    x = x ^ (x >> 17)
+    x = x ^ (x << 5)
+    rng.state = x
+    return x
+}
+
+func randomInt(rng: &Rng, upperExclusive: Int32) -> Int32 {
+    if upperExclusive <= 0 {
+        return 0
+    }
+
+    return Int32(nextRandom(rng) % UInt32(upperExclusive))
+}

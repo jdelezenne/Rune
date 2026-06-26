@@ -1,0 +1,281 @@
+// GL 2.1 shader/VBO rendering through the shared OpenGL module. Two shader programs: a lit one for the
+// solid voxel mesh (position/normal/color, same lighting model as
+// VoxelPlanet), and a flat unlit one for the wireframe overlays (cursor
+// cube + reference grid), which must never be shaded since they're
+// UI-adjacent, not scene geometry.
+
+import Standard.*
+import SDL3
+import OpenGL
+
+func resolveOpenGLFunction(name: CStringSlice) -> &Byte? {
+    return SDL3.glGetProcAddress(name)
+}
+
+let vertexShaderSource: String = """
+#ifdef GL_ES
+precision highp float;
+#endif
+attribute vec3 position;
+attribute vec3 normal;
+attribute vec3 color;
+uniform mat4 mvp;
+uniform mat4 model;
+varying vec3 fragNormal;
+varying vec3 fragColor;
+void main() {
+    gl_Position = mvp * vec4(position, 1.0);
+    fragNormal = normalize((model * vec4(normal, 0.0)).xyz);
+    fragColor = color;
+}
+"""
+
+let fragmentShaderSource: String = """
+#ifdef GL_ES
+precision mediump float;
+#endif
+varying vec3 fragNormal;
+varying vec3 fragColor;
+uniform vec3 lightDir;
+void main() {
+    vec3 n = normalize(fragNormal);
+    float diffuse = max(dot(n, normalize(-lightDir)), 0.0);
+    vec3 ambient = fragColor * 0.4;
+    vec3 lit = ambient + fragColor * (diffuse * 0.75);
+    gl_FragColor = vec4(lit, 1.0);
+}
+"""
+
+let lineVertexShaderSource: String = """
+#ifdef GL_ES
+precision highp float;
+#endif
+attribute vec3 position;
+uniform mat4 mvp;
+void main() {
+    gl_Position = mvp * vec4(position, 1.0);
+}
+"""
+
+let lineFragmentShaderSource: String = """
+#ifdef GL_ES
+precision mediump float;
+#endif
+uniform vec3 lineColor;
+void main() {
+    gl_FragColor = vec4(lineColor, 1.0);
+}
+"""
+
+struct ShaderProgram {
+    var program: OpenGL.GLuint
+    var mvpLocation: OpenGL.GLint
+    var modelLocation: OpenGL.GLint
+    var lightDirLocation: OpenGL.GLint
+    var positionAttrib: OpenGL.GLuint
+    var normalAttrib: OpenGL.GLuint
+    var colorAttrib: OpenGL.GLuint
+}
+
+struct LineShaderProgram {
+    var program: OpenGL.GLuint
+    var mvpLocation: OpenGL.GLint
+    var lineColorLocation: OpenGL.GLint
+    var positionAttrib: OpenGL.GLuint
+}
+
+func compileShaderStage(kind: OpenGL.GLenum, source: String) -> OpenGL.GLuint {
+    let shader = OpenGL.createShader(kind)
+    var sourceBuffer: [Byte, 4096] = []
+    let sourceLength = source.copyBytes(destination: (sourceBuffer.bytes as &Byte), maxLength: 4096)
+    var sourcePointer: *Int8 = (sourceBuffer.bytes as *Int8)
+    var sourceLengthValue: OpenGL.GLint = (sourceLength as! OpenGL.GLint)
+    OpenGL.shaderSource(shader, 1, &sourcePointer, &sourceLengthValue)
+    OpenGL.compileShader(shader)
+
+    var status: Int32 = 0
+    OpenGL.getShaderiv(shader, OpenGL.COMPILE_STATUS, &status)
+    if status == 0 {
+        var log: [Int8, 1024] = []
+        var logLength: OpenGL.GLsizei = 0
+        OpenGL.getShaderInfoLog(shader, 1024, &logLength, (log.bytes as *Int8))
+        Console.printLine("shader compile failed")
+    }
+    return shader
+}
+
+func linkProgram(vertexShader: OpenGL.GLuint, fragmentShader: OpenGL.GLuint) -> OpenGL.GLuint {
+    let program = OpenGL.createProgram()
+    OpenGL.attachShader(program, vertexShader)
+    OpenGL.attachShader(program, fragmentShader)
+    OpenGL.linkProgram(program)
+
+    var status: Int32 = 0
+    OpenGL.getProgramiv(program, OpenGL.LINK_STATUS, &status)
+    if status == 0 {
+        var log: [Int8, 1024] = []
+        var logLength: OpenGL.GLsizei = 0
+        OpenGL.getProgramInfoLog(program, 1024, &logLength, (log.bytes as *Int8))
+        Console.printLine("program link failed")
+    }
+    return program
+}
+
+func buildShaderProgram() -> ShaderProgram {
+    let vertexShader = compileShaderStage(OpenGL.VERTEX_SHADER, vertexShaderSource)
+    let fragmentShader = compileShaderStage(OpenGL.FRAGMENT_SHADER, fragmentShaderSource)
+    let program = linkProgram(vertexShader, fragmentShader)
+
+    let positionAttrib = (OpenGL.getAttribLocation(program, "position") as! UInt32)
+    let normalAttrib = (OpenGL.getAttribLocation(program, "normal") as! UInt32)
+    let colorAttrib = (OpenGL.getAttribLocation(program, "color") as! UInt32)
+
+    return ShaderProgram(
+        program: program,
+        mvpLocation: OpenGL.getUniformLocation(program, "mvp"),
+        modelLocation: OpenGL.getUniformLocation(program, "model"),
+        lightDirLocation: OpenGL.getUniformLocation(program, "lightDir"),
+        positionAttrib: positionAttrib,
+        normalAttrib: normalAttrib,
+        colorAttrib: colorAttrib)
+}
+
+func buildLineShaderProgram() -> LineShaderProgram {
+    let vertexShader = compileShaderStage(OpenGL.VERTEX_SHADER, lineVertexShaderSource)
+    let fragmentShader = compileShaderStage(OpenGL.FRAGMENT_SHADER, lineFragmentShaderSource)
+    let program = linkProgram(vertexShader, fragmentShader)
+
+    let positionAttrib = (OpenGL.getAttribLocation(program, "position") as! UInt32)
+    return LineShaderProgram(
+        program: program,
+        mvpLocation: OpenGL.getUniformLocation(program, "mvp"),
+        lineColorLocation: OpenGL.getUniformLocation(program, "lineColor"),
+        positionAttrib: positionAttrib)
+}
+
+const VERTEX_STRIDE: Int = 36
+const LINE_VERTEX_STRIDE: Int = 12
+
+struct MeshBuffer {
+    var buffer: OpenGL.GLuint
+    var vertexCount: Int32
+}
+
+// Uploads the grid mesh (rebuilt after every edit -- see Mesh.rune) as a
+// dynamic-usage buffer. `existing` reuses the previous GL buffer object
+// when there is one so editing doesn't leak a new VBO per edit.
+func uploadGridMesh(vertices: &Array<Vertex>, existing: OpenGL.GLuint) -> MeshBuffer {
+    var buffer = existing
+    if buffer == 0 {
+        OpenGL.genBuffers(1, &buffer)
+    }
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, buffer)
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, vertices.byteLength, (vertices.bytes as *Byte), OpenGL.DYNAMIC_DRAW)
+    return MeshBuffer(buffer: buffer, vertexCount: Int32(vertices.count))
+}
+
+func uploadStaticLineMesh(vertices: &Byte, byteLength: Int) -> OpenGL.GLuint {
+    var buffer: OpenGL.GLuint = 0
+    OpenGL.genBuffers(1, &buffer)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, buffer)
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, byteLength, (vertices as *Byte), OpenGL.STATIC_DRAW)
+    return buffer
+}
+
+struct Scene {
+    var shader: ShaderProgram
+    var lineShader: LineShaderProgram
+    var gridMesh: MeshBuffer
+    var cursorCubeBuffer: OpenGL.GLuint
+    var groundGridBuffer: OpenGL.GLuint
+}
+
+func buildScene(grid: &Grid) -> Scene {
+    OpenGL.loadFunctions(resolveOpenGLFunction)
+    let shader = buildShaderProgram()
+    let lineShader = buildLineShaderProgram()
+
+    var gridVertices = buildGridMesh(grid)
+    let gridMesh = uploadGridMesh(&gridVertices, 0)
+
+    var cursorCube = buildCursorCubeMesh()
+    let cursorCubeBuffer = uploadStaticLineMesh(cursorCube.bytes, CURSOR_CUBE_VERTEX_COUNT * LINE_VERTEX_STRIDE)
+
+    var groundGrid = buildGroundGridMesh()
+    let groundGridBuffer = uploadStaticLineMesh(groundGrid.bytes, GROUND_GRID_VERTEX_COUNT * LINE_VERTEX_STRIDE)
+
+    return Scene(
+        shader: shader,
+        lineShader: lineShader,
+        gridMesh: gridMesh,
+        cursorCubeBuffer: cursorCubeBuffer,
+        groundGridBuffer: groundGridBuffer)
+}
+
+// Called whenever an edit changes the grid's contents -- rebuilds the mesh
+// from scratch and re-uploads it into the same VBO (the existing GL buffer
+// object is reused, so no VBO is leaked).
+func refreshGridMesh(scene: &Scene, grid: &Grid) {
+    var gridVertices = buildGridMesh(grid)
+    scene.gridMesh = uploadGridMesh(&gridVertices, scene.gridMesh.buffer)
+}
+
+func drawSceneMesh(scene: *Scene, viewProjection: Matrix4) {
+    if scene.gridMesh.vertexCount == 0 {
+        return
+    }
+
+    OpenGL.useProgram(scene.shader.program)
+    OpenGL.uniform3f(scene.shader.lightDirLocation, -0.4, -1.0, -0.3)
+
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, scene.gridMesh.buffer)
+    OpenGL.enableVertexAttribArray(scene.shader.positionAttrib)
+    OpenGL.vertexAttribPointer(scene.shader.positionAttrib, 3, OpenGL.FLOAT, 0, (VERTEX_STRIDE as! OpenGL.GLsizei), (0 as *Byte))
+    OpenGL.enableVertexAttribArray(scene.shader.normalAttrib)
+    OpenGL.vertexAttribPointer(scene.shader.normalAttrib, 3, OpenGL.FLOAT, 0, (VERTEX_STRIDE as! OpenGL.GLsizei), (12 as *Byte))
+    OpenGL.enableVertexAttribArray(scene.shader.colorAttrib)
+    OpenGL.vertexAttribPointer(scene.shader.colorAttrib, 3, OpenGL.FLOAT, 0, (VERTEX_STRIDE as! OpenGL.GLsizei), (24 as *Byte))
+
+    var mvp = viewProjection
+    var model = Matrix4.identity()
+    OpenGL.uniformMatrix4fv(scene.shader.mvpLocation, 1, 0, (mvp.m.bytes as *OpenGL.GLfloat))
+    OpenGL.uniformMatrix4fv(scene.shader.modelLocation, 1, 0, (model.m.bytes as *OpenGL.GLfloat))
+
+    OpenGL.drawArrays(OpenGL.TRIANGLES, 0, scene.gridMesh.vertexCount)
+
+    OpenGL.disableVertexAttribArray(scene.shader.normalAttrib)
+    OpenGL.disableVertexAttribArray(scene.shader.colorAttrib)
+}
+
+func drawLineBuffer(scene: *Scene, buffer: OpenGL.GLuint, vertexCount: Int32, model: Matrix4, viewProjection: Matrix4, color: Vector3) {
+    OpenGL.useProgram(scene.lineShader.program)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, buffer)
+    OpenGL.enableVertexAttribArray(scene.lineShader.positionAttrib)
+    OpenGL.vertexAttribPointer(scene.lineShader.positionAttrib, 3, OpenGL.FLOAT, 0, (LINE_VERTEX_STRIDE as! OpenGL.GLsizei), (0 as *Byte))
+
+    var mvp = viewProjection * model
+    OpenGL.uniformMatrix4fv(scene.lineShader.mvpLocation, 1, 0, (mvp.m.bytes as *OpenGL.GLfloat))
+    OpenGL.uniform3f(scene.lineShader.lineColorLocation, color.x, color.y, color.z)
+
+    OpenGL.drawArrays(OpenGL.LINES, 0, vertexCount)
+    OpenGL.disableVertexAttribArray(scene.lineShader.positionAttrib)
+}
+
+// Highlights whichever cell the current tool would affect: the empty
+// placement cell for the "place" tool, the targeted solid voxel otherwise.
+func drawCursor(scene: *Scene, hit: RaycastHit, tool: Tool, viewProjection: Matrix4) {
+    let cell = if tool == Tool.place { hit.placement } else { hit.voxel }
+    let color = if tool == Tool.place { Vector3(x: 0.3, y: 1.0, z: 0.4) } else { Vector3(x: 1.0, y: 0.95, z: 0.2) }
+    let model = Matrix4.translation(x: cell.x, y: cell.y, z: cell.z)
+    drawLineBuffer(scene, scene.cursorCubeBuffer, Int32(CURSOR_CUBE_VERTEX_COUNT), model, viewProjection, color)
+}
+
+func drawGroundGrid(scene: *Scene, viewProjection: Matrix4, height: Int32) {
+    drawLineBuffer(
+        scene,
+        scene.groundGridBuffer,
+        Int32(GROUND_GRID_VERTEX_COUNT),
+        Matrix4.translation(x: 0.0, y: Float32(height), z: 0.0),
+        viewProjection,
+        Vector3(x: 0.35, y: 0.35, z: 0.4))
+}

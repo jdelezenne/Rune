@@ -1,0 +1,40 @@
+/// Signed elapsed time stored as nanoseconds.
+@layout(kind: c)
+public struct Duration {
+    public var nanoseconds: Int64 = 0
+
+    public static func fromSeconds(value: Int64) -> Duration {
+        return Duration(nanoseconds: value * 1000000000)
+    }
+
+    public static func fromMilliseconds(value: Int64) -> Duration {
+        return Duration(nanoseconds: value * 1000000)
+    }
+
+    public static func fromMicroseconds(value: Int64) -> Duration {
+        return Duration(nanoseconds: value * 1000)
+    }
+
+    public static func fromNanoseconds(value: Int64) -> Duration {
+        return Duration(nanoseconds: value)
+    }
+
+    @runtime("rune_duration_add")
+    public static operator +(lhs: Duration, rhs: Duration) -> Duration
+
+    @runtime("rune_duration_subtract")
+    public static operator -(lhs: Duration, rhs: Duration) -> Duration
+
+}
+
+public extension Duration implements Equatable {
+    public static operator ==(lhs: Duration, rhs: Duration) -> Bool {
+        return lhs.nanoseconds == rhs.nanoseconds
+    }
+}
+
+public extension Duration implements Comparable {
+    public static operator <=>(lhs: Duration, rhs: Duration) -> Ordering {
+        return lhs.nanoseconds <=> rhs.nanoseconds
+    }
+}

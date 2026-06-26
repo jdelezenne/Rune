@@ -1,0 +1,13 @@
+func main() -> Int {
+    let language: String = "Rune"
+    let core: StringSlice = language[0..4]
+    if core.isEmpty {
+        return 1
+    }
+
+    if core.length != 4 {
+        return 2
+    }
+
+    return 0
+}

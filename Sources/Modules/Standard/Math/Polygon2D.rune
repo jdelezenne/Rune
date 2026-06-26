@@ -1,0 +1,127 @@
+/// A convex 2D polygon stored as an ordered ring of vertices (counter-clockwise
+/// winding assumed). Supports area/centroid/bounds, convex point containment,
+/// and the projection/edge-normal primitives that drive separating-axis
+/// collision (`Intersection.polygonPolygon`). Concave polygons are not
+/// supported by the containment and overlap tests.
+public struct Polygon2D {
+    public var vertices: Array<Vector2>
+
+    public static func fromVertices(vertices: Array<Vector2>) -> Polygon2D {
+        return Polygon2D(vertices: vertices)
+    }
+
+    public func count() -> Int { return vertices.count }
+
+    public func vertex(index: Int) -> Vector2 { return vertices[index] }
+
+    /// The edge starting at vertex `index` (wrapping around the ring).
+    public func edge(index: Int) -> Segment2D {
+        let n = vertices.count
+        return Segment2D(start: vertices[index], end: vertices[(index + 1) % n])
+    }
+
+    /// The outward unit normal of the edge starting at vertex `index`
+    /// (for counter-clockwise winding).
+    public func edgeNormal(index: Int) -> Vector2 {
+        let n = vertices.count
+        let a = vertices[index]
+        let b = vertices[(index + 1) % n]
+        // Outward normal for CCW winding is the clockwise perpendicular.
+        let dir = b - a
+        return Vector2(x: dir.y, y: 0.0 - dir.x).normalized()
+    }
+
+    /// Signed-area-weighted centroid.
+    public func centroid() -> Vector2 {
+        let n = vertices.count
+        if n == 0 {
+            return Vector2.zero()
+        }
+        var area: Float32 = 0.0
+        var cx: Float32 = 0.0
+        var cy: Float32 = 0.0
+        for i in 0..n {
+            let a = vertices[i]
+            let b = vertices[(i + 1) % n]
+            let cr = a.cross(other: b)
+            area = area + cr
+            cx = cx + (a.x + b.x) * cr
+            cy = cy + (a.y + b.y) * cr
+        }
+        if Math.abs(area) < Math.EPSILON_F32 {
+            return vertices[0]
+        }
+        let f = 1.0 / (3.0 * area)
+        return Vector2(x: cx * f, y: cy * f)
+    }
+
+    /// Absolute area (shoelace formula).
+    public func area() -> Float32 {
+        let n = vertices.count
+        if n < 3 {
+            return 0.0
+        }
+        var sum: Float32 = 0.0
+        for i in 0..n {
+            let a = vertices[i]
+            let b = vertices[(i + 1) % n]
+            sum = sum + a.cross(other: b)
+        }
+        return Math.abs(sum) * 0.5
+    }
+
+    /// Axis-aligned bounding rectangle.
+    public func boundingBox() -> Rect {
+        if vertices.count == 0 {
+            return Rect.zero()
+        }
+        var mn = vertices[0]
+        var mx = vertices[0]
+        for i in 1..vertices.count {
+            mn = Vector2.min(a: mn, b: vertices[i])
+            mx = Vector2.max(a: mx, b: vertices[i])
+        }
+        return Rect.fromMinMax(minX: mn.x, minY: mn.y, maxX: mx.x, maxY: mx.y)
+    }
+
+    /// Whether `point` lies inside this convex polygon (consistent edge-sign
+    /// test).
+    public func contains(point: Vector2) -> Bool {
+        let n = vertices.count
+        if n < 3 {
+            return false
+        }
+        var sign = 0
+        for i in 0..n {
+            let a = vertices[i]
+            let b = vertices[(i + 1) % n]
+            let cr = (b - a).cross(other: point - a)
+            if cr > Math.EPSILON_F32 {
+                if sign < 0 { return false }
+                sign = 1
+            } else if cr < 0.0 - Math.EPSILON_F32 {
+                if sign > 0 { return false }
+                sign = -1
+            }
+        }
+        return true
+    }
+
+    /// Projects the polygon onto `axis`, returning the interval as
+    /// `(x: min, y: max)`.
+    public func projectOnto(axis: Vector2) -> Vector2 {
+        var minV = vertices[0].dot(other: axis)
+        var maxV = minV
+        for i in 1..vertices.count {
+            let d = vertices[i].dot(other: axis)
+            if d < minV { minV = d }
+            if d > maxV { maxV = d }
+        }
+        return Vector2(x: minV, y: maxV)
+    }
+
+    /// Whether this polygon overlaps `other` (separating-axis theorem).
+    public func intersects(other: Polygon2D) -> Bool {
+        return Intersection.polygonPolygon(a: self, b: other)
+    }
+}

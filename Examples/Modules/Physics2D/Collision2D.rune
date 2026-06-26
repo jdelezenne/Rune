@@ -1,0 +1,337 @@
+/// Contact generation and impulse resolution for the Physics2D rigid bodies.
+/// Handles circle and box shapes against each other and against static walls
+/// (Segment2D), producing a single-point contact manifold and resolving it with
+/// a standard impulse solver that includes angular response and Coulomb
+/// friction. Single-point manifolds keep this demonstration-grade: good for
+/// dynamic impacts, not for perfectly stable resting stacks.
+import Standard.*
+
+/// A contact manifold: `normal` points from body A to body B, `penetration` is
+/// the overlap depth, and `point` is a representative world contact point (used
+/// for the angular impulse arms).
+public struct Collision2D {
+    public var normal: Vector2
+    public var penetration: Float32
+    public var point: Vector2
+}
+
+// Velocity of a body's material point at offset `r` from its center of mass:
+// v = v_linear + omega x r, where omega x r = (-omega*r.y, omega*r.x) in 2D.
+func pointVelocity(linear: Vector2, angular: Float32, r: Vector2) -> Vector2 {
+    return linear + Vector2(x: 0.0 - angular * r.y, y: angular * r.x)
+}
+
+//region Contact generation
+
+public func circleCircleCollision(a: RigidBody2D, b: RigidBody2D) -> Collision2D? {
+    let delta = b.position - a.position
+    let distSq = delta.lengthSquared()
+    let radiusSum = a.radius + b.radius
+    if distSq >= radiusSum * radiusSum || distSq < Math.EPSILON_F32 {
+        return nil
+    }
+    let dist = Math.sqrt(distSq)
+    let normal = delta * (1.0 / dist)
+    let point = a.position + normal * a.radius
+    return Collision2D(normal: normal, penetration: radiusSum - dist, point: point)
+}
+
+/// Circle vs box. `normal` points from the box toward the circle.
+public func circleBoxCollision(circle: RigidBody2D, box: RigidBody2D) -> Collision2D? {
+    let hx = box.halfExtents.x
+    let hy = box.halfExtents.y
+    let local = (circle.position - box.position).rotated(angle: 0.0 - box.rotation)
+
+    var normalLocal = Vector2.zero()
+    var closestLocal = Vector2(x: Math.clamp(local.x, 0.0 - hx, hx), y: Math.clamp(local.y, 0.0 - hy, hy))
+    var penetration: Float32 = 0.0
+
+    if Math.abs(local.x) <= hx && Math.abs(local.y) <= hy {
+        // Circle center inside the box: push out along the least-penetrating face.
+        let dx = hx - Math.abs(local.x)
+        let dy = hy - Math.abs(local.y)
+        if dx < dy {
+            let sx = if local.x < 0.0 { 0.0 - 1.0 } else { 1.0 }
+            normalLocal = Vector2(x: sx, y: 0.0)
+            closestLocal = Vector2(x: sx * hx, y: local.y)
+            penetration = circle.radius + dx
+        } else {
+            let sy = if local.y < 0.0 { 0.0 - 1.0 } else { 1.0 }
+            normalLocal = Vector2(x: 0.0, y: sy)
+            closestLocal = Vector2(x: local.x, y: sy * hy)
+            penetration = circle.radius + dy
+        }
+    } else {
+        let diff = local - closestLocal
+        let dist = diff.length()
+        if dist >= circle.radius || dist < Math.EPSILON_F32 {
+            return nil
+        }
+        normalLocal = diff * (1.0 / dist)
+        penetration = circle.radius - dist
+    }
+
+    let normal = normalLocal.rotated(angle: box.rotation)
+    let point = box.position + closestLocal.rotated(angle: box.rotation)
+    return Collision2D(normal: normal, penetration: penetration, point: point)
+}
+
+// Projects a box body onto `axis`, returning (x: min, y: max).
+func projectBox(body: RigidBody2D, axis: Vector2) -> Vector2 {
+    let c0 = body.corner(signX: 1.0, signY: 1.0).dot(other: axis)
+    let c1 = body.corner(signX: 0.0 - 1.0, signY: 1.0).dot(other: axis)
+    let c2 = body.corner(signX: 0.0 - 1.0, signY: 0.0 - 1.0).dot(other: axis)
+    let c3 = body.corner(signX: 1.0, signY: 0.0 - 1.0).dot(other: axis)
+    var mn = c0
+    var mx = c0
+    if c1 < mn { mn = c1 }
+    if c1 > mx { mx = c1 }
+    if c2 < mn { mn = c2 }
+    if c2 > mx { mx = c2 }
+    if c3 < mn { mn = c3 }
+    if c3 > mx { mx = c3 }
+    return Vector2(x: mn, y: mx)
+}
+
+// The box corner furthest along `direction` (the deepest penetrating vertex).
+func deepestCorner(body: RigidBody2D, direction: Vector2) -> Vector2 {
+    var best = body.corner(signX: 1.0, signY: 1.0)
+    var bestDot = best.dot(other: direction)
+    let c1 = body.corner(signX: 0.0 - 1.0, signY: 1.0)
+    let d1 = c1.dot(other: direction)
+    if d1 > bestDot { best = c1; bestDot = d1 }
+    let c2 = body.corner(signX: 0.0 - 1.0, signY: 0.0 - 1.0)
+    let d2 = c2.dot(other: direction)
+    if d2 > bestDot { best = c2; bestDot = d2 }
+    let c3 = body.corner(signX: 1.0, signY: 0.0 - 1.0)
+    let d3 = c3.dot(other: direction)
+    if d3 > bestDot { best = c3; bestDot = d3 }
+    return best
+}
+
+/// Box vs box via the separating-axis theorem (single representative contact).
+public func boxBoxCollision(a: RigidBody2D, b: RigidBody2D) -> Collision2D? {
+    let axes: [Vector2, 4] = [
+        Vector2(x: 1.0, y: 0.0).rotated(angle: a.rotation),
+        Vector2(x: 0.0, y: 1.0).rotated(angle: a.rotation),
+        Vector2(x: 1.0, y: 0.0).rotated(angle: b.rotation),
+        Vector2(x: 0.0, y: 1.0).rotated(angle: b.rotation),
+    ]
+
+    var minOverlap: Float32 = 1.0e30
+    var minAxis = Vector2(x: 1.0, y: 0.0)
+
+    for i in 0..4 {
+        let axis = axes[i]
+        let pa = projectBox(body: a, axis: axis)
+        let pb = projectBox(body: b, axis: axis)
+        let overlap = Math.min(pa.y, pb.y) - Math.max(pa.x, pb.x)
+        if overlap <= 0.0 {
+            return nil
+        }
+        if overlap < minOverlap {
+            minOverlap = overlap
+            minAxis = axis
+        }
+    }
+
+    var normal = minAxis
+    if (b.position - a.position).dot(other: normal) < 0.0 {
+        normal = -normal
+    }
+    let point = deepestCorner(body: b, direction: -normal)
+    return Collision2D(normal: normal, penetration: minOverlap, point: point)
+}
+
+/// Circle vs static wall. `normal` points from the wall toward the circle.
+public func circleWallCollision(body: RigidBody2D, wall: Segment2D) -> Collision2D? {
+    let closest = wall.closestPoint(point: body.position)
+    let offset = body.position - closest
+    let distSq = offset.lengthSquared()
+    if distSq >= body.radius * body.radius || distSq < Math.EPSILON_F32 {
+        return nil
+    }
+    let dist = Math.sqrt(distSq)
+    let normal = offset * (1.0 / dist)
+    let point = body.position - normal * body.radius
+    return Collision2D(normal: normal, penetration: body.radius - dist, point: point)
+}
+
+/// Box vs static wall (SAT against the box faces and the wall normal).
+public func boxWallCollision(body: RigidBody2D, wall: Segment2D) -> Collision2D? {
+    let wallDir = wall.direction()
+    if wallDir.lengthSquared() < Math.EPSILON_F32 {
+        return nil
+    }
+    let wallNormal = Vector2(x: 0.0 - wallDir.y, y: wallDir.x).normalized()
+    let axes: [Vector2, 3] = [
+        Vector2(x: 1.0, y: 0.0).rotated(angle: body.rotation),
+        Vector2(x: 0.0, y: 1.0).rotated(angle: body.rotation),
+        wallNormal,
+    ]
+
+    var minOverlap: Float32 = 1.0e30
+    var minAxis = wallNormal
+
+    for i in 0..3 {
+        let axis = axes[i]
+        let pb = projectBox(body: body, axis: axis)
+        let s0 = wall.start.dot(other: axis)
+        let s1 = wall.end.dot(other: axis)
+        let smin = Math.min(s0, s1)
+        let smax = Math.max(s0, s1)
+        let overlap = Math.min(pb.y, smax) - Math.max(pb.x, smin)
+        if overlap <= 0.0 {
+            return nil
+        }
+        if overlap < minOverlap {
+            minOverlap = overlap
+            minAxis = axis
+        }
+    }
+
+    var normal = minAxis
+    if (body.position - wall.midpoint()).dot(other: normal) < 0.0 {
+        normal = -normal
+    }
+    let point = deepestCorner(body: body, direction: -normal)
+    return Collision2D(normal: normal, penetration: minOverlap, point: point)
+}
+
+/// Dispatches to the right shape-pair test, returning a manifold whose normal
+/// points from `a` to `b`.
+public func collide(a: RigidBody2D, b: RigidBody2D) -> Collision2D? {
+    if a.shape == BodyShape2D.circle && b.shape == BodyShape2D.circle {
+        return circleCircleCollision(a: a, b: b)
+    } else if a.shape == BodyShape2D.circle && b.shape == BodyShape2D.box {
+        // circleBoxCollision returns box->circle (B->A); flip to A->B.
+        if let contact = circleBoxCollision(circle: a, box: b) {
+            return Collision2D(normal: -contact.normal, penetration: contact.penetration, point: contact.point)
+        }
+        return nil
+    } else if a.shape == BodyShape2D.box && b.shape == BodyShape2D.circle {
+        // circleBoxCollision returns box(a)->circle(b) = A->B.
+        return circleBoxCollision(circle: b, box: a)
+    }
+    return boxBoxCollision(a: a, b: b)
+}
+
+//endregion
+
+//region Impulse resolution
+
+/// Resolves a contact between two dynamic bodies (normal impulse with
+/// restitution, then a Coulomb-clamped friction impulse), including the angular
+/// terms from each body's contact arm.
+public func resolveContact(a: &RigidBody2D, b: &RigidBody2D, contact: Collision2D) {
+    let totalInvMass = a.invMass + b.invMass
+    if totalInvMass <= 0.0 {
+        return
+    }
+
+    // Positional correction, split by inverse mass.
+    let correction = contact.normal * (contact.penetration / totalInvMass)
+    a.position = a.position - correction * a.invMass
+    b.position = b.position + correction * b.invMass
+
+    let ra = contact.point - a.position
+    let rb = contact.point - b.position
+
+    let va = pointVelocity(linear: a.velocity, angular: a.angularVelocity, r: ra)
+    let vb = pointVelocity(linear: b.velocity, angular: b.angularVelocity, r: rb)
+    let relVel = vb - va
+    let velAlongNormal = relVel.dot(other: contact.normal)
+    if velAlongNormal > 0.0 {
+        return
+    }
+
+    let raCrossN = ra.cross(other: contact.normal)
+    let rbCrossN = rb.cross(other: contact.normal)
+    let denom = totalInvMass + a.invInertia * raCrossN * raCrossN + b.invInertia * rbCrossN * rbCrossN
+    if denom <= 0.0 {
+        return
+    }
+
+    let e = Math.min(a.restitution, b.restitution)
+    let j = (0.0 - (1.0 + e) * velAlongNormal) / denom
+    let impulse = contact.normal * j
+    a.velocity = a.velocity - impulse * a.invMass
+    a.angularVelocity = a.angularVelocity - a.invInertia * ra.cross(other: impulse)
+    b.velocity = b.velocity + impulse * b.invMass
+    b.angularVelocity = b.angularVelocity + b.invInertia * rb.cross(other: impulse)
+
+    // Friction (tangential) impulse.
+    let va2 = pointVelocity(linear: a.velocity, angular: a.angularVelocity, r: ra)
+    let vb2 = pointVelocity(linear: b.velocity, angular: b.angularVelocity, r: rb)
+    let relVel2 = vb2 - va2
+    var tangent = relVel2 - contact.normal * relVel2.dot(other: contact.normal)
+    if tangent.lengthSquared() <= Math.EPSILON_F32 {
+        return
+    }
+    tangent = tangent.normalized()
+
+    let raCrossT = ra.cross(other: tangent)
+    let rbCrossT = rb.cross(other: tangent)
+    let denomT = totalInvMass + a.invInertia * raCrossT * raCrossT + b.invInertia * rbCrossT * rbCrossT
+    var jt = (0.0 - relVel2.dot(other: tangent)) / denomT
+    let mu = Math.sqrt(a.friction * b.friction)
+    let maxFriction = j * mu
+    if jt > maxFriction { jt = maxFriction }
+    if jt < 0.0 - maxFriction { jt = 0.0 - maxFriction }
+
+    let frictionImpulse = tangent * jt
+    a.velocity = a.velocity - frictionImpulse * a.invMass
+    a.angularVelocity = a.angularVelocity - a.invInertia * ra.cross(other: frictionImpulse)
+    b.velocity = b.velocity + frictionImpulse * b.invMass
+    b.angularVelocity = b.angularVelocity + b.invInertia * rb.cross(other: frictionImpulse)
+}
+
+/// Resolves a contact against a static wall (infinite mass/inertia). `contact`
+/// normal points from the wall toward the body.
+public func resolveStaticContact(body: &RigidBody2D, contact: Collision2D, wallRestitution: Float32, wallFriction: Float32) {
+    if body.invMass <= 0.0 {
+        return
+    }
+
+    body.position = body.position + contact.normal * contact.penetration
+
+    let r = contact.point - body.position
+    let vel = pointVelocity(linear: body.velocity, angular: body.angularVelocity, r: r)
+    let velAlongNormal = vel.dot(other: contact.normal)
+    if velAlongNormal >= 0.0 {
+        return
+    }
+
+    let rCrossN = r.cross(other: contact.normal)
+    let denom = body.invMass + body.invInertia * rCrossN * rCrossN
+    if denom <= 0.0 {
+        return
+    }
+
+    let e = Math.min(wallRestitution, body.restitution)
+    let j = (0.0 - (1.0 + e) * velAlongNormal) / denom
+    let impulse = contact.normal * j
+    body.velocity = body.velocity + impulse * body.invMass
+    body.angularVelocity = body.angularVelocity + body.invInertia * r.cross(other: impulse)
+
+    let vel2 = pointVelocity(linear: body.velocity, angular: body.angularVelocity, r: r)
+    var tangent = vel2 - contact.normal * vel2.dot(other: contact.normal)
+    if tangent.lengthSquared() <= Math.EPSILON_F32 {
+        return
+    }
+    tangent = tangent.normalized()
+
+    let rCrossT = r.cross(other: tangent)
+    let denomT = body.invMass + body.invInertia * rCrossT * rCrossT
+    var jt = (0.0 - vel2.dot(other: tangent)) / denomT
+    let mu = Math.sqrt(wallFriction * body.friction)
+    let maxFriction = j * mu
+    if jt > maxFriction { jt = maxFriction }
+    if jt < 0.0 - maxFriction { jt = 0.0 - maxFriction }
+
+    let frictionImpulse = tangent * jt
+    body.velocity = body.velocity + frictionImpulse * body.invMass
+    body.angularVelocity = body.angularVelocity + body.invInertia * r.cross(other: frictionImpulse)
+}
+
+//endregion

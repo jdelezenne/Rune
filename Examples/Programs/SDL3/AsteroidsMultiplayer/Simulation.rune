@@ -1,0 +1,372 @@
+import Standard.*
+
+func fireNetworkBullet(world: &NetworkWorld, playerIndex: Int) {
+    if world.players[playerIndex].ship.fireTimer > 0.0 || !world.players[playerIndex].ship.alive {
+        return
+    }
+
+    let ship = world.players[playerIndex].ship
+    let noseX = ship.x + Math.cos(ship.angle) * 18.0
+    let noseY = ship.y + Math.sin(ship.angle) * 18.0
+    world.bullets.append(NetworkBullet(
+        ownerId: world.players[playerIndex].id,
+        x: noseX,
+        y: noseY,
+        vx: ship.vx + Math.cos(ship.angle) * BULLET_SPEED,
+        vy: ship.vy + Math.sin(ship.angle) * BULLET_SPEED,
+        life: BULLET_LIFE,
+        active: true))
+    world.players[playerIndex].ship.fireTimer = FIRE_COOLDOWN
+}
+
+func hyperspaceNetworkShip(world: &NetworkWorld, playerIndex: Int) {
+    if world.players[playerIndex].ship.hyperspaceTimer > 0.0 || !world.players[playerIndex].ship.alive {
+        return
+    }
+
+    world.players[playerIndex].ship.x = randRange(&world.rng, 80.0, Float32(WIDTH) - 80.0)
+    world.players[playerIndex].ship.y = randRange(&world.rng, 80.0, Float32(HEIGHT) - 80.0)
+    world.players[playerIndex].ship.vx = 0.0
+    world.players[playerIndex].ship.vy = 0.0
+    world.players[playerIndex].ship.invuln = INVULN_TIME
+    world.players[playerIndex].ship.hyperspaceTimer = HYPERSPACE_COOLDOWN
+}
+
+func updateNetworkPlayer(world: &NetworkWorld, playerIndex: Int, dt: Float32) {
+    if !world.players[playerIndex].active || !world.players[playerIndex].ship.alive {
+        return
+    }
+
+    if world.players[playerIndex].ship.invuln > 0.0 {
+        world.players[playerIndex].ship.invuln = world.players[playerIndex].ship.invuln - dt
+    }
+    if world.players[playerIndex].ship.fireTimer > 0.0 {
+        world.players[playerIndex].ship.fireTimer = world.players[playerIndex].ship.fireTimer - dt
+    }
+    if world.players[playerIndex].ship.hyperspaceTimer > 0.0 {
+        world.players[playerIndex].ship.hyperspaceTimer = world.players[playerIndex].ship.hyperspaceTimer - dt
+    }
+
+    let input = world.players[playerIndex].input
+    if input.rotateLeft {
+        world.players[playerIndex].ship.angle = world.players[playerIndex].ship.angle - SHIP_ROT_SPEED * dt
+    }
+    if input.rotateRight {
+        world.players[playerIndex].ship.angle = world.players[playerIndex].ship.angle + SHIP_ROT_SPEED * dt
+    }
+
+    world.players[playerIndex].ship.thrusting = false
+    if input.thrust {
+        world.players[playerIndex].ship.vx =
+            world.players[playerIndex].ship.vx + Math.cos(world.players[playerIndex].ship.angle) * SHIP_THRUST * dt
+        world.players[playerIndex].ship.vy =
+            world.players[playerIndex].ship.vy + Math.sin(world.players[playerIndex].ship.angle) * SHIP_THRUST * dt
+        world.players[playerIndex].ship.thrusting = true
+    }
+
+    let speed = Math.hypot(world.players[playerIndex].ship.vx, world.players[playerIndex].ship.vy)
+    if speed > SHIP_MAX_SPEED {
+        let scale = SHIP_MAX_SPEED / speed
+        world.players[playerIndex].ship.vx = world.players[playerIndex].ship.vx * scale
+        world.players[playerIndex].ship.vy = world.players[playerIndex].ship.vy * scale
+    }
+
+    world.players[playerIndex].ship.vx = world.players[playerIndex].ship.vx * SHIP_DRAG
+    world.players[playerIndex].ship.vy = world.players[playerIndex].ship.vy * SHIP_DRAG
+    world.players[playerIndex].ship.x = world.players[playerIndex].ship.x + world.players[playerIndex].ship.vx * dt
+    world.players[playerIndex].ship.y = world.players[playerIndex].ship.y + world.players[playerIndex].ship.vy * dt
+    wrapShip(ship: &world.players[playerIndex].ship)
+
+    if input.fire {
+        fireNetworkBullet(world: world, playerIndex: playerIndex)
+    }
+    if input.hyperspace {
+        hyperspaceNetworkShip(world: world, playerIndex: playerIndex)
+    }
+}
+
+func compactNetworkBullets(world: &NetworkWorld) {
+    var writeIndex = 0
+    for readIndex in 0..world.bullets.count {
+        if world.bullets[readIndex].active {
+            if writeIndex != readIndex {
+                world.bullets[writeIndex] = world.bullets[readIndex]
+            }
+            writeIndex = writeIndex + 1
+        }
+    }
+    while world.bullets.count > writeIndex {
+        world.bullets.remove(at: world.bullets.count - 1)
+    }
+}
+
+func compactNetworkAsteroids(world: &NetworkWorld) {
+    var writeIndex = 0
+    for readIndex in 0..world.asteroids.count {
+        if world.asteroids[readIndex].alive {
+            if writeIndex != readIndex {
+                world.asteroids[writeIndex] = world.asteroids[readIndex]
+            }
+            writeIndex = writeIndex + 1
+        }
+    }
+    while world.asteroids.count > writeIndex {
+        world.asteroids.remove(at: world.asteroids.count - 1)
+    }
+}
+
+func updateNetworkBullets(world: &NetworkWorld, dt: Float32) {
+    for bulletIndex in 0..world.bullets.count {
+        if !world.bullets[bulletIndex].active {
+            continue
+        }
+        world.bullets[bulletIndex].life = world.bullets[bulletIndex].life - dt
+        if world.bullets[bulletIndex].life <= 0.0 {
+            world.bullets[bulletIndex].active = false
+            continue
+        }
+        world.bullets[bulletIndex].x = wrapCoord(world.bullets[bulletIndex].x + world.bullets[bulletIndex].vx * dt, Float32(WIDTH))
+        world.bullets[bulletIndex].y = wrapCoord(world.bullets[bulletIndex].y + world.bullets[bulletIndex].vy * dt, Float32(HEIGHT))
+    }
+    compactNetworkBullets(world: world)
+}
+
+func updateNetworkAsteroids(world: &NetworkWorld, dt: Float32) {
+    for asteroidIndex in 0..world.asteroids.count {
+        if !world.asteroids[asteroidIndex].alive {
+            continue
+        }
+        world.asteroids[asteroidIndex].angle = world.asteroids[asteroidIndex].angle + world.asteroids[asteroidIndex].spin * dt
+        world.asteroids[asteroidIndex].x = world.asteroids[asteroidIndex].x + world.asteroids[asteroidIndex].vx * dt
+        world.asteroids[asteroidIndex].y = world.asteroids[asteroidIndex].y + world.asteroids[asteroidIndex].vy * dt
+        wrapAsteroid(asteroid: &world.asteroids[asteroidIndex])
+    }
+}
+
+func splitNetworkAsteroid(world: &NetworkWorld, asteroid: Asteroid) {
+    if asteroid.tier >= 3 {
+        return
+    }
+
+    let childTier = asteroid.tier + 1
+    let childSpeed = Math.hypot(asteroid.vx, asteroid.vy) + 50.0
+    let dirA = randRange(&world.rng, 0.0, TAU_F)
+    let dirB = dirA + 1.9
+    spawnNetworkAsteroid(
+        world: world,
+        x: asteroid.x,
+        y: asteroid.y,
+        tier: childTier,
+        vx: Math.cos(dirA) * childSpeed,
+        vy: Math.sin(dirA) * childSpeed)
+    spawnNetworkAsteroid(
+        world: world,
+        x: asteroid.x,
+        y: asteroid.y,
+        tier: childTier,
+        vx: Math.cos(dirB) * childSpeed,
+        vy: Math.sin(dirB) * childSpeed)
+}
+
+func activeNetworkPlayerCount(world: NetworkWorld) -> Int32 {
+    var count: Int32 = 0
+    for playerIndex in 0..world.players.count {
+        if world.players[playerIndex].active {
+            count = count + 1
+        }
+    }
+    return count
+}
+
+func livingNetworkPlayerCount(world: NetworkWorld) -> Int32 {
+    var count: Int32 = 0
+    for playerIndex in 0..world.players.count {
+        if world.players[playerIndex].active && world.players[playerIndex].ship.alive {
+            count = count + 1
+        }
+    }
+    return count
+}
+
+func networkRoundWinnerId(world: NetworkWorld) -> Int32 {
+    var winnerId: Int32 = 0
+    var bestScore: Int32 = 0
+    var tied = false
+    var found = false
+    for playerIndex in 0..world.players.count {
+        if !world.players[playerIndex].active {
+            continue
+        }
+
+        if !found || world.players[playerIndex].score > bestScore {
+            winnerId = world.players[playerIndex].id
+            bestScore = world.players[playerIndex].score
+            tied = false
+            found = true
+        } else if world.players[playerIndex].score == bestScore {
+            tied = true
+        }
+    }
+
+    if !found || tied {
+        return 0
+    }
+    return winnerId
+}
+
+func resetNetworkRound(world: &NetworkWorld) {
+    world.bullets = []
+    world.wave = 1
+    world.roundResetTimer = 0.0
+    world.roundWinnerId = -1
+    for playerIndex in 0..world.players.count {
+        if world.players[playerIndex].active {
+            world.players[playerIndex].input = emptyInput()
+            world.players[playerIndex].score = 0
+            world.players[playerIndex].lives = 3
+            resetPlayerShip(player: &world.players[playerIndex], rng: &world.rng)
+        }
+    }
+    spawnNetworkWave(world: world)
+}
+
+func damageNetworkPlayer(world: &NetworkWorld, playerIndex: Int) {
+    world.players[playerIndex].lives = world.players[playerIndex].lives - 1
+    if world.players[playerIndex].lives <= 0 {
+        world.players[playerIndex].ship.alive = false
+    } else {
+        resetPlayerShip(player: &world.players[playerIndex], rng: &world.rng)
+    }
+}
+
+func resolveNetworkBulletPlayerCollisions(world: &NetworkWorld) {
+    for bulletIndex in 0..world.bullets.count {
+        if !world.bullets[bulletIndex].active {
+            continue
+        }
+
+        for playerIndex in 0..world.players.count {
+            if !world.players[playerIndex].active ||
+                !world.players[playerIndex].ship.alive ||
+                world.players[playerIndex].ship.invuln > 0.0 ||
+                world.players[playerIndex].id == world.bullets[bulletIndex].ownerId {
+                continue
+            }
+
+            let deltaX = world.bullets[bulletIndex].x - world.players[playerIndex].ship.x
+            let deltaY = world.bullets[bulletIndex].y - world.players[playerIndex].ship.y
+            if deltaX * deltaX + deltaY * deltaY <= PLAYER_HIT_RADIUS * PLAYER_HIT_RADIUS {
+                let ownerIndex = findPlayerIndex(world: world^, id: world.bullets[bulletIndex].ownerId)
+                if ownerIndex >= 0 {
+                    world.players[ownerIndex].score = world.players[ownerIndex].score + PLAYER_HIT_SCORE
+                }
+                world.bullets[bulletIndex].active = false
+                damageNetworkPlayer(world: world, playerIndex: playerIndex)
+                break
+            }
+        }
+    }
+}
+
+func canNetworkShipCrash(player: Player) -> Bool {
+    return player.active && player.ship.alive && player.ship.invuln <= 0.0
+}
+
+func resolveNetworkShipCollisions(world: &NetworkWorld) {
+    for firstIndex in 0..world.players.count {
+        if !canNetworkShipCrash(player: world.players[firstIndex]) {
+            continue
+        }
+
+        var secondIndex = firstIndex + 1
+        while secondIndex < world.players.count {
+            if canNetworkShipCrash(player: world.players[secondIndex]) {
+                let deltaX = world.players[firstIndex].ship.x - world.players[secondIndex].ship.x
+                let deltaY = world.players[firstIndex].ship.y - world.players[secondIndex].ship.y
+                if deltaX * deltaX + deltaY * deltaY <= PLAYER_CRASH_RADIUS * PLAYER_CRASH_RADIUS {
+                    damageNetworkPlayer(world: world, playerIndex: firstIndex)
+                    damageNetworkPlayer(world: world, playerIndex: secondIndex)
+                    break
+                }
+            }
+            secondIndex = secondIndex + 1
+        }
+    }
+}
+
+func resolveNetworkCollisions(world: &NetworkWorld) {
+    for bulletIndex in 0..world.bullets.count {
+        if !world.bullets[bulletIndex].active {
+            continue
+        }
+        for asteroidIndex in 0..world.asteroids.count {
+            if !world.asteroids[asteroidIndex].alive {
+                continue
+            }
+            let radius = asteroidHitRadius(asteroid: world.asteroids[asteroidIndex])
+            let deltaX = world.bullets[bulletIndex].x - world.asteroids[asteroidIndex].x
+            let deltaY = world.bullets[bulletIndex].y - world.asteroids[asteroidIndex].y
+            if deltaX * deltaX + deltaY * deltaY <= radius * radius {
+                let ownerIndex = findPlayerIndex(world: world^, id: world.bullets[bulletIndex].ownerId)
+                if ownerIndex >= 0 {
+                    world.players[ownerIndex].score = world.players[ownerIndex].score + tierScore(tier: world.asteroids[asteroidIndex].tier)
+                }
+                let asteroid = world.asteroids[asteroidIndex]
+                world.bullets[bulletIndex].active = false
+                world.asteroids[asteroidIndex].alive = false
+                splitNetworkAsteroid(world: world, asteroid: asteroid)
+                break
+            }
+        }
+    }
+
+    resolveNetworkBulletPlayerCollisions(world: world)
+    resolveNetworkShipCollisions(world: world)
+    compactNetworkAsteroids(world: world)
+    compactNetworkBullets(world: world)
+
+    for playerIndex in 0..world.players.count {
+        if !world.players[playerIndex].active ||
+            !world.players[playerIndex].ship.alive ||
+            world.players[playerIndex].ship.invuln > 0.0 {
+            continue
+        }
+        for asteroidIndex in 0..world.asteroids.count {
+            if shipHitsAsteroid(ship: world.players[playerIndex].ship, asteroid: world.asteroids[asteroidIndex]) {
+                damageNetworkPlayer(world: world, playerIndex: playerIndex)
+                break
+            }
+        }
+    }
+}
+
+func updateNetworkWorld(world: &NetworkWorld, dt: Float32) {
+    if activeNetworkPlayerCount(world: world^) > 0 && livingNetworkPlayerCount(world: world^) == 0 {
+        if world.roundWinnerId < 0 {
+            world.roundWinnerId = networkRoundWinnerId(world: world^)
+        }
+        world.roundResetTimer = world.roundResetTimer + dt
+        if world.roundResetTimer >= ROUND_RESET_DELAY {
+            resetNetworkRound(world: world)
+        }
+        world.tick = world.tick + 1
+        return
+    }
+
+    world.roundResetTimer = 0.0
+    world.roundWinnerId = -1
+
+    for playerIndex in 0..world.players.count {
+        updateNetworkPlayer(world: world, playerIndex: playerIndex, dt: dt)
+    }
+    updateNetworkBullets(world: world, dt: dt)
+    updateNetworkAsteroids(world: world, dt: dt)
+    resolveNetworkCollisions(world: world)
+
+    if livingNetworkPlayerCount(world: world^) > 0 && livingNetworkAsteroids(world: world^) == 0 {
+        world.wave = world.wave + 1
+        spawnNetworkWave(world: world)
+    }
+
+    world.tick = world.tick + 1
+}

@@ -1,0 +1,50 @@
+public alias mode_t = Int16
+public alias nlink_t = Int16
+public alias off_t = Int64
+
+@layout(kind: c)
+@symbol("struct stat")
+public struct StatInfo {
+    public var st_dev: Int32 = 0
+    public var st_mode: mode_t = 0
+    public var st_nlink: nlink_t = 0
+    public var st_ino: Int64 = 0
+    public var st_uid: Int32 = 0
+    public var st_gid: Int32 = 0
+    public var st_rdev: Int32 = 0
+    public var _pad_before_times: Int32 = 0
+    public var st_atimespec: timespec = timespec()
+    public var st_mtimespec: timespec = timespec()
+    public var st_ctimespec: timespec = timespec()
+    public var st_birthtimespec: timespec = timespec()
+    public var st_size: off_t = 0
+    public var st_blocks: Int64 = 0
+    public var st_blksize: Int32 = 0
+    public var st_flags: Int32 = 0
+    public var st_gen: Int32 = 0
+    public var _pad_tail: Int64 = 0
+    public var _pad_tail2: Int64 = 0
+    public var _pad_tail3: Int32 = 0
+}
+
+public const S_IFMT: Int32 = 61440
+public const S_IFREG: Int32 = 32768
+public const S_IFDIR: Int32 = 16384
+public const S_IFLNK: Int32 = 40960
+
+public const S_IRUSR: Int32 = 256
+public const S_IWUSR: Int32 = 128
+public const S_IXUSR: Int32 = 64
+public const S_IRWXU: Int32 = 448
+
+@symbol
+public func stat(path: CStringSlice?, buf: &StatInfo?) -> Int32
+
+@symbol
+public func lstat(path: CStringSlice?, buf: &StatInfo?) -> Int32
+
+@symbol
+public func fstat(fd: Int32, buf: &StatInfo?) -> Int32
+
+@symbol
+public func chmod(path: CStringSlice?, mode: mode_t) -> Int32

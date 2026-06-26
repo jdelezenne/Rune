@@ -1,0 +1,36 @@
+public static Storage {
+    public enum StorageErrorKind: Int32 {
+        invalidPath = 0
+        notFound = 1
+        alreadyExists = 2
+        permissionDenied = 3
+        notAFile = 4
+        notADirectory = 5
+        interrupted = 6
+        unsupported = 7
+        io = 8
+        unknown = 9
+    }
+
+    public struct StorageError {
+        public var kind: StorageErrorKind
+        public var message: String
+        public var path: Path?
+
+        public init(kind: StorageErrorKind, message: String, path: Path? = nil) {
+            self.kind = kind
+            self.message = message
+            self.path = path
+        }
+    }
+
+    public extension StorageError implements CustomStringConvertible {
+        public func toString() -> String {
+            if let path = self.path {
+                return "${path.toString()}: ${self.message}"
+            }
+
+            return self.message
+        }
+    }
+}

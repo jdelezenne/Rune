@@ -1,0 +1,798 @@
+// SDL3 Pool: 8-ball on a top-down table, physics driven by the Physics module.
+//
+// Controls:
+//   Mouse drag (from the cue ball) - aim and set power; release to shoot
+//   R                               - re-rack
+//   Escape / close                  - quit
+
+import Standard.*
+import SDL3
+import SDL3_ttf
+import Physics2D.*
+
+const WINDOW_W: Float32 = 900.0
+const WINDOW_H: Float32 = 500.0
+const TABLE_MARGIN: Float32 = 40.0
+const BALL_RADIUS: Float32 = 11.0
+const POCKET_RADIUS: Float32 = 21.0
+const POCKET_VISUAL_RADIUS: Float32 = 16.0
+const CORNER_GAP: Float32 = 32.0
+const MID_GAP: Float32 = 28.0
+const BALL_COUNT: Int = 16
+const MAX_PULL: Float32 = 160.0
+const MAX_SHOT_SPEED: Float32 = 620.0
+const RESTING_SPEED: Float32 = 4.0
+const TABLE_FRICTION: Float32 = 210.0
+const BALL_RESTITUTION: Float32 = 0.82
+const BALL_SPIN_DAMPING: Float32 = 2.4
+
+const CUE_TIP_REST_GAP: Float32 = 8.0
+const CUE_PULLBACK_SCALE: Float32 = 0.5
+const CUE_TIP_LENGTH: Float32 = 14.0
+const CUE_SHAFT_LENGTH: Float32 = 90.0
+const CUE_HALF_WIDTH: Float32 = 3.0
+
+const POWER_BAR_WIDTH: Float32 = 140.0
+const POWER_BAR_HEIGHT: Float32 = 14.0
+const POWER_BAR_MARGIN: Float32 = 20.0
+
+const AUDIO_SAMPLE_RATE: Int32 = 11025
+const AUDIO_ATTACK_SAMPLES: Int = 18
+const AUDIO_TAU: Float32 = 6.2831855
+const AUDIO_REFERENCE_IMPACT_SPEED: Float32 = 260.0
+
+const HUD_FONT_RESOURCE: String = "DejaVuSansMono.ttf"
+const HUD_FONT_SIZE: Float32 = 20.0
+const HUD_STATUS_BOTTOM_MARGIN: Float32 = 10.0
+const DEFAULT_STATUS: String = "Drag from the cue ball to aim, release to shoot. R: re-rack."
+
+const TAU_F: Float32 = 6.2831855
+const CIRCLE_SEGMENTS: Int32 = 28
+const CIRCLE_VERTICES: Int32 = CIRCLE_SEGMENTS * 3
+
+let playLeft: Float32 = TABLE_MARGIN
+let playTop: Float32 = TABLE_MARGIN
+let playRight: Float32 = WINDOW_W - TABLE_MARGIN
+let playBottom: Float32 = WINDOW_H - TABLE_MARGIN
+let playMidX: Float32 = (playLeft + playRight) / 2.0
+let playMidY: Float32 = (playTop + playBottom) / 2.0
+let headSpotX: Float32 = playLeft + (playRight - playLeft) * 0.22
+let footSpotX: Float32 = playLeft + (playRight - playLeft) * 0.72
+
+struct KeyState {
+    var escape: Bool
+    var restart: Bool
+}
+
+func setKeyDown(state: &KeyState, scancode: SDL3.Scancode, pressed: Bool) {
+    if scancode == SDL3.Scancode.escape {
+        state.escape = pressed
+    } else if scancode == SDL3.Scancode.r {
+        state.restart = pressed
+    }
+}
+
+func makeColorVertex(x: Float32, y: Float32, color: SDL3.FColor) -> SDL3.Vertex {
+    return SDL3.Vertex(
+        position: SDL3.FPoint(x: x, y: y),
+        color: color,
+        texCoord: SDL3.FPoint(x: 0.0, y: 0.0))
+}
+
+func drawFilledCircle(renderer: &SDL3.Renderer?, cx: Float32, cy: Float32, radius: Float32, color: SDL3.FColor) {
+    var vertices: [SDL3.Vertex, CIRCLE_VERTICES] = []
+    var vertexCount: Int32 = 0
+    for i in 0..CIRCLE_SEGMENTS {
+        let angle0 = Float32(i) / Float32(CIRCLE_SEGMENTS) * TAU_F
+        let angle1 = Float32(i + 1) / Float32(CIRCLE_SEGMENTS) * TAU_F
+        vertices[Int(vertexCount)] = makeColorVertex(cx, cy, color)
+        vertices[Int(vertexCount + 1)] = makeColorVertex(cx + Math.cos(angle0) * radius, cy + Math.sin(angle0) * radius, color)
+        vertices[Int(vertexCount + 2)] = makeColorVertex(cx + Math.cos(angle1) * radius, cy + Math.sin(angle1) * radius, color)
+        vertexCount = vertexCount + 3
+    }
+
+    SDL3.renderGeometry(renderer, nil, ((vertices.bytes) as &SDL3.Vertex), vertexCount, nil, 0)
+}
+
+func ballColor(number: Int) -> SDL3.FColor {
+    if number == 0 {
+        return SDL3.FColor(r: 0.96, g: 0.96, b: 0.94, a: 1.0)
+    } else if number == 1 {
+        return SDL3.FColor(r: 1.0, g: 0.84, b: 0.0, a: 1.0)
+    } else if number == 2 {
+        return SDL3.FColor(r: 0.12, g: 0.31, b: 0.86, a: 1.0)
+    } else if number == 3 {
+        return SDL3.FColor(r: 0.82, g: 0.16, b: 0.16, a: 1.0)
+    } else if number == 4 {
+        return SDL3.FColor(r: 0.51, g: 0.20, b: 0.63, a: 1.0)
+    } else if number == 5 {
+        return SDL3.FColor(r: 0.90, g: 0.47, b: 0.08, a: 1.0)
+    } else if number == 6 {
+        return SDL3.FColor(r: 0.12, g: 0.55, b: 0.24, a: 1.0)
+    } else if number == 7 {
+        return SDL3.FColor(r: 0.47, g: 0.12, b: 0.12, a: 1.0)
+    } else if number == 8 {
+        return SDL3.FColor(r: 0.08, g: 0.08, b: 0.08, a: 1.0)
+    } else if number == 9 {
+        return SDL3.FColor(r: 1.0, g: 0.92, b: 0.59, a: 1.0)
+    } else if number == 10 {
+        return SDL3.FColor(r: 0.55, g: 0.71, b: 1.0, a: 1.0)
+    } else if number == 11 {
+        return SDL3.FColor(r: 1.0, g: 0.59, b: 0.59, a: 1.0)
+    } else if number == 12 {
+        return SDL3.FColor(r: 0.78, g: 0.59, b: 0.86, a: 1.0)
+    } else if number == 13 {
+        return SDL3.FColor(r: 1.0, g: 0.75, b: 0.47, a: 1.0)
+    } else if number == 14 {
+        return SDL3.FColor(r: 0.59, g: 0.86, b: 0.59, a: 1.0)
+    }
+    return SDL3.FColor(r: 0.78, g: 0.47, b: 0.47, a: 1.0)
+}
+
+func setupTable(world: &World2D) {
+    world.friction = TABLE_FRICTION
+    world.restingSpeed = RESTING_SPEED
+    world.angularDamping = BALL_SPIN_DAMPING
+
+    // Top and bottom rails each have a gap at the two corner pockets and
+    // one gap at the middle pocket; the short left/right rails only gap
+    // for the corner pockets.
+    world.addWall(wall: Segment2D(start: Vector2(x: playLeft + CORNER_GAP, y: playTop), end: Vector2(x: playMidX - MID_GAP, y: playTop)))
+    world.addWall(wall: Segment2D(start: Vector2(x: playMidX + MID_GAP, y: playTop), end: Vector2(x: playRight - CORNER_GAP, y: playTop)))
+    world.addWall(wall: Segment2D(start: Vector2(x: playLeft + CORNER_GAP, y: playBottom), end: Vector2(x: playMidX - MID_GAP, y: playBottom)))
+    world.addWall(wall: Segment2D(start: Vector2(x: playMidX + MID_GAP, y: playBottom), end: Vector2(x: playRight - CORNER_GAP, y: playBottom)))
+    world.addWall(wall: Segment2D(start: Vector2(x: playLeft, y: playTop + CORNER_GAP), end: Vector2(x: playLeft, y: playBottom - CORNER_GAP)))
+    world.addWall(wall: Segment2D(start: Vector2(x: playRight, y: playTop + CORNER_GAP), end: Vector2(x: playRight, y: playBottom - CORNER_GAP)))
+
+    world.addPocket(pocket: Circle(center: Vector2(x: playLeft, y: playTop), radius: POCKET_RADIUS))
+    world.addPocket(pocket: Circle(center: Vector2(x: playRight, y: playTop), radius: POCKET_RADIUS))
+    world.addPocket(pocket: Circle(center: Vector2(x: playLeft, y: playBottom), radius: POCKET_RADIUS))
+    world.addPocket(pocket: Circle(center: Vector2(x: playRight, y: playBottom), radius: POCKET_RADIUS))
+    world.addPocket(pocket: Circle(center: Vector2(x: playMidX, y: playTop), radius: POCKET_RADIUS))
+    world.addPocket(pocket: Circle(center: Vector2(x: playMidX, y: playBottom), radius: POCKET_RADIUS))
+}
+
+func rackNumberAt(row: Int, slot: Int) -> Int {
+    if row == 0 {
+        return 1
+    } else if row == 1 {
+        if slot == 0 {
+            return 2
+        }
+        return 3
+    } else if row == 2 {
+        if slot == 0 {
+            return 4
+        } else if slot == 1 {
+            return 8
+        }
+        return 5
+    } else if row == 3 {
+        if slot == 0 {
+            return 6
+        } else if slot == 1 {
+            return 7
+        } else if slot == 2 {
+            return 9
+        }
+        return 10
+    }
+    if slot == 0 {
+        return 11
+    } else if slot == 1 {
+        return 12
+    } else if slot == 2 {
+        return 13
+    } else if slot == 3 {
+        return 14
+    }
+    return 15
+}
+
+func rackBalls(world: &World2D) {
+    world.bodies = Array<RigidBody2D>()
+
+    world.addBody(body: RigidBody2D.create(
+        position: Vector2(x: headSpotX, y: playMidY),
+        radius: BALL_RADIUS,
+        mass: 1.0,
+        restitution: BALL_RESTITUTION))
+
+    let rowSpacing = BALL_RADIUS * 2.0 * 0.87
+    let ballSpacing = BALL_RADIUS * 2.02
+    var numberToSlot: [Int, 16] = []
+
+    for row in 0..5 {
+        let count = row + 1
+        let rowX = footSpotX + Float32(row) * rowSpacing
+        for slot in 0..count {
+            let number = rackNumberAt(row: row, slot: slot)
+            let offset = (Float32(slot) - Float32(row) / 2.0) * ballSpacing
+            numberToSlot[number] = world.addBody(body: RigidBody2D.create(
+                position: Vector2(x: rowX, y: playMidY + offset),
+                radius: BALL_RADIUS,
+                mass: 1.0,
+                restitution: BALL_RESTITUTION))
+        }
+    }
+}
+
+func drawTable(renderer: &SDL3.Renderer?) {
+    SDL3.setRenderDrawColor(renderer, 46, 30, 18, 255)
+    SDL3.renderClear(renderer)
+
+    var cloth = SDL3.FRect(x: playLeft, y: playTop, w: playRight - playLeft, h: playBottom - playTop)
+    SDL3.setRenderDrawColor(renderer, 18, 110, 64, 255)
+    SDL3.renderFillRect(renderer, &cloth)
+
+    let pocketColor = SDL3.FColor(r: 0.04, g: 0.04, b: 0.04, a: 1.0)
+    drawFilledCircle(renderer, playLeft, playTop, POCKET_VISUAL_RADIUS, pocketColor)
+    drawFilledCircle(renderer, playRight, playTop, POCKET_VISUAL_RADIUS, pocketColor)
+    drawFilledCircle(renderer, playLeft, playBottom, POCKET_VISUAL_RADIUS, pocketColor)
+    drawFilledCircle(renderer, playRight, playBottom, POCKET_VISUAL_RADIUS, pocketColor)
+    drawFilledCircle(renderer, playMidX, playTop, POCKET_VISUAL_RADIUS, pocketColor)
+    drawFilledCircle(renderer, playMidX, playBottom, POCKET_VISUAL_RADIUS, pocketColor)
+}
+
+func drawBalls(renderer: &SDL3.Renderer?, world: *World2D) {
+    for i in 0..world.bodies.count {
+        if !world.bodies[i].active {
+            continue
+        }
+        let position = world.bodies[i].position
+        drawFilledCircle(renderer, position.x, position.y, BALL_RADIUS, ballColor(number: i))
+
+        // A small offset spot rotates with the ball so its spin is visible
+        // (the balls now carry angular velocity from friction on contact).
+        let rotation = world.bodies[i].rotation
+        let spotX = position.x + Math.cos(rotation) * BALL_RADIUS * 0.5
+        let spotY = position.y + Math.sin(rotation) * BALL_RADIUS * 0.5
+        drawFilledCircle(renderer, spotX, spotY, BALL_RADIUS * 0.22, SDL3.FColor(r: 0.10, g: 0.10, b: 0.12, a: 1.0))
+
+        if i == 8 {
+            drawFilledCircle(renderer, position.x, position.y, BALL_RADIUS * 0.32, SDL3.FColor(r: 1.0, g: 1.0, b: 1.0, a: 1.0))
+        }
+    }
+}
+
+func drawStatusDots(renderer: &SDL3.Renderer?, world: *World2D) {
+    let dotRadius: Float32 = 6.0
+    let spacing: Float32 = 18.0
+    let startX: Float32 = 24.0
+    let y: Float32 = 18.0
+    for number in 1..16 {
+        let x = startX + Float32(number - 1) * spacing
+        if number < world.bodies.count && world.bodies[number].active {
+            drawFilledCircle(renderer, x, y, dotRadius, ballColor(number: number))
+        } else {
+            drawFilledCircle(renderer, x, y, dotRadius, SDL3.FColor(r: 0.25, g: 0.25, b: 0.25, a: 1.0))
+        }
+    }
+}
+
+// A filled quad between two points, used for the cue stick's shaft/tip
+// segments (SDL3's renderLine is always 1px, too thin to read as a cue).
+func drawThickSegment(renderer: &SDL3.Renderer?, start: Vector2, end: Vector2, halfWidth: Float32, color: SDL3.FColor) {
+    let axis = end - start
+    let length = axis.length()
+    if length < 0.001 {
+        return
+    }
+    let unit = axis * (1.0 / length)
+    let perp = Vector2(x: -unit.y, y: unit.x) * halfWidth
+
+    let a = start + perp
+    let b = start - perp
+    let c = end + perp
+    let d = end - perp
+
+    var vertices: [SDL3.Vertex, 6] = [
+        makeColorVertex(a.x, a.y, color),
+        makeColorVertex(b.x, b.y, color),
+        makeColorVertex(c.x, c.y, color),
+        makeColorVertex(b.x, b.y, color),
+        makeColorVertex(d.x, d.y, color),
+        makeColorVertex(c.x, c.y, color),
+    ]
+    SDL3.renderGeometry(renderer, nil, ((vertices.bytes) as &SDL3.Vertex), 6, nil, 0)
+}
+
+func aimPullLength(cueBall: RigidBody2D, mouseX: Float32, mouseY: Float32) -> Float32 {
+    let pull = Vector2(x: mouseX, y: mouseY) - cueBall.position
+    var pullLength = pull.length()
+    if pullLength > MAX_PULL {
+        pullLength = MAX_PULL
+    }
+    return pullLength
+}
+
+// Draws the cue as two segments (a light tip and a darker wooden shaft)
+// pulled back from the ball by the current charge -- the stick visibly
+// retreats as power builds, the classic "pull back the cue" pool-game cue.
+func drawCueStick(renderer: &SDL3.Renderer?, cueBall: RigidBody2D, mouseX: Float32, mouseY: Float32) {
+    let pullLength = aimPullLength(cueBall: cueBall, mouseX: mouseX, mouseY: mouseY)
+    if pullLength < 1.0 {
+        return
+    }
+    let direction = (cueBall.position - Vector2(x: mouseX, y: mouseY)).normalized()
+
+    let tipGap = CUE_TIP_REST_GAP + pullLength * CUE_PULLBACK_SCALE
+    let tipStart = cueBall.position - direction * tipGap
+    let tipEnd = cueBall.position - direction * (tipGap + CUE_TIP_LENGTH)
+    let shaftEnd = cueBall.position - direction * (tipGap + CUE_TIP_LENGTH + CUE_SHAFT_LENGTH)
+
+    drawThickSegment(renderer, tipEnd, shaftEnd, CUE_HALF_WIDTH, SDL3.FColor(r: 0.42, g: 0.27, b: 0.14, a: 1.0))
+    drawThickSegment(renderer, tipStart, tipEnd, CUE_HALF_WIDTH, SDL3.FColor(r: 0.86, g: 0.79, b: 0.65, a: 1.0))
+}
+
+func drawPowerMeter(renderer: &SDL3.Renderer?, cueBall: RigidBody2D, mouseX: Float32, mouseY: Float32) {
+    let fraction = aimPullLength(cueBall: cueBall, mouseX: mouseX, mouseY: mouseY) / MAX_PULL
+
+    let barX = WINDOW_W - POWER_BAR_WIDTH - POWER_BAR_MARGIN
+    let barY = WINDOW_H - POWER_BAR_HEIGHT - POWER_BAR_MARGIN
+
+    var background = SDL3.FRect(x: barX, y: barY, w: POWER_BAR_WIDTH, h: POWER_BAR_HEIGHT)
+    SDL3.setRenderDrawColor(renderer, 20, 20, 20, 230)
+    SDL3.renderFillRect(renderer, &background)
+
+    let fillWidth = (POWER_BAR_WIDTH - 4.0) * fraction
+    var fill = SDL3.FRect(x: barX + 2.0, y: barY + 2.0, w: fillWidth, h: POWER_BAR_HEIGHT - 4.0)
+    let red = UInt8(90.0 + fraction * 165.0)
+    let green = UInt8(215.0 - fraction * 165.0)
+    SDL3.setRenderDrawColor(renderer, red, green, 45, 255)
+    SDL3.renderFillRect(renderer, &fill)
+
+    var outline = SDL3.FRect(x: barX, y: barY, w: POWER_BAR_WIDTH, h: POWER_BAR_HEIGHT)
+    SDL3.setRenderDrawColor(renderer, 225, 225, 225, 210)
+    SDL3.renderRect(renderer, &outline)
+}
+
+func handleEvent(event: SDL3.Event, keys: &KeyState) -> Bool {
+    if event.type == SDL3.EventType.quit {
+        return false
+    }
+    if event.type == SDL3.EventType.keyDown && event.down {
+        setKeyDown(keys, event.scancode, true)
+    } else if event.type == SDL3.EventType.keyUp {
+        setKeyDown(keys, event.scancode, false)
+    }
+    return true
+}
+
+func remainingObjectBalls(world: &World2D) -> Int {
+    var remaining = 0
+    for number in 1..16 {
+        if number == 8 {
+            continue
+        }
+        if number < world.bodies.count && world.bodies[number].active {
+            remaining += 1
+        }
+    }
+    return remaining
+}
+
+func promptReplay(window: &SDL3.Window?, messageFlags: UInt32, message: String) -> Bool {
+    let title = CString(value: "Rune Pool")
+    let body = CString(value: message)
+    let noLabel = CString(value: "No")
+    let yesLabel = CString(value: "Yes")
+
+    var buttons: [SDL3.MessageBoxButtonData, 2] = [
+        SDL3.MessageBoxButtonData(
+            flags: SDL3.MessageBoxButtonFlags.escapeKeyDefault,
+            buttonId: 0,
+            text: noLabel.asCStringSlice()),
+        SDL3.MessageBoxButtonData(
+            flags: SDL3.MessageBoxButtonFlags.returnKeyDefault,
+            buttonId: 1,
+            text: yesLabel.asCStringSlice()),
+    ]
+
+    var data = SDL3.MessageBoxData(
+        flags: messageFlags,
+        parentWindow: window,
+        title: title.asCStringSlice(),
+        message: body.asCStringSlice(),
+        numButtons: 2,
+        buttons: *buttons[0],
+        colorScheme: nil
+    )
+
+    var buttonId: Int32 = -1
+    if SDL3.showMessageBox(&data, &buttonId) {
+        return buttonId == 1
+    }
+    return true
+}
+
+struct StatusLabel {
+    var texture: &SDL3.Texture?
+    var width: Float32
+    var height: Float32
+}
+
+func destroyStatusLabel(label: StatusLabel) {
+    if label.texture != nil {
+        SDL3.destroyTexture(label.texture)
+    }
+}
+
+func renderStatusLabel(renderer: &SDL3.Renderer?, font: &SDL3_ttf.Font?, text: String) -> StatusLabel {
+    if font == nil {
+        return StatusLabel(texture: nil, width: 0.0, height: 0.0)
+    }
+
+    let message = CString(value: text)
+    let color = SDL3.Color(r: 235, g: 235, b: 225, a: 255)
+    let surface = SDL3_ttf.renderTextBlended(font, message.asCStringSlice(), 0, color)
+    if surface == nil {
+        return StatusLabel(texture: nil, width: 0.0, height: 0.0)
+    }
+
+    let texture = SDL3.createTextureFromSurface(renderer, surface)
+    SDL3.destroySurface(surface)
+    if texture == nil {
+        return StatusLabel(texture: nil, width: 0.0, height: 0.0)
+    }
+
+    var width: Float32 = 0.0
+    var height: Float32 = 0.0
+    SDL3.getTextureSize(texture, &width, &height)
+    return StatusLabel(texture: texture, width: width, height: height)
+}
+
+func drawStatusLabel(renderer: &SDL3.Renderer?, label: StatusLabel) {
+    if label.texture == nil {
+        return
+    }
+
+    var destination = SDL3.FRect(
+        x: (WINDOW_W - label.width) / 2.0,
+        y: WINDOW_H - label.height - HUD_STATUS_BOTTOM_MARGIN,
+        w: label.width,
+        h: label.height)
+    SDL3.renderTexture(renderer, label.texture, nil, &destination)
+}
+
+struct AudioPlayback {
+    var started: Bool
+}
+
+// Queues a short, percussive sound made from a swept fundamental and a faster
+// decaying overtone. The pitch sweep supplies weight while the overtone keeps
+// impacts crisp and audible on small speakers.
+func playSoundEffect(
+    stream: &SDL3.AudioStream?,
+    device: UInt32,
+    playback: &AudioPlayback,
+    startFrequency: Float32,
+    endFrequency: Float32,
+    durationSeconds: Float32,
+    amplitude: Float32,
+    brightness: Float32) {
+    if stream == nil || device == 0 {
+        return
+    }
+
+    var sampleCount: Int = Int(durationSeconds * Float32(AUDIO_SAMPLE_RATE))
+    if sampleCount <= 0 {
+        return
+    }
+    if sampleCount > 4096 {
+        sampleCount = 4096
+    }
+
+    var samples: [Int16, 4096] = []
+    var fundamentalPhase: Float32 = 0.0
+    var overtonePhase: Float32 = 0.0
+    let peak: Float32 = 30000.0 * amplitude
+    for sampleIndex in 0..sampleCount {
+        let progress = Float32(sampleIndex) / Float32(sampleCount)
+        let frequency = startFrequency + (endFrequency - startFrequency) * progress
+
+        let remaining = 1.0 - progress
+        var gain = remaining * remaining
+        if sampleIndex < AUDIO_ATTACK_SAMPLES {
+            gain = gain * Float32(sampleIndex) / Float32(AUDIO_ATTACK_SAMPLES)
+        }
+
+        let fundamental = Math.sin(fundamentalPhase)
+        let overtoneGain = brightness * remaining
+        let overtone = Math.sin(overtonePhase) * overtoneGain
+        let wave = (fundamental + overtone) / (1.0 + overtoneGain)
+        samples[sampleIndex] = Int16(peak * gain * wave)
+
+        fundamentalPhase = fundamentalPhase + AUDIO_TAU * frequency / Float32(AUDIO_SAMPLE_RATE)
+        overtonePhase = overtonePhase + AUDIO_TAU * frequency * 2.37 / Float32(AUDIO_SAMPLE_RATE)
+        if fundamentalPhase >= AUDIO_TAU {
+            fundamentalPhase = fundamentalPhase - AUDIO_TAU
+        }
+        if overtonePhase >= AUDIO_TAU {
+            overtonePhase = overtonePhase - AUDIO_TAU
+        }
+    }
+
+    let byteLength: Int32 = Int32(sampleCount * 2)
+    if !SDL3.putAudioStreamData(stream, samples.bytes, byteLength) {
+        return
+    }
+
+    if !playback.started {
+        if SDL3.resumeAudioDevice(device) {
+            playback.started = true
+        }
+    }
+}
+
+func playCueSound(stream: &SDL3.AudioStream?, device: UInt32, playback: &AudioPlayback, power: Float32) {
+    let volume = 0.3 + 0.7 * power
+    playSoundEffect(stream, device, playback, 1100.0, 480.0, 0.05, volume, 0.55)
+}
+
+// impactSpeed-scaled volume, floored so light touches are still audible.
+func impactVolume(impactSpeed: Float32) -> Float32 {
+    var fraction = impactSpeed / AUDIO_REFERENCE_IMPACT_SPEED
+    if fraction > 1.0 {
+        fraction = 1.0
+    }
+    return 0.25 + 0.75 * fraction
+}
+
+func playPocketSound(stream: &SDL3.AudioStream?, device: UInt32, playback: &AudioPlayback) {
+    playSoundEffect(stream, device, playback, 300.0, 85.0, 0.18, 0.85, 0.5)
+}
+
+func playCollisionEvents(world: &World2D, stream: &SDL3.AudioStream?, device: UInt32, playback: &AudioPlayback) {
+    for i in 0..world.events.count {
+        let collisionEvent = world.events[i]
+        if collisionEvent.kind == CollisionEventKind.ballBall {
+            let volume = impactVolume(impactSpeed: collisionEvent.impactSpeed)
+            playSoundEffect(stream, device, playback, 950.0, 620.0, 0.035, volume, 0.7)
+        } else if collisionEvent.kind == CollisionEventKind.ballWall {
+            let volume = impactVolume(impactSpeed: collisionEvent.impactSpeed)
+            playSoundEffect(stream, device, playback, 320.0, 140.0, 0.07, volume * 0.8, 0.35)
+        } else if collisionEvent.kind == CollisionEventKind.pocket {
+            playPocketSound(stream, device, playback)
+        }
+    }
+}
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var audioDevice: UInt32 = 0
+var audioStream: &SDL3.AudioStream? = nil
+var playback = AudioPlayback(started: false)
+var hudFont: &SDL3_ttf.Font? = nil
+var statusLabel = StatusLabel(texture: nil, width: 0.0, height: 0.0)
+var statusText: String = ""
+var running = true
+var event = SDL3.Event()
+var keys = KeyState(escape: false, restart: false)
+
+// Re-renders the status texture only when the text actually changes, so a
+// steady message doesn't churn a texture allocation every frame.
+func setStatus(text: String) {
+    if text == statusText {
+        return
+    }
+    statusText = text
+    destroyStatusLabel(statusLabel)
+    statusLabel = renderStatusLabel(renderer, hudFont, text)
+}
+
+var world = World2D()
+var aiming = false
+var wasMoving = false
+var roundEnded = false
+
+func mainLoop() {
+    while SDL3.pollEvent(&event) {
+        if !handleEvent(event, &keys) {
+            running = false
+        }
+    }
+
+    if !running {
+        destroyStatusLabel(statusLabel)
+        SDL3_ttf.closeFont(hudFont)
+        SDL3_ttf.quit()
+        SDL3.destroyAudioStream(audioStream)
+        SDL3.closeAudioDevice(audioDevice)
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        Console.printLine("Rune Pool finished.")
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    if keys.restart {
+        rackBalls(&world)
+        roundEnded = false
+        aiming = false
+        setStatus("Break!")
+    }
+
+    var mouseX: Float32 = 0.0
+    var mouseY: Float32 = 0.0
+    let buttons = SDL3.MouseButton(SDL3.getMouseState(&mouseX, &mouseY))
+    let leftDown = (buttons & SDL3.MouseButton.leftMask) != SDL3.MouseButton(0)
+
+    let isMoving = world.anyMoving()
+
+    // Aiming/shooting is only allowed once every ball on the table is at
+    // rest and the round hasn't already ended (round-end is resolved below,
+    // after a message box the player must dismiss before play resumes).
+    if !isMoving && !roundEnded && world.bodies[0].active {
+        if leftDown {
+            aiming = true
+        } else if aiming {
+            aiming = false
+            let pull = Vector2(x: mouseX, y: mouseY) - world.bodies[0].position
+            var pullLength = pull.length()
+            if pullLength > MAX_PULL {
+                pullLength = MAX_PULL
+            }
+            if pullLength > 4.0 {
+                let direction = (world.bodies[0].position - Vector2(x: mouseX, y: mouseY)).normalized()
+                let power = pullLength / MAX_PULL * MAX_SHOT_SPEED
+                world.bodies[0].velocity = direction * power
+                playCueSound(audioStream, audioDevice, &playback, pullLength / MAX_PULL)
+                setStatus("")
+            }
+        }
+    } else {
+        aiming = false
+    }
+
+    world.step(dt: 0.016)
+    playCollisionEvents(&world, audioStream, audioDevice, &playback)
+
+    let stillMoving = world.anyMoving()
+
+    // Evaluated exactly once, on the frame every ball comes to rest --
+    // never mid-roll, and never more than once for the same shot.
+    if wasMoving && !stillMoving && !roundEnded {
+        let eightBallPotted = !world.bodies[8].active
+        let scratched = !world.bodies[0].active
+
+        if eightBallPotted {
+            roundEnded = true
+            let remaining = remainingObjectBalls(&world)
+            // Sinking the 8-ball is only a win if it was the last ball down
+            // and the shot didn't also scratch the cue ball -- a scratch on
+            // the 8-ball is a loss even if it was otherwise the final ball.
+            let won = remaining == 0 && !scratched
+            var message = "The 8-ball went down early. Play again?"
+            if won {
+                message = "You cleared the table and sank the 8-ball. You win! Play again?"
+                setStatus("You win!")
+            } else if scratched {
+                message = "You sank the 8-ball but scratched on the same shot. You lose. Play again?"
+                setStatus("You lose - scratched on the 8-ball.")
+            } else {
+                setStatus("You lose - the 8-ball went down early.")
+            }
+            let replay = promptReplay(window, won ? SDL3.MessageBoxFlags.information : SDL3.MessageBoxFlags.warning, message)
+            if replay {
+                rackBalls(&world)
+                roundEnded = false
+                setStatus("Break!")
+            } else {
+                running = false
+            }
+        } else if scratched {
+            setStatus("Scratch! Cue ball respotted.")
+            world.bodies[0].active = true
+            world.bodies[0].position = Vector2(x: headSpotX, y: playMidY)
+            world.bodies[0].velocity = Vector2.zero()
+        } else {
+            setStatus(DEFAULT_STATUS)
+        }
+    }
+    wasMoving = stillMoving
+
+    drawTable(renderer)
+    drawBalls(renderer, *world)
+    drawStatusDots(renderer, *world)
+    drawStatusLabel(renderer, statusLabel)
+    if aiming {
+        drawCueStick(renderer, world.bodies[0], mouseX, mouseY)
+        drawPowerMeter(renderer, world.bodies[0], mouseX, mouseY)
+    }
+
+    SDL3.renderPresent(renderer)
+    SDL3.delay(16)
+}
+
+func setupAudio() {
+    var spec = SDL3.AudioSpec(format: SDL3.AudioFormat.s16, channels: 1, freq: AUDIO_SAMPLE_RATE)
+
+    audioDevice = SDL3.openAudioDevice(SDL3.defaultPlaybackDevice, &spec)
+    if audioDevice == 0 {
+        Console.printLine("SDL_OpenAudioDevice failed, continuing without sound: ${SDL3.getError()!}")
+        return
+    }
+
+    audioStream = SDL3.createAudioStream(&spec, &spec)
+    if audioStream == nil {
+        Console.printLine("SDL_CreateAudioStream failed, continuing without sound: ${SDL3.getError()!}")
+        SDL3.closeAudioDevice(audioDevice)
+        audioDevice = 0
+        return
+    }
+
+    if !SDL3.bindAudioStream(audioDevice, audioStream) {
+        Console.printLine("SDL_BindAudioStream failed, continuing without sound: ${SDL3.getError()!}")
+        SDL3.destroyAudioStream(audioStream)
+        audioStream = nil
+        SDL3.closeAudioDevice(audioDevice)
+        audioDevice = 0
+    }
+}
+
+func main() -> Int {
+    var audioAvailable = true
+    if !SDL3.initialize(SDL3.InitFlags.video | SDL3.InitFlags.audio) {
+        audioAvailable = false
+        if !SDL3.initialize(SDL3.InitFlags.video) {
+            Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+            return 1
+        }
+        Console.printLine("SDL audio subsystem unavailable, continuing without sound: ${SDL3.getError()!}")
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune Pool", Int32(WINDOW_W), Int32(WINDOW_H), 0, &window, &renderer) {
+        Console.printLine("SDL_CreateWindowAndRenderer failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    // The browser may size the WASM canvas below the requested window size to
+    // fit the Playground pane. Keep rendering in the game's 900x500 coordinate
+    // space and let SDL scale the complete table into the available canvas.
+    if !SDL3.setRenderLogicalPresentation(
+        renderer,
+        Int32(WINDOW_W),
+        Int32(WINDOW_H),
+        SDL3.RendererLogicalPresentation.letterbox) {
+        Console.printLine("SDL_SetRenderLogicalPresentation failed: ${SDL3.getError()!}")
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        return 1
+    }
+
+    if audioAvailable {
+        setupAudio()
+    }
+
+    if SDL3_ttf.initialize() {
+        let fontPath = Application.resourcesDirectory / HUD_FONT_RESOURCE
+        let fontPathCString = CString(value: fontPath.toString())
+        hudFont = SDL3_ttf.openFont(fontPathCString.asCStringSlice(), HUD_FONT_SIZE)
+        if hudFont == nil {
+            Console.printLine("TTF_OpenFont failed, continuing without on-screen text: ${SDL3.getError()!}")
+        }
+    } else {
+        Console.printLine("TTF_Init failed, continuing without on-screen text: ${SDL3.getError()!}")
+    }
+    setStatus("Break!")
+
+    setupTable(&world)
+    rackBalls(&world)
+
+    Console.printLine("Rune Pool: drag from the cue ball to aim and shoot, R to re-rack.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

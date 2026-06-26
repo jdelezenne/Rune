@@ -1,0 +1,209 @@
+import Standard.*
+
+const NETWORK_HOST: String = "127.0.0.1"
+const NETWORK_BIND_HOST: String = "0.0.0.0"
+const NETWORK_PORT: UInt16 = 9201
+const NETWORK_BUFFER_SIZE: UInt = 8192
+const SERVER_DT: Float32 = 1.0 / 60.0
+const SNAPSHOT_EVERY_TICKS: Int32 = 3
+const MAX_PLAYERS: Int = 8
+const PLAYER_HIT_RADIUS: Float32 = 13.0
+const PLAYER_CRASH_RADIUS: Float32 = 22.0
+const PLAYER_HIT_SCORE: Int32 = 250
+const ROUND_RESET_DELAY: Float32 = 3.0
+
+struct Player {
+    var id: Int32
+    var ship: Ship
+    var input: InputState
+    var active: Bool
+    var score: Int32
+    var lives: Int32
+}
+
+struct NetworkBullet {
+    var ownerId: Int32
+    var x: Float32
+    var y: Float32
+    var vx: Float32
+    var vy: Float32
+    var life: Float32
+    var active: Bool
+}
+
+struct NetworkWorld {
+    var players: Array<Player>
+    var bullets: Array<NetworkBullet>
+    var asteroids: Array<Asteroid>
+    var rng: Rng
+    var wave: Int32
+    var tick: Int32
+    var roundResetTimer: Float32
+    var roundWinnerId: Int32
+}
+
+struct ServerPeer {
+    var id: Int32
+    var stream: TcpStream
+    var address: String
+    var active: Bool
+    var receiveText: String
+}
+
+struct ClientConnection {
+    var stream: TcpStream
+    var receiveText: String
+    var playerId: Int32
+    var pendingWorld: NetworkWorld
+}
+
+func emptyInput() -> InputState {
+    return InputState(
+        rotateLeft: false,
+        rotateRight: false,
+        thrust: false,
+        fire: false,
+        hyperspace: false,
+        pause: false,
+        quit: false)
+}
+
+func sameInput(lhs: InputState, rhs: InputState) -> Bool {
+    return lhs.rotateLeft == rhs.rotateLeft &&
+        lhs.rotateRight == rhs.rotateRight &&
+        lhs.thrust == rhs.thrust &&
+        lhs.fire == rhs.fire &&
+        lhs.hyperspace == rhs.hyperspace
+}
+
+func makeShip() -> Ship {
+    return Ship(
+        x: Float32(WIDTH) * 0.5,
+        y: Float32(HEIGHT) * 0.5,
+        vx: 0.0,
+        vy: 0.0,
+        angle: Float32(-Math.PI / 2.0),
+        alive: true,
+        invuln: INVULN_TIME,
+        fireTimer: 0.0,
+        hyperspaceTimer: 0.0,
+        thrusting: false)
+}
+
+func resetPlayerShip(player: &Player, rng: &Rng) {
+    player.ship = makeShip()
+    player.ship.x = randRange(rng, 120.0, Float32(WIDTH) - 120.0)
+    player.ship.y = randRange(rng, 120.0, Float32(HEIGHT) - 120.0)
+}
+
+func makePlayer(id: Int32, rng: &Rng) -> Player {
+    var player = Player(
+        id: id,
+        ship: makeShip(),
+        input: emptyInput(),
+        active: true,
+        score: 0,
+        lives: 3)
+    resetPlayerShip(player: &player, rng: rng)
+    return player
+}
+
+func makeNetworkWorld(seed: UInt32) -> NetworkWorld {
+    var rng = Rng(state: 1)
+    seedRng(rng: &rng, seed: seed)
+    var world = NetworkWorld(
+        players: [],
+        bullets: [],
+        asteroids: [],
+        rng: rng,
+        wave: 1,
+        tick: 0,
+        roundResetTimer: 0.0,
+        roundWinnerId: -1)
+    spawnNetworkWave(world: &world)
+    return world
+}
+
+func spawnNetworkAsteroid(
+    world: &NetworkWorld,
+    x: Float32,
+    y: Float32,
+    tier: Int32,
+    vx: Float32,
+    vy: Float32) {
+    var asteroid = Asteroid(
+        x: x,
+        y: y,
+        vx: vx,
+        vy: vy,
+        angle: randRange(&world.rng, 0.0, TAU_F),
+        spin: randRange(&world.rng, -1.4, 1.4),
+        tier: tier,
+        alive: true,
+        vertexCount: 0,
+        radii: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    configureAsteroidShape(asteroid: &asteroid, rng: &world.rng)
+    world.asteroids.append(asteroid)
+}
+
+func spawnNetworkWave(world: &NetworkWorld) {
+    world.asteroids = []
+    let count = 3 + world.wave
+    for _ in 0..count {
+        let edge = randInt(&world.rng, 4)
+        var x: Float32 = 0.0
+        var y: Float32 = 0.0
+        if edge == 0 {
+            x = randRange(&world.rng, 0.0, Float32(WIDTH))
+            y = -40.0
+        } else if edge == 1 {
+            x = Float32(WIDTH) + 40.0
+            y = randRange(&world.rng, 0.0, Float32(HEIGHT))
+        } else if edge == 2 {
+            x = randRange(&world.rng, 0.0, Float32(WIDTH))
+            y = Float32(HEIGHT) + 40.0
+        } else {
+            x = -40.0
+            y = randRange(&world.rng, 0.0, Float32(HEIGHT))
+        }
+
+        let speed = randRange(&world.rng, 40.0, 90.0) + Float32(world.wave) * 6.0
+        let direction = randRange(&world.rng, 0.0, TAU_F)
+        spawnNetworkAsteroid(
+            world: world,
+            x: x,
+            y: y,
+            tier: 1,
+            vx: Math.cos(direction) * speed,
+            vy: Math.sin(direction) * speed)
+    }
+}
+
+func livingNetworkAsteroids(world: NetworkWorld) -> Int32 {
+    var count: Int32 = 0
+    for asteroidIndex in 0..world.asteroids.count {
+        if world.asteroids[asteroidIndex].alive {
+            count = count + 1
+        }
+    }
+    return count
+}
+
+func findPlayerIndex(world: NetworkWorld, id: Int32) -> Int {
+    var index = 0
+    while index < world.players.count {
+        if world.players[index].active && world.players[index].id == id {
+            return index
+        }
+        index = index + 1
+    }
+    return -1
+}
+
+func boolBit(value: Bool) -> String {
+    return value ? "1" : "0"
+}
+
+func parseBoolBit(value: String) -> Bool {
+    return value == "1"
+}

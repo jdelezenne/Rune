@@ -1,0 +1,107 @@
+/// In-order iterator over the key-value pairs of a SortedMap.
+@builtin
+public struct SortedMapIterator<K extends Comparable, V> {
+    @runtime("rune_sortedmap_iterator_create")
+    public init(map: SortedMap<K, V>)
+}
+
+public extension SortedMapIterator<K extends Comparable, V> implements Iterator {
+    public type Element = (key: K, value: V)
+
+    public mutating func next() -> (key: K, value: V)? {
+        let key = nextKeyPointer()
+        if key == nil {
+            return nil
+        }
+
+        return (key: key!^, value: currentValuePointer()^)
+    }
+
+    @runtime("rune_sortedmap_iterator_next_key")
+    private mutating func nextKeyPointer() -> *K?
+
+    @runtime("rune_sortedmap_iterator_current_value")
+    private mutating func currentValuePointer() -> *V
+}
+
+/// Key-to-value mapping maintained in ascending key order.
+@builtin
+public struct SortedMap<K extends Comparable, V> {
+    /// Creates an empty map using the ambient allocator.
+    public init() {
+        initialize(keySize: #sizeOf<K>(), valueSize: #sizeOf<V>())
+    }
+
+    @runtime("rune_runtime_sortedmap_initialize")
+    private mutating func initialize(keySize: UInt, valueSize: UInt)
+}
+
+public extension SortedMap<K extends Comparable, V> implements Dictionary {
+    public type Key = K
+    public type Value = V
+    public type Element = (key: K, value: V)
+    public type Iter = SortedMapIterator<K, V>
+
+    /// Returns an in-order iterator over all key-value pairs.
+    @runtime("rune_sortedmap_iterator_create")
+    public func makeIterator() -> SortedMapIterator<K, V>
+
+    /// Number of key-value pairs.
+    public count: Int {
+        @runtime("rune_sortedmap_count")
+        get
+    }
+
+    /// `true` when the map contains no entries.
+    public isEmpty: Bool {
+        @runtime("rune_sortedmap_is_empty")
+        get
+    }
+
+    /// Inserts or updates the value for `key`.
+    @runtime("rune_sortedmap_insert")
+    public mutating func insert(key: K, value: V)
+
+    /// Removes the entry for `key` if present.
+    @runtime("rune_sortedmap_remove")
+    public mutating func remove(key: K)
+
+    /// Returns `true` if the map contains `key`.
+    @runtime("rune_sortedmap_contains")
+    public func contains(key: K) -> Bool
+
+    /// Returns the value for `key`, or `nil` if absent.
+    public func tryGet(key: K) -> V? {
+        let value = tryGetInternal(key: key)
+        if value == nil {
+            return nil
+        }
+
+        return value!^
+    }
+
+    /// Returns the value for `key` (fatal trap if absent).
+    public operator [](key: K) -> V {
+        return tryGetInternal(key: key)!^
+    }
+
+    @runtime("rune_runtime_sortedmap_try_get")
+    private func tryGetInternal(key: K) -> *V?
+
+    /// Removes all entries, retaining allocated storage.
+    @runtime("rune_sortedmap_remove_all")
+    public mutating func removeAll()
+}
+
+public extension SortedMap<K extends Comparable, V> implements DictionaryLiteralConvertible {
+    public type Key = K
+    public type Value = V
+
+    public init(dictionaryLiteral: (key: K, value: V)...) {
+        initialize(keySize: #sizeOf<K>(), valueSize: #sizeOf<V>())
+
+        for entry in dictionaryLiteral {
+            insert(key: entry.key, value: entry.value)
+        }
+    }
+}

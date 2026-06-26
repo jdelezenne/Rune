@@ -1,0 +1,302 @@
+import Standard.*
+
+const BOARD_COLS: Int = 20
+const BOARD_ROWS: Int = 20
+const BOARD_CELLS: Int = 400
+const HISTORY_CAPACITY: Int = 4096
+
+const FLOOR: UInt8 = 0
+const WALL: UInt8 = 1
+const GOAL: UInt8 = 2
+const PACKET: UInt8 = 3
+const SAVED_PACKET: UInt8 = 4
+
+struct Game {
+    var tiles: [UInt8, BOARD_CELLS]
+    var history: [Int32, HISTORY_CAPACITY]
+    var historyCount: Int
+    var playerCol: Int
+    var playerRow: Int
+    var boardCols: Int
+    var boardRows: Int
+    var level: Int
+    var moves: Int
+    var pushes: Int
+    var elapsedMilliseconds: Int
+    var packets: Int
+    var savedPackets: Int
+    var complete: Bool
+
+    mutating func load(level: Int) throws(Storage.StorageError) {
+        // Read first so an I/O failure cannot destroy the currently playable board.
+        let source = try levelSource(level)
+
+        self.tiles = []
+        self.historyCount = 0
+        self.playerCol = 0
+        self.playerRow = 0
+        self.boardCols = 0
+        self.boardRows = 0
+        self.level = level
+        self.moves = 0
+        self.pushes = 0
+        self.elapsedMilliseconds = 0
+        self.packets = 0
+        self.savedPackets = 0
+        self.complete = false
+
+        var row = 0
+        var col = 0
+        for character in source {
+            if character.codePoint == 10 {
+                if col > self.boardCols {
+                    self.boardCols = col
+                }
+                row = row + 1
+                col = 0
+                continue
+            }
+            if row < BOARD_ROWS && col < BOARD_COLS {
+                let index = row * BOARD_COLS + col
+                if character.codePoint == 35 {
+                    self.tiles[index] = WALL
+                }
+                else if character.codePoint == 46 {
+                    self.tiles[index] = GOAL
+                }
+                else if character.codePoint == 36 {
+                    self.tiles[index] = PACKET
+                    self.packets = self.packets + 1
+                }
+                else if character.codePoint == 42 {
+                    self.tiles[index] = SAVED_PACKET
+                    self.packets = self.packets + 1
+                    self.savedPackets = self.savedPackets + 1
+                }
+                else if character.codePoint == 64 {
+                    self.playerCol = col
+                    self.playerRow = row
+                }
+                else if character.codePoint == 43 {
+                    self.playerCol = col
+                    self.playerRow = row
+                    self.tiles[index] = GOAL
+                }
+            }
+            col = col + 1
+        }
+        self.boardRows = row
+        if self.boardRows > BOARD_ROWS {
+            self.boardRows = BOARD_ROWS
+        }
+    }
+
+    func tile(col: Int, row: Int) -> UInt8 {
+        if col < 0 || col >= BOARD_COLS || row < 0 || row >= BOARD_ROWS {
+            return WALL
+        }
+        return self.tiles[row * BOARD_COLS + col]
+    }
+
+    mutating func setTile(col: Int, row: Int, value: UInt8) {
+        self.tiles[row * BOARD_COLS + col] = value
+    }
+
+    mutating func applyMove(dx: Int, dy: Int, record: Bool) -> Bool {
+        if self.complete {
+            return false
+        }
+        let nextCol = self.playerCol + dx
+        let nextRow = self.playerRow + dy
+        let next = self.tile(nextCol, nextRow)
+        if next == WALL {
+            return false
+        }
+
+        if next == PACKET || next == SAVED_PACKET {
+            let beyondCol = nextCol + dx
+            let beyondRow = nextRow + dy
+            let beyond = self.tile(beyondCol, beyondRow)
+            if beyond != FLOOR && beyond != GOAL {
+                return false
+            }
+
+            self.setTile(nextCol, nextRow, if next == SAVED_PACKET {
+                GOAL
+            } else {
+                FLOOR
+            }
+            )
+            self.setTile(beyondCol, beyondRow, if beyond == GOAL {
+                SAVED_PACKET
+            } else {
+                PACKET
+            }
+            )
+            self.pushes = self.pushes + 1
+            if next == SAVED_PACKET {
+                self.savedPackets = self.savedPackets - 1
+            }
+            if beyond == GOAL {
+                self.savedPackets = self.savedPackets + 1
+            }
+        }
+
+        self.playerCol = nextCol
+        self.playerRow = nextRow
+        self.moves = self.moves + 1
+        if record && self.historyCount < HISTORY_CAPACITY {
+            var direction: Int32 = 0
+            if dx > 0 {
+                direction = 1
+            }
+            else if dy > 0 {
+                direction = 2
+            }
+            else if dx < 0 {
+                direction = 3
+            }
+            self.history[self.historyCount] = direction
+            self.historyCount = self.historyCount + 1
+        }
+        self.complete = self.packets > 0 && self.savedPackets == self.packets
+        return true
+    }
+
+    mutating func move(dx: Int, dy: Int) {
+        _ = self.applyMove(dx, dy, true)
+    }
+
+    mutating func addElapsedSecond() {
+        self.elapsedMilliseconds = self.elapsedMilliseconds + 1000
+    }
+
+    mutating func undo() throws(Storage.StorageError) {
+        if self.historyCount <= 0 {
+            try self.load(self.level)
+            return
+        }
+        self.historyCount = self.historyCount - 1
+        let count = self.historyCount
+        let elapsedMilliseconds = self.elapsedMilliseconds
+        var replay: [Int32, HISTORY_CAPACITY] = self.history
+        try self.load(self.level)
+        for index in 0..count {
+            let direction = replay[index]
+            if direction == 0 {
+                _ = self.applyMove(0, -1, true)
+            }
+            else if direction == 1 {
+                _ = self.applyMove(1, 0, true)
+            }
+            else if direction == 2 {
+                _ = self.applyMove(0, 1, true)
+            }
+            else {
+                _ = self.applyMove(-1, 0, true)
+            }
+        }
+        self.elapsedMilliseconds = elapsedMilliseconds
+    }
+
+    mutating func nextLevel() throws(Storage.StorageError) {
+        var next = self.level + 1
+        if next >= LEVEL_COUNT {
+            next = 0
+        }
+        try self.load(next)
+    }
+}
+
+func makeGame() -> Game {
+    var game = Game(tiles: [], history: [], historyCount: 0, playerCol: 0, playerRow: 0,
+        boardCols: 0, boardRows: 0, level: 0, moves: 0, pushes: 0, packets: 0,
+        elapsedMilliseconds: 0, savedPackets: 0, complete: false)
+    return game
+}
+
+// MARK: - Mouse walking
+
+// Step offsets in the move-history direction encoding: 0 up, 1 right,
+// 2 down, 3 left.
+const WALK_DX: [Int, 4] = [0, 1, 0, -1]
+const WALK_DY: [Int, 4] = [-1, 0, 1, 0]
+
+func walkableTile(tile: UInt8) -> Bool {
+    return tile == FLOOR || tile == GOAL
+}
+
+// Breadth-first route from the player to the target cell, stepping only on
+// empty floor and goals - a walk never disturbs a packet. Returns the step
+// directions in history encoding, or an empty array when the target is
+// unreachable.
+func findWalkPath(game: &Game, targetCol: Int, targetRow: Int) -> [Int32] {
+    var path: [Int32] = []
+    if targetCol < 0 || targetCol >= game.boardCols || targetRow < 0 || targetRow >= game.boardRows {
+        return path
+    }
+    if !walkableTile(game.tile(targetCol, targetRow)) {
+        return path
+    }
+
+    let start = game.playerRow * BOARD_COLS + game.playerCol
+    let target = targetRow * BOARD_COLS + targetCol
+    if start == target {
+        return path
+    }
+
+    var visited: [Bool, BOARD_CELLS] = []
+    var arrival: [Int32, BOARD_CELLS] = []  // direction that entered each cell
+    var queue: [Int] = []
+    queue.append(start)
+    visited[start] = true
+
+    var head = 0
+    while head < queue.count {
+        let cell = queue[head]
+        head = head + 1
+        if cell == target {
+            break
+        }
+        let col = cell % BOARD_COLS
+        let row = cell / BOARD_COLS
+        for direction in 0..4 {
+            let ncol = col + WALK_DX[direction]
+            let nrow = row + WALK_DY[direction]
+            if ncol < 0 || ncol >= game.boardCols || nrow < 0 || nrow >= game.boardRows {
+                continue
+            }
+            if !walkableTile(game.tile(ncol, nrow)) {
+                continue
+            }
+            let next = nrow * BOARD_COLS + ncol
+            if visited[next] {
+                continue
+            }
+            visited[next] = true
+            arrival[next] = Int32(direction)
+            queue.append(next)
+        }
+    }
+
+    if !visited[target] {
+        return path
+    }
+
+    // Trace back from the target collecting directions, then reverse.
+    var reversed: [Int32] = []
+    var cell = target
+    while cell != start {
+        let direction = arrival[cell]
+        reversed.append(direction)
+        let col = cell % BOARD_COLS
+        let row = cell / BOARD_COLS
+        cell = (row - WALK_DY[Int(direction)]) * BOARD_COLS + (col - WALK_DX[Int(direction)])
+    }
+    var index = reversed.count - 1
+    while index >= 0 {
+        path.append(reversed[index])
+        index = index - 1
+    }
+    return path
+}

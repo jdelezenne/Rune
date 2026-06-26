@@ -1,0 +1,76 @@
+// TCP echo client.
+//
+// Start Examples/Programs/Network/TcpEchoServer.rune first.
+// Run:
+//   rune run Examples/Programs/Network/TcpEchoClient.rune
+
+import Standard.*
+
+const HOST: String = "127.0.0.1"
+const PORT: UInt16 = 9100
+
+func sendLine(stream: &TcpStream, line: String) throws(String) -> UInt {
+    let length = UInt(line.length)
+    if length == 0 {
+        return 0
+    }
+
+    let buffer = try! Memory.systemAllocate(size: length)
+    let copied = line.copyBytes(destination: buffer, maxLength: length)
+    _ = try stream.writeAll(data: buffer, length: copied)
+    Memory.systemDeallocate(address: buffer)
+    return copied
+}
+
+func receiveEcho(stream: &TcpStream, byteCount: UInt) throws(String) -> String {
+    if byteCount == 0 {
+        return ""
+    }
+
+    let buffer = try! Memory.systemAllocate(size: byteCount)
+    var total: UInt = 0
+    while total < byteCount {
+        let cursor = (Int(buffer) + Int(total)) as &Byte
+        let received = try stream.read(buffer: cursor, length: byteCount - total)
+        if received == 0 {
+            throw "server closed before echo completed"
+        }
+
+        total = total + UInt(received)
+    }
+
+    let echoed = String.fromBytes(source: buffer, length: total)
+    Memory.systemDeallocate(address: buffer)
+    return echoed
+}
+
+func runClient() throws(String) -> Int {
+    var stream = try TcpStream.connect(host: HOST, port: PORT)
+    Console.printLine("connected to ${stream.peerAddress}")
+    Console.printLine("type a line and press Enter; empty line exits")
+
+    while true {
+        Console.print("> ")
+        let line = Console.readLine()
+        if line.isEmpty {
+            stream.close()
+            return 0
+        }
+
+        let sent = try sendLine(stream: &stream, line: line)
+        let echoed = try receiveEcho(stream: &stream, byteCount: sent)
+        Console.printLine("echo: ${echoed}")
+    }
+
+    return 0
+}
+
+func main() -> Int {
+    do {
+        return runClient()
+    }
+    catch let error {
+        Console.printLine("tcp echo client error: ${error}")
+        return 1
+    }
+}

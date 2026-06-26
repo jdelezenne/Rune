@@ -1,0 +1,56 @@
+// Fractal value noise for terrain heightmaps. Standard has no noise/RNG
+// facility, so this hashes integer lattice points with plain xorshift-style
+// integer mixing (the same technique
+// Examples/Programs/SDL3/AsteroidsShared/Model.rune's Rng uses), then
+// bilinear-interpolates between lattice values and sums a few octaves at
+// increasing frequency/decreasing amplitude for a natural rolling-hills
+// look instead of per-column static.
+
+import Standard.*
+
+func hashLattice2D(x: Int32, y: Int32, seed: UInt32) -> Float32 {
+    var h = UInt32(x) * 374761393 + UInt32(y) * 668265263 + seed * 2246822519
+    h = (h ^ (h >> 13)) * 1274126177
+    h = h ^ (h >> 16)
+    return Float32(h) / 4294967295.0
+}
+
+func smoothstep(t: Float32) -> Float32 {
+    return t * t * (3.0 - 2.0 * t)
+}
+
+func lerpFloat(a: Float32, b: Float32, t: Float32) -> Float32 {
+    return a + (b - a) * t
+}
+
+func valueNoise2D(x: Float32, y: Float32, seed: UInt32) -> Float32 {
+    let x0 = Int32(Math.floor(x))
+    let y0 = Int32(Math.floor(y))
+    let tx = smoothstep(x - Float32(x0))
+    let ty = smoothstep(y - Float32(y0))
+
+    let h00 = hashLattice2D(x0, y0, seed)
+    let h10 = hashLattice2D(x0 + 1, y0, seed)
+    let h01 = hashLattice2D(x0, y0 + 1, seed)
+    let h11 = hashLattice2D(x0 + 1, y0 + 1, seed)
+
+    let top = lerpFloat(h00, h10, tx)
+    let bottom = lerpFloat(h01, h11, tx)
+    return lerpFloat(top, bottom, ty)
+}
+
+// Sums `octaves` layers of value noise at doubling frequency and halving
+// amplitude, normalized back to roughly [0, 1).
+func fractalNoise2D(x: Float32, y: Float32, seed: UInt32, octaves: Int32) -> Float32 {
+    var amplitude: Float32 = 1.0
+    var frequency: Float32 = 1.0
+    var sum: Float32 = 0.0
+    var maxAmplitude: Float32 = 0.0
+    for _ in 0..octaves {
+        sum = sum + valueNoise2D(x * frequency, y * frequency, seed) * amplitude
+        maxAmplitude = maxAmplitude + amplitude
+        amplitude = amplitude * 0.5
+        frequency = frequency * 2.0
+    }
+    return sum / maxAmplitude
+}

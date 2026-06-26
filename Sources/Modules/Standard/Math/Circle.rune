@@ -1,0 +1,59 @@
+/// 2D circle defined by a `center` and `radius` — the Vector2 counterpart to
+/// Sphere, used for 2D bounds, collision, and UI hit-testing.
+@layout(kind: c)
+public struct Circle {
+    public var center: Vector2
+    public var radius: Float32
+
+    /// Whether `point` lies inside (or on) the circle.
+    public func contains(point: Vector2) -> Bool {
+        return center.distanceSquared(to: point) <= radius * radius
+    }
+
+    /// Whether this circle overlaps `other`.
+    public func intersects(other: Circle) -> Bool {
+        return Intersection.circleCircle(a: self, b: other)
+    }
+
+    /// Whether this circle overlaps `rect`.
+    public func intersects(rect: Rect) -> Bool {
+        return Intersection.circleRect(circle: self, rect: rect)
+    }
+
+    /// Signed distance from `point` to the circle's edge (negative inside).
+    public func signedDistance(point: Vector2) -> Float32 {
+        return center.distance(to: point) - radius
+    }
+
+    /// The point on or inside the circle closest to `point`.
+    public func closestPoint(point: Vector2) -> Vector2 {
+        let d = point - center
+        let dist = d.length()
+        if dist < Math.EPSILON_F32 {
+            return center + Vector2(x: radius, y: 0.0)
+        }
+        if dist <= radius {
+            return point
+        }
+        return center + d * (radius / dist)
+    }
+
+    public func area() -> Float32 {
+        return Float32(Math.PI) * radius * radius
+    }
+
+    /// Grows the circle (keeping its center) just enough to contain `point`.
+    public func expandedToContain(point: Vector2) -> Circle {
+        let d = center.distance(to: point)
+        if d <= radius {
+            return self
+        }
+        return Circle(center: center, radius: d)
+    }
+}
+
+public extension Circle implements Equatable {
+    public static operator ==(lhs: Circle, rhs: Circle) -> Bool {
+        return lhs.center == rhs.center && lhs.radius == rhs.radius
+    }
+}

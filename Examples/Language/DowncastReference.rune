@@ -1,0 +1,56 @@
+// Downcasting a base reference to a derived reference with `as?` / `as!`.
+//
+// The result type is exactly the target you write, the same as for primitives
+// (`x as? Int8` yields `Int8?`). A polymorphic downcast therefore names a
+// reference target: `s as? *Circle` yields `(*Circle)?`, a reference to the
+// same object with no copy. `s as! *Circle` yields `*Circle` and traps on a
+// mismatch.
+
+open struct Shape {
+    var tag: Int
+    open func area() -> Int {
+        return 0
+    }
+}
+
+struct Circle extends Shape {
+    var radius: Int
+    override func area() -> Int {
+        return radius * radius
+    }
+}
+
+struct Square extends Shape {
+    var side: Int
+    override func area() -> Int {
+        return side * side
+    }
+}
+
+func main() -> Int {
+    let c = Circle(tag: 1, radius: 5)
+    let s: *Shape = *c
+
+    // Matching `as?` yields Some(*Circle); the derived fields are reachable.
+    let maybeCircle: (*Circle)? = s as? *Circle
+    if !maybeCircle.hasValue() {
+        return 1
+    }
+    if maybeCircle.unwrap()^.radius != 5 {
+        return 2
+    }
+
+    // Non-matching `as?` yields nil.
+    let maybeSquare: (*Square)? = s as? *Square
+    if maybeSquare.hasValue() {
+        return 3
+    }
+
+    // Matching `as!` yields the reference directly.
+    let circle: *Circle = s as! *Circle
+    if circle^.radius != 5 {
+        return 4
+    }
+
+    return 0
+}

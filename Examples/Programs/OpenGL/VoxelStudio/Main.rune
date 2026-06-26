@@ -1,0 +1,362 @@
+// VoxelStudio: a from-scratch 3D voxel editor. Orbit the camera with the
+// right mouse button, use the current tool with the left button (drag to
+// paint/erase/place a stroke of voxels, matching the click-and-drag feel of
+// Examples/Programs/SDL3/PixelStudio), pan with middle mouse or the arrow
+// keys, zoom with the wheel, and choose tools/colors from the side panels.
+//
+// Unlike VoxelPlanet (Examples/Programs/OpenGL/VoxelPlanet), which explores
+// a large procedurally generated world with a free-flight camera, this is
+// a small fixed-size grid meant to be *edited*: every change immediately
+// rebuilds and re-uploads the mesh (see Render.rune's refreshGridMesh), and
+// picking is an exact DDA voxel raycast (Model.rune's raycastVoxels), not
+// an approximation -- both matter for an editor to feel trustworthy.
+
+import Standard.*
+import SDL3
+import SDL3_ttf
+import OpenGL
+
+const WINDOW_WIDTH: Int32 = 1024
+const WINDOW_HEIGHT: Int32 = 768
+const FOV_Y_DEGREES: Float32 = 60.0
+const ORBIT_SENSITIVITY: Float32 = 0.006
+const ZOOM_STEP: Float32 = 1.1
+const KEYBOARD_PAN_PIXELS: Float32 = 32.0
+
+var window: &SDL3.Window? = nil
+var glContext: &SDL3.GLContext? = nil
+var editor = makeEditor()
+var scene: Scene? = nil
+var hud: Hud? = nil
+var running = true
+var orbiting = false
+var panning = false
+var applying = false
+var shiftDown = false
+var mouseX: Float32 = 0.0
+var mouseY: Float32 = 0.0
+var lastEditedCellValid = false
+var lastEditedCellX: Int32 = 0
+var lastEditedCellY: Int32 = 0
+var lastEditedCellZ: Int32 = 0
+
+func currentRayOrigin() -> Vector3 {
+    return editor.camera.eye()
+}
+
+func currentRayDirection() -> Vector3 {
+    return editor.camera.mouseRay(
+        mouseX: mouseX,
+        mouseY: mouseY,
+        windowWidth: Float32(WINDOW_WIDTH),
+        windowHeight: Float32(WINDOW_HEIGHT),
+        fovYDegrees: FOV_Y_DEGREES)
+}
+
+func currentHit() -> RaycastHit? {
+    let origin = currentRayOrigin()
+    let direction = currentRayDirection()
+    if let hit = raycastVoxels(&editor.grid, origin, direction) {
+        return hit
+    }
+    if editor.tool == Tool.place {
+        return raycastGridPlane(origin, direction, editor.gridHeight)
+    }
+    return nil
+}
+
+// The cell an edit at `hit` would actually change, used to avoid
+// re-applying the tool (and rebuilding the mesh) every single mouse motion
+// event while the cursor sits over the same voxel during a drag.
+func editedCell(hit: RaycastHit) -> Vector3 {
+    if editor.tool == Tool.place {
+        return hit.placement
+    }
+    return hit.voxel
+}
+
+func applyToolIfNewCell(hit: RaycastHit) {
+    let cell = editedCell(hit)
+    let x = Int32(cell.x)
+    let y = Int32(cell.y)
+    let z = Int32(cell.z)
+    if lastEditedCellValid && x == lastEditedCellX && y == lastEditedCellY && z == lastEditedCellZ {
+        return
+    }
+    lastEditedCellValid = true
+    lastEditedCellX = x
+    lastEditedCellY = y
+    lastEditedCellZ = z
+
+    let previousTool = editor.tool
+    if editor.applyTool(hit: hit) {
+        refreshGridMesh(&scene!, &editor.grid)
+    }
+    if editor.tool != previousTool {
+        refreshToolLabel(&hud!, editor.tool)
+    }
+}
+
+func selectTool(tool: Tool) {
+    editor.tool = tool
+    lastEditedCellValid = false
+    refreshToolLabel(&hud!, editor.tool)
+}
+
+func changeGridHeight(delta: Int32) {
+    var next = editor.gridHeight + delta
+    if next < 0 {
+        next = 0
+    } else if next >= GRID_SIZE {
+        next = GRID_SIZE - 1
+    }
+    if next == editor.gridHeight {
+        return
+    }
+    editor.gridHeight = next
+    lastEditedCellValid = false
+    refreshGridHeightLabel(&hud!, editor.gridHeight)
+}
+
+func resetGridHeight() {
+    if editor.gridHeight == 0 {
+        return
+    }
+    editor.gridHeight = 0
+    lastEditedCellValid = false
+    refreshGridHeightLabel(&hud!, editor.gridHeight)
+}
+
+func handleMouseDown(mouse: &SDL3.MouseButtonEvent) {
+    if mouse.button == SDL3.MouseButtonId.right {
+        if shiftDown {
+            panning = true
+        } else {
+            orbiting = true
+        }
+        return
+    }
+    if mouse.button == SDL3.MouseButtonId.middle {
+        panning = true
+        return
+    }
+    if mouse.button != SDL3.MouseButtonId.left {
+        return
+    }
+
+    if let tool = toolbarToolAt(mouse.x, mouse.y) {
+        selectTool(tool)
+        return
+    }
+    if let colorIndex = paletteColorAt(mouse.x, mouse.y) {
+        editor.colorIndex = colorIndex
+        return
+    }
+    if let gridAction = gridHeightControlAt(mouse.x, mouse.y) {
+        if gridAction == 0 {
+            resetGridHeight()
+        } else {
+            changeGridHeight(gridAction)
+        }
+        return
+    }
+    if pointIsOverHud(mouse.x, mouse.y) {
+        return
+    }
+
+    applying = true
+    lastEditedCellValid = false
+    if let hit = currentHit() {
+        applyToolIfNewCell(hit)
+    }
+}
+
+func handleMouseUp(mouse: &SDL3.MouseButtonEvent) {
+    if mouse.button == SDL3.MouseButtonId.right {
+        orbiting = false
+        panning = false
+    } else if mouse.button == SDL3.MouseButtonId.middle {
+        panning = false
+    } else if mouse.button == SDL3.MouseButtonId.left {
+        applying = false
+        lastEditedCellValid = false
+    }
+}
+
+func handleMouseMotion(motion: &SDL3.MouseMotionEvent) {
+    mouseX = motion.x
+    mouseY = motion.y
+
+    if orbiting {
+        editor.camera.orbit(
+            deltaYaw: -motion.xrel * ORBIT_SENSITIVITY,
+            deltaPitch: motion.yrel * ORBIT_SENSITIVITY)
+        return
+    }
+
+    if panning {
+        editor.camera.pan(
+            deltaX: motion.xrel,
+            deltaY: motion.yrel,
+            windowHeight: Float32(WINDOW_HEIGHT),
+            fovYDegrees: FOV_Y_DEGREES)
+        return
+    }
+
+    if applying {
+        if let hit = currentHit() {
+            applyToolIfNewCell(hit)
+        }
+    }
+}
+
+func handleMouseWheel(wheel: &SDL3.MouseWheelEvent) {
+    if pointIsOverHud(wheel.mouseX, wheel.mouseY) {
+        return
+    }
+    if wheel.y > 0.0 {
+        editor.camera.zoom(factor: 1.0 / ZOOM_STEP)
+    } else if wheel.y < 0.0 {
+        editor.camera.zoom(factor: ZOOM_STEP)
+    }
+}
+
+func handleKeyDown(event: &SDL3.Event) {
+    if event.scancode == SDL3.Scancode.lshift || event.scancode == SDL3.Scancode.rshift {
+        shiftDown = true
+    } else if event.scancode == SDL3.Scancode.escape {
+        running = false
+    } else if event.scancode == SDL3.Scancode.left {
+        editor.camera.pan(deltaX: KEYBOARD_PAN_PIXELS, deltaY: 0.0, windowHeight: Float32(WINDOW_HEIGHT), fovYDegrees: FOV_Y_DEGREES)
+    } else if event.scancode == SDL3.Scancode.right {
+        editor.camera.pan(deltaX: -KEYBOARD_PAN_PIXELS, deltaY: 0.0, windowHeight: Float32(WINDOW_HEIGHT), fovYDegrees: FOV_Y_DEGREES)
+    } else if event.scancode == SDL3.Scancode.up {
+        editor.camera.pan(deltaX: 0.0, deltaY: KEYBOARD_PAN_PIXELS, windowHeight: Float32(WINDOW_HEIGHT), fovYDegrees: FOV_Y_DEGREES)
+    } else if event.scancode == SDL3.Scancode.down {
+        editor.camera.pan(deltaX: 0.0, deltaY: -KEYBOARD_PAN_PIXELS, windowHeight: Float32(WINDOW_HEIGHT), fovYDegrees: FOV_Y_DEGREES)
+    } else if event.scancode == SDL3.Scancode.r {
+        resetGridHeight()
+    }
+}
+
+func handleKeyUp(event: &SDL3.Event) {
+    if event.scancode == SDL3.Scancode.lshift || event.scancode == SDL3.Scancode.rshift {
+        shiftDown = false
+    }
+}
+
+func handleEvent(event: &SDL3.Event) {
+    if event.type == SDL3.EventType.quit || event.type == SDL3.EventType.windowCloseRequested {
+        running = false
+    } else if event.type == SDL3.EventType.keyDown && event.down {
+        handleKeyDown(event)
+    } else if event.type == SDL3.EventType.keyUp {
+        handleKeyUp(event)
+    } else if event.type == SDL3.EventType.mouseButtonDown {
+        handleMouseDown(SDL3.mouseButtonEvent(event))
+    } else if event.type == SDL3.EventType.mouseButtonUp {
+        handleMouseUp(SDL3.mouseButtonEvent(event))
+    } else if event.type == SDL3.EventType.mouseMotion {
+        handleMouseMotion(SDL3.mouseMotionEvent(event))
+    } else if event.type == SDL3.EventType.mouseWheel {
+        handleMouseWheel(SDL3.mouseWheelEvent(event))
+    }
+}
+
+func shutdown() {
+    SDL3.glDestroyContext(glContext)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+}
+
+func mainLoop() {
+    var event = SDL3.Event()
+    while SDL3.pollEvent(&event) {
+        handleEvent(&event)
+    }
+    if !running {
+        shutdown()
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    OpenGL.clearColor(0.09, 0.10, 0.14, 1.0)
+    OpenGL.clear(OpenGL.COLOR_BUFFER_BIT | OpenGL.DEPTH_BUFFER_BIT)
+
+    let projection = Matrix4.perspective(
+        fovYDegrees: FOV_Y_DEGREES,
+        aspect: Float32(WINDOW_WIDTH) / Float32(WINDOW_HEIGHT),
+        near: 0.1,
+        far: Float32(GRID_SIZE) * 8.0)
+    let viewProjection = projection * editor.camera.viewMatrix()
+
+    drawSceneMesh(*scene!, viewProjection)
+    drawGroundGrid(*scene!, viewProjection, editor.gridHeight)
+    if let hit = currentHit() {
+        drawCursor(*scene!, hit, editor.tool, viewProjection)
+    }
+    drawHud(*hud!, WINDOW_WIDTH, WINDOW_HEIGHT, editor.tool, editor.colorIndex)
+
+    SDL3.glSwapWindow(window)
+    SDL3.delay(1)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+    if !SDL3_ttf.initialize() {
+        Console.printLine("TTF_Init failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    SDL3.glSetAttribute(SDL3.GLAttribute.doubleBuffer, 1)
+    SDL3.glSetAttribute(SDL3.GLAttribute.depthSize, 24)
+    SDL3.glSetAttribute(SDL3.GLAttribute.contextMajorVersion, 2)
+    SDL3.glSetAttribute(SDL3.GLAttribute.contextMinorVersion, 1)
+
+    window = SDL3.createWindow("Rune Voxel Studio", WINDOW_WIDTH, WINDOW_HEIGHT, SDL3.WindowFlags.opengl)
+    if window == nil {
+        Console.printLine("SDL_CreateWindow failed: ${SDL3.getError()!}")
+        SDL3_ttf.quit()
+        SDL3.quit()
+        return 1
+    }
+
+    glContext = SDL3.glCreateContext(window)
+    if glContext == nil {
+        Console.printLine("SDL_GL_CreateContext failed: ${SDL3.getError()!}")
+        SDL3.destroyWindow(window)
+        SDL3_ttf.quit()
+        SDL3.quit()
+        return 1
+    }
+
+    SDL3.glMakeCurrent(window, glContext)
+    SDL3.glSetSwapInterval(1)
+
+    OpenGL.viewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
+    OpenGL.enable(OpenGL.DEPTH_TEST)
+    OpenGL.depthFunc(OpenGL.LEQUAL)
+
+    editor = makeEditor()
+    scene = buildScene(&editor.grid)
+    hud = buildHud()
+    refreshToolLabel(&hud!, editor.tool)
+    refreshGridHeightLabel(&hud!, editor.gridHeight)
+
+    Console.printLine("Voxel Studio: LMB edits, RMB drag orbits, MMB or Shift+RMB drag pans, arrows pan, wheel zooms.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

@@ -1,0 +1,23 @@
+{
+  "version": "1.0.0",
+  "name": "SDL3_ttf",
+  "kind": "library",
+  "unsafe": true,
+  "sources": [
+    "init.rune",
+    "font.rune",
+    "text.rune"
+  ],
+  "dependencies": [
+    "../../../Code/Modules/Rune/Rune.runemanifest",
+    "../../../Code/Modules/LibC/LibC.runemanifest",
+    "../SDL3/SDL3.runemanifest"
+  ],
+  "includeHeaders": [
+    "SDL3_ttf/SDL_ttf.h"
+  ],
+  "linkLibraries": [
+    "SDL3_ttf"
+  ],
+  "output": "SDL3_ttf.runemodule"
+}

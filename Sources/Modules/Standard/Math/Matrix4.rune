@@ -1,0 +1,311 @@
+/// Column-major 4x4 matrix for 3D transforms/projections (the same layout
+/// every OpenGL example's hand-rolled Math3D.rune used, now shared). `m` is
+/// exposed directly (rather than through a wrapping accessor) so GPU upload
+/// call sites can keep using `matrix.m.bytes` / `matrix.m.byteLength` exactly
+/// like any other InlineArray-backed vertex/uniform data.
+public struct Matrix4 {
+    public var m: [Float32, 16]
+
+    public static func identity() -> Matrix4 {
+        return Matrix4(m: [
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0,
+        ])
+    }
+
+    public static func translation(x: Float32, y: Float32, z: Float32) -> Matrix4 {
+        var result = Matrix4.identity()
+        result.m[12] = x
+        result.m[13] = y
+        result.m[14] = z
+        return result
+    }
+
+    public static func translation(offset: Vector3) -> Matrix4 {
+        return Matrix4.translation(x: offset.x, y: offset.y, z: offset.z)
+    }
+
+    public static func scale(uniform: Float32) -> Matrix4 {
+        var result = Matrix4.identity()
+        result.m[0] = uniform
+        result.m[5] = uniform
+        result.m[10] = uniform
+        return result
+    }
+
+    /// Non-uniform scale about the origin.
+    public static func scale(x: Float32, y: Float32, z: Float32) -> Matrix4 {
+        var result = Matrix4.identity()
+        result.m[0] = x
+        result.m[5] = y
+        result.m[10] = z
+        return result
+    }
+
+    /// Non-uniform scale about the origin, taken from a Vector3.
+    public static func scale(factors: Vector3) -> Matrix4 {
+        return Matrix4.scale(x: factors.x, y: factors.y, z: factors.z)
+    }
+
+    /// Rotation about the X axis by `angle` radians.
+    public static func rotationX(angle: Float32) -> Matrix4 {
+        let c = Math.cos(angle)
+        let s = Math.sin(angle)
+        var result = Matrix4.identity()
+        result.m[5] = c
+        result.m[6] = s
+        result.m[9] = 0.0 - s
+        result.m[10] = c
+        return result
+    }
+
+    /// Rotation about the Y axis by `angle` radians.
+    public static func rotationY(angle: Float32) -> Matrix4 {
+        let c = Math.cos(angle)
+        let s = Math.sin(angle)
+        var result = Matrix4.identity()
+        result.m[0] = c
+        result.m[2] = 0.0 - s
+        result.m[8] = s
+        result.m[10] = c
+        return result
+    }
+
+    /// Rotation about the Z axis by `angle` radians.
+    public static func rotationZ(angle: Float32) -> Matrix4 {
+        let c = Math.cos(angle)
+        let s = Math.sin(angle)
+        var result = Matrix4.identity()
+        result.m[0] = c
+        result.m[1] = s
+        result.m[4] = 0.0 - s
+        result.m[5] = c
+        return result
+    }
+
+    /// Builds a rotation transform from a quaternion.
+    public static func fromQuaternion(rotation: Quaternion) -> Matrix4 {
+        return rotation.toMatrix4()
+    }
+
+    /// Composes translation, rotation, and scale into a single transform
+    /// (applied scale-first, then rotation, then translation).
+    public static func trs(translation: Vector3, rotation: Quaternion, scaling: Vector3) -> Matrix4 {
+        return Matrix4.translation(offset: translation)
+             * rotation.toMatrix4()
+             * Matrix4.scale(factors: scaling)
+    }
+
+    /// Rotation about an arbitrary unit `axis` (Rodrigues' formula).
+    public static func rotation(axis: Vector3, angle: Float32) -> Matrix4 {
+        let c = Math.cos(angle)
+        let s = Math.sin(angle)
+        let oneMinusC = 1.0 - c
+        let x = axis.x
+        let y = axis.y
+        let z = axis.z
+
+        var result = Matrix4.identity()
+        result.m[0] = c + x * x * oneMinusC
+        result.m[1] = y * x * oneMinusC + z * s
+        result.m[2] = z * x * oneMinusC - y * s
+        result.m[4] = x * y * oneMinusC - z * s
+        result.m[5] = c + y * y * oneMinusC
+        result.m[6] = z * y * oneMinusC + x * s
+        result.m[8] = x * z * oneMinusC + y * s
+        result.m[9] = y * z * oneMinusC - x * s
+        result.m[10] = c + z * z * oneMinusC
+        return result
+    }
+
+    public static func perspective(fovYDegrees: Float32, aspect: Float32, near: Float32, far: Float32) -> Matrix4 {
+        let fovYRadians = fovYDegrees * Float32(Math.PI / 180.0)
+        let f = Float32(1.0 / Math.tan(Float64(fovYRadians) / 2.0))
+        var result = Matrix4.identity()
+        result.m[0] = f / aspect
+        result.m[5] = f
+        result.m[10] = (far + near) / (near - far)
+        result.m[11] = -1.0
+        result.m[14] = (2.0 * far * near) / (near - far)
+        result.m[15] = 0.0
+        return result
+    }
+
+    public static func orthographic(left: Float32, right: Float32, bottom: Float32, top: Float32, near: Float32, far: Float32) -> Matrix4 {
+        var result = Matrix4.identity()
+        result.m[0] = 2.0 / (right - left)
+        result.m[5] = 2.0 / (top - bottom)
+        result.m[10] = -2.0 / (far - near)
+        result.m[12] = -(right + left) / (right - left)
+        result.m[13] = -(top + bottom) / (top - bottom)
+        result.m[14] = -(far + near) / (far - near)
+        result.m[15] = 1.0
+        return result
+    }
+
+    /// Standard right-handed look-at view matrix.
+    public static func lookAt(eye: Vector3, target: Vector3, up: Vector3) -> Matrix4 {
+        let forward = (target - eye).normalized()
+        let right = forward.cross(other: up).normalized()
+        let trueUp = right.cross(other: forward)
+
+        var result = Matrix4.identity()
+        result.m[0] = right.x
+        result.m[4] = right.y
+        result.m[8] = right.z
+        result.m[1] = trueUp.x
+        result.m[5] = trueUp.y
+        result.m[9] = trueUp.z
+        result.m[2] = 0.0 - forward.x
+        result.m[6] = 0.0 - forward.y
+        result.m[10] = 0.0 - forward.z
+        result.m[12] = 0.0 - right.dot(other: eye)
+        result.m[13] = 0.0 - trueUp.dot(other: eye)
+        result.m[14] = forward.dot(other: eye)
+        return result
+    }
+
+    /// Returns the transpose of this matrix.
+    public func transposed() -> Matrix4 {
+        return Matrix4(m: [
+            m[0], m[4], m[8], m[12],
+            m[1], m[5], m[9], m[13],
+            m[2], m[6], m[10], m[14],
+            m[3], m[7], m[11], m[15],
+        ])
+    }
+
+    /// Determinant of the matrix.
+    public func determinant() -> Float32 {
+        let c0 =  m[5] * (m[10] * m[15] - m[11] * m[14])
+                - m[9] * (m[6] * m[15] - m[7] * m[14])
+                + m[13] * (m[6] * m[11] - m[7] * m[10])
+        let c1 =  m[4] * (m[10] * m[15] - m[11] * m[14])
+                - m[8] * (m[6] * m[15] - m[7] * m[14])
+                + m[12] * (m[6] * m[11] - m[7] * m[10])
+        let c2 =  m[4] * (m[9] * m[15] - m[11] * m[13])
+                - m[8] * (m[5] * m[15] - m[7] * m[13])
+                + m[12] * (m[5] * m[11] - m[7] * m[9])
+        let c3 =  m[4] * (m[9] * m[14] - m[10] * m[13])
+                - m[8] * (m[5] * m[14] - m[6] * m[13])
+                + m[12] * (m[5] * m[10] - m[6] * m[9])
+        return m[0] * c0 - m[1] * c1 + m[2] * c2 - m[3] * c3
+    }
+
+    /// Returns the inverse of this matrix, or the identity if it is singular
+    /// (determinant near zero). Uses the standard cofactor/adjugate method.
+    public func inverse() -> Matrix4 {
+        var inv = Matrix4.identity()
+
+        inv.m[0] = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15]
+                 + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10]
+        inv.m[4] = 0.0 - m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15]
+                 - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10]
+        inv.m[8] = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15]
+                 + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9]
+        inv.m[12] = 0.0 - m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14]
+                  - m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9]
+        inv.m[1] = 0.0 - m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15]
+                 - m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10]
+        inv.m[5] = m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15]
+                 + m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10]
+        inv.m[9] = 0.0 - m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15]
+                 - m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9]
+        inv.m[13] = m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14]
+                  + m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9]
+        inv.m[2] = m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15]
+                 + m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6]
+        inv.m[6] = 0.0 - m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15]
+                 - m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6]
+        inv.m[10] = m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15]
+                  + m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5]
+        inv.m[14] = 0.0 - m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14]
+                  - m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5]
+        inv.m[3] = 0.0 - m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11]
+                 - m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6]
+        inv.m[7] = m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11]
+                 + m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6]
+        inv.m[11] = 0.0 - m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11]
+                  - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5]
+        inv.m[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10]
+                  + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5]
+
+        let det = m[0] * inv.m[0] + m[1] * inv.m[4] + m[2] * inv.m[8] + m[3] * inv.m[12]
+        if Math.abs(det) < Math.EPSILON_F32 {
+            return Matrix4.identity()
+        }
+
+        let invDet = 1.0 / det
+        var result = Matrix4.identity()
+        for i in 0..16 {
+            result.m[i] = inv.m[i] * invDet
+        }
+        return result
+    }
+
+    /// The normal matrix (inverse transpose of the upper-left 3x3) for
+    /// transforming normals under a non-uniform model transform.
+    public func normalMatrix() -> Matrix3 {
+        return Matrix3.fromMatrix4(matrix: self).normalMatrix()
+    }
+
+    /// Decomposes this transform into translation, rotation, and scale. A
+    /// negative determinant (mirror) is folded into the X scale so the returned
+    /// rotation stays a proper rotation.
+    public func decompose() -> Transform {
+        let position = Vector3(x: m[12], y: m[13], z: m[14])
+
+        let col0 = Vector3(x: m[0], y: m[1], z: m[2])
+        let col1 = Vector3(x: m[4], y: m[5], z: m[6])
+        let col2 = Vector3(x: m[8], y: m[9], z: m[10])
+
+        var sx = col0.length()
+        let sy = col1.length()
+        let sz = col2.length()
+
+        let det = col0.dot(other: col1.cross(other: col2))
+        if det < 0.0 {
+            sx = 0.0 - sx
+        }
+
+        let invX = if Math.abs(sx) > Math.EPSILON_F32 { 1.0 / sx } else { 0.0 }
+        let invY = if sy > Math.EPSILON_F32 { 1.0 / sy } else { 0.0 }
+        let invZ = if sz > Math.EPSILON_F32 { 1.0 / sz } else { 0.0 }
+
+        let basis = Matrix3(m: [
+            col0.x * invX, col0.y * invX, col0.z * invX,
+            col1.x * invY, col1.y * invY, col1.z * invY,
+            col2.x * invZ, col2.y * invZ, col2.z * invZ,
+        ])
+        let rotation = Quaternion.fromMatrix3(matrix: basis)
+
+        return Transform(position: position, rotation: rotation, scale: Vector3(x: sx, y: sy, z: sz))
+    }
+
+    public static operator *(lhs: Matrix4, rhs: Matrix4) -> Matrix4 {
+        var result = Matrix4.identity()
+        for column in 0..4 {
+            for row in 0..4 {
+                var sum: Float32 = 0.0
+                for k in 0..4 {
+                    sum = sum + lhs.m[k * 4 + row] * rhs.m[column * 4 + k]
+                }
+                result.m[column * 4 + row] = sum
+            }
+        }
+        return result
+    }
+
+    /// Transforms a point (implicit w=1), applying translation.
+    public static operator *(lhs: Matrix4, rhs: Vector3) -> Vector3 {
+        let x = rhs.x
+        let y = rhs.y
+        let z = rhs.z
+        return Vector3(
+            x: lhs.m[0] * x + lhs.m[4] * y + lhs.m[8] * z + lhs.m[12],
+            y: lhs.m[1] * x + lhs.m[5] * y + lhs.m[9] * z + lhs.m[13],
+            z: lhs.m[2] * x + lhs.m[6] * y + lhs.m[10] * z + lhs.m[14])
+    }
+}

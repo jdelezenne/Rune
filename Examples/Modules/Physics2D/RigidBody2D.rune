@@ -1,0 +1,88 @@
+/// A 2D rigid body with linear and angular state. Supports circle and box
+/// shapes; a box is defined by its half-extents plus the body's rotation.
+import Standard.*
+
+/// The collision shape of a rigid body.
+public enum BodyShape2D: Int32 {
+    circle = 0
+    box = 1
+}
+
+public struct RigidBody2D {
+    public var position: Vector2
+    public var velocity: Vector2
+    public var rotation: Float32          ///< orientation in radians
+    public var angularVelocity: Float32   ///< radians per second
+    public var shape: BodyShape2D
+    public var radius: Float32             ///< circle radius (bounding radius for a box)
+    public var halfExtents: Vector2        ///< box half-size (unused for circles)
+    public var mass: Float32
+    public var invMass: Float32
+    public var invInertia: Float32
+    public var restitution: Float32
+    public var friction: Float32           ///< surface friction coefficient
+    public var active: Bool = true
+
+    /// Creates a circular body with a default surface friction of 0.2.
+    public static func create(position: Vector2, radius: Float32, mass: Float32, restitution: Float32) -> RigidBody2D {
+        // Solid disk inertia: I = 1/2 m r^2.
+        let inertia = 0.5 * mass * radius * radius
+        return RigidBody2D(
+            position: position,
+            velocity: Vector2.zero(),
+            rotation: 0.0,
+            angularVelocity: 0.0,
+            shape: BodyShape2D.circle,
+            radius: radius,
+            halfExtents: Vector2.zero(),
+            mass: mass,
+            invMass: mass > 0.0 ? 1.0 / mass : 0.0,
+            invInertia: (mass > 0.0 && inertia > 0.0) ? 1.0 / inertia : 0.0,
+            restitution: restitution,
+            friction: 0.2,
+            active: true)
+    }
+
+    /// Creates a circular body with an explicit surface friction coefficient.
+    public static func createCircle(position: Vector2, radius: Float32, mass: Float32, restitution: Float32, friction: Float32) -> RigidBody2D {
+        var body = RigidBody2D.create(position: position, radius: radius, mass: mass, restitution: restitution)
+        body.friction = friction
+        return body
+    }
+
+    /// Creates a box body from its half-extents.
+    public static func createBox(position: Vector2, halfExtents: Vector2, mass: Float32, restitution: Float32, friction: Float32) -> RigidBody2D {
+        // Rectangle inertia about the center: m (w^2 + h^2)/12 with w = 2 hx,
+        // h = 2 hy  ->  m (hx^2 + hy^2)/3.
+        let inertia = mass * (halfExtents.x * halfExtents.x + halfExtents.y * halfExtents.y) / 3.0
+        return RigidBody2D(
+            position: position,
+            velocity: Vector2.zero(),
+            rotation: 0.0,
+            angularVelocity: 0.0,
+            shape: BodyShape2D.box,
+            radius: halfExtents.length(),
+            halfExtents: halfExtents,
+            mass: mass,
+            invMass: mass > 0.0 ? 1.0 / mass : 0.0,
+            invInertia: (mass > 0.0 && inertia > 0.0) ? 1.0 / inertia : 0.0,
+            restitution: restitution,
+            friction: friction,
+            active: true)
+    }
+
+    public func speed() -> Float32 {
+        return velocity.length()
+    }
+
+    public func isMoving(threshold: Float32) -> Bool {
+        return active && (speed() > threshold || Math.abs(angularVelocity) > threshold)
+    }
+
+    /// The world-space corner of a box body for the given half-extent signs
+    /// (±1, ±1). Meaningless for circle bodies.
+    public func corner(signX: Float32, signY: Float32) -> Vector2 {
+        let local = Vector2(x: signX * halfExtents.x, y: signY * halfExtents.y)
+        return position + local.rotated(angle: rotation)
+    }
+}

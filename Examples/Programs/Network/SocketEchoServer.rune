@@ -1,0 +1,68 @@
+// TCP echo server (RFC 862): accepts one connection at a time and echoes back
+// whatever bytes it receives, until the client closes the connection, then
+// waits for the next client.
+//
+// Usage:
+//   rune run Examples/Programs/EchoServer.rune
+//
+// Run alongside Examples/Programs/EchoClient.rune in a second terminal.
+// Change PORT below if 9000 is already in use.
+//
+// Note: connections are handled sequentially, not concurrently - Socket has
+// no non-blocking event loop yet, so a second client waits until the first
+// one disconnects before it is accepted.
+
+import Standard.*
+
+const PORT: UInt16 = 9000
+const BUFFER_SIZE: UInt = 4096
+
+func main() -> Int {
+    var listener = Socket()
+    var listenErr = ""
+    if !listener.listen(host: "0.0.0.0", port: PORT, backlog: 8, error: &listenErr) {
+        Console.printLine("failed to listen on port ${PORT}: ${listenErr}")
+        return 1
+    }
+
+    Console.printLine("echo server listening on ${listener.localAddress}")
+
+    let buffer = try! Memory.systemAllocate(size: BUFFER_SIZE)
+
+    while true {
+        var acceptErr = ""
+        var stream = listener.accept(error: &acceptErr)
+        if !stream.isOpen {
+            Console.printLine("accept error: ${acceptErr}")
+            continue
+        }
+
+        Console.printLine("client connected: ${stream.remoteAddress}")
+
+        var totalBytes: Int64 = 0
+        while true {
+            var receiveErr = ""
+            let received = stream.receive(buffer: buffer, length: BUFFER_SIZE, error: &receiveErr)
+            if received <= 0 {
+                if received < 0 {
+                    Console.printLine("receive error: ${receiveErr}")
+                }
+                break
+            }
+
+            var sendErr = ""
+            let sent = stream.send(data: buffer, length: UInt(received), error: &sendErr)
+            if sent != received {
+                Console.printLine("send error: ${sendErr}")
+                break
+            }
+
+            totalBytes = totalBytes + received
+        }
+
+        Console.printLine("client disconnected: echoed ${totalBytes} bytes total")
+        stream.close()
+    }
+
+    return 0
+}

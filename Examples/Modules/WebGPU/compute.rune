@@ -1,0 +1,69 @@
+public extension ComputePipeline {
+    public static func fromHandle(handle: &ComputePipelineHandle?) -> ComputePipeline {
+        return ComputePipeline(handle: handle)
+    }
+
+    public rawHandle: &ComputePipelineHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func getBindGroupLayout(groupIndex: UInt32) -> BindGroupLayout {
+        return BindGroupLayout(handle: computePipelineGetBindGroupLayout(handle, groupIndex))
+    }
+
+    public func release() {
+        computePipelineRelease(handle)
+    }
+}
+
+public extension ComputePassEncoder {
+    public static func fromHandle(handle: &ComputePassEncoderHandle?) -> ComputePassEncoder {
+        return ComputePassEncoder(handle: handle)
+    }
+
+    public rawHandle: &ComputePassEncoderHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func setPipeline(pipeline: ComputePipeline) {
+        computePassEncoderSetPipeline(handle, pipeline.handle)
+    }
+
+    public func setBindGroup(
+        groupIndex: UInt32,
+        group: BindGroup,
+        dynamicOffsetCount: UInt = 0,
+        dynamicOffsets: *UInt32? = nil)
+    {
+        computePassEncoderSetBindGroup(
+            handle,
+            groupIndex,
+            group.handle,
+            dynamicOffsetCount,
+            dynamicOffsets)
+    }
+
+    public func dispatchWorkgroups(
+        workgroupCountX: UInt32,
+        workgroupCountY: UInt32 = 1,
+        workgroupCountZ: UInt32 = 1)
+    {
+        computePassEncoderDispatchWorkgroups(handle, workgroupCountX, workgroupCountY, workgroupCountZ)
+    }
+
+    public func end() {
+        computePassEncoderEnd(handle)
+    }
+
+    public func release() {
+        computePassEncoderRelease(handle)
+    }
+}

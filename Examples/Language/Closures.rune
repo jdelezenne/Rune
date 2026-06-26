@@ -1,0 +1,46 @@
+// Closures: block shorthand and captured state without involving concurrency.
+
+alias IntProducer = () -> Int
+alias IntMapper = (Int) -> Int
+
+func produce(value: IntProducer) -> Int {
+    return value()
+}
+
+func map(value: Int, mapper: IntMapper) -> Int {
+    return mapper(value)
+}
+
+func main() -> Int {
+    let base = 40
+    let answer: IntProducer = {
+        base + 2
+    }
+
+    let offset = 5
+    let addOffset: IntMapper = (value: Int) -> value + offset
+
+    let result = produce(value: answer) + map(value: 10, mapper: addOffset)
+    if result != 57 {
+        return 1
+    }
+
+    let shadowed = 10
+    let first: IntProducer = {
+        shadowed
+    }
+    {
+        let shadowed = 20
+        let second: IntProducer = {
+            shadowed
+        }
+        if second() != 20 {
+            return 1
+        }
+    }
+    if first() != 10 {
+        return 1
+    }
+
+    return 0
+}

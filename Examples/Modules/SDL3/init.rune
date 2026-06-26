@@ -1,0 +1,17 @@
+@flags
+public enum InitFlags: UInt32 {
+    audio = 16 // SDL_INIT_AUDIO
+    video = 32 // SDL_INIT_VIDEO
+    joystick = 512 // SDL_INIT_JOYSTICK
+    haptic = 4096 // SDL_INIT_HAPTIC
+    gamepad = 8192 // SDL_INIT_GAMEPAD
+    events = 16384 // SDL_INIT_EVENTS
+    sensor = 32768 // SDL_INIT_SENSOR
+    camera = 65536 // SDL_INIT_CAMERA
+}
+
+@symbol("SDL_Init")
+public func initialize(flags: InitFlags) -> Bool
+
+@symbol("SDL_Quit")
+public func quit() -> Void

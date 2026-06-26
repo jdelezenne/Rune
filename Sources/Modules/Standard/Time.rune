@@ -1,0 +1,14 @@
+/// Time of day without a date or time zone.
+public struct Time {
+    public var hour: Int = 0
+    public var minute: Int = 0
+    public var second: Int = 0
+    public var nanosecond: Int = 0
+
+    public init(hour: Int, minute: Int, second: Int = 0, nanosecond: Int = 0) {
+        self.hour = hour
+        self.minute = minute
+        self.second = second
+        self.nanosecond = nanosecond
+    }
+}

@@ -1,0 +1,99 @@
+import Standard.*
+
+// Demonstrates Float32x4 SIMD, backed by ARM NEON on Apple Silicon / Windows
+// ARM64 and by SSE on x86-64. The compiler emits rune_float32x4_* C functions
+// which the platform layer maps to single hardware instructions.
+
+// ---------------------------------------------------------------------------
+// Matrix-vector multiply: 4x4 row-major matrix × 4-component column vector.
+// Each row is a Float32x4; the result lane is its dot product with the vector.
+// This is the canonical SIMD use-case: 4 dot products = 16 muls + 12 adds
+// collapsed into 4 SIMD muls + 4 horizontal adds.
+// ---------------------------------------------------------------------------
+
+struct Mat4x4 {
+    var row0: Float32x4
+    var row1: Float32x4
+    var row2: Float32x4
+    var row3: Float32x4
+}
+
+func transform(m: Mat4x4, v: Float32x4) -> Float32x4 {
+    return Float32x4(
+        x: m.row0.dot(rhs: v),
+        y: m.row1.dot(rhs: v),
+        z: m.row2.dot(rhs: v),
+        w: m.row3.dot(rhs: v)
+    )
+}
+
+func identity() -> Mat4x4 {
+    return Mat4x4(
+        row0: Float32x4(x: 1.0, y: 0.0, z: 0.0, w: 0.0),
+        row1: Float32x4(x: 0.0, y: 1.0, z: 0.0, w: 0.0),
+        row2: Float32x4(x: 0.0, y: 0.0, z: 1.0, w: 0.0),
+        row3: Float32x4(x: 0.0, y: 0.0, z: 0.0, w: 1.0)
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Colour math: RGBA add + clamp to [0, 1] using component-wise min/max.
+// ---------------------------------------------------------------------------
+
+func blendAdd(base: Float32x4, overlay: Float32x4) -> Float32x4 {
+    let one  = Float32x4(value: 1.0)
+    let zero = Float32x4(value: 0.0)
+    return base.add(rhs: overlay).min(rhs: one).max(rhs: zero)
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
+func main() -> Int {
+    // --- Identity transform ---
+    let m = identity()
+    let v = Float32x4(x: 3.0, y: 1.0, z: 4.0, w: 1.0)
+    let r = transform(m: m, v: v)
+    Console.printLine("Identity * (3,1,4,1) = (${r.x}, ${r.y}, ${r.z}, ${r.w})")
+    if r.x != 3.0 || r.y != 1.0 || r.z != 4.0 || r.w != 1.0 {
+        return 1
+    }
+
+    // --- Dot product / magnitude squared ---
+    let mag2 = v.dot(rhs: v)
+    Console.printLine("|(3,1,4,1)|² = ${mag2}")
+    if mag2 != 27.0 {
+        return 2
+    }
+
+    // --- Component-wise arithmetic ---
+    let a = Float32x4(x: 1.0, y: 2.0, z: 3.0, w: 4.0)
+    let b = Float32x4(x: 4.0, y: 3.0, z: 2.0, w: 1.0)
+    let sum = a.add(rhs: b)
+    let dot = a.dot(rhs: b)
+    Console.printLine("a + b = (${sum.x}, ${sum.y}, ${sum.z}, ${sum.w})")
+    Console.printLine("a · b = ${dot}")
+    if sum.x != 5.0 || sum.y != 5.0 || sum.z != 5.0 || sum.w != 5.0 || dot != 20.0 {
+        return 3
+    }
+
+    // --- Sqrt ---
+    let squares = Float32x4(x: 1.0, y: 4.0, z: 9.0, w: 16.0)
+    let roots   = squares.sqrt()
+    Console.printLine("sqrt(1,4,9,16) = (${roots.x}, ${roots.y}, ${roots.z}, ${roots.w})")
+    if roots.x != 1.0 || roots.y != 2.0 || roots.z != 3.0 || roots.w != 4.0 {
+        return 4
+    }
+
+    // --- Colour blend ---
+    let base    = Float32x4(x: 0.8, y: 0.2, z: 0.4, w: 1.0)
+    let overlay = Float32x4(x: 0.3, y: 0.9, z: 0.8, w: 0.0)
+    let blended = blendAdd(base: base, overlay: overlay)
+    Console.printLine("Blended RGBA = (${blended.x}, ${blended.y}, ${blended.z}, ${blended.w})")
+    if blended.x != 1.0 || blended.y != 1.0 || blended.z != 1.0 || blended.w != 1.0 {
+        return 5
+    }
+
+    return 0
+}

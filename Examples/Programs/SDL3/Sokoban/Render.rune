@@ -1,0 +1,207 @@
+import Standard.*
+import SDL3
+
+const WIDTH: Int32 = 720
+const HEIGHT: Int32 = 760
+const CELL: Float32 = 30.0
+const BOARD_TOP: Float32 = 92.0
+
+func fillRect(renderer: &SDL3.Renderer?, x: Float32, y: Float32, w: Float32, h: Float32,
+              r: UInt8, g: UInt8, b: UInt8) {
+    SDL3.setRenderDrawColor(renderer, r, g, b, 255)
+    var rect = SDL3.FRect(x: x, y: y, w: w, h: h)
+    SDL3.renderFillRect(renderer, &rect)
+}
+
+func drawGoal(renderer: &SDL3.Renderer?, x: Float32, y: Float32) {
+    SDL3.setRenderDrawColor(renderer, 220, 190, 72, 255)
+    SDL3.renderLine(renderer, x + 8.0, y + 15.0, x + 22.0, y + 15.0)
+    SDL3.renderLine(renderer, x + 15.0, y + 8.0, x + 15.0, y + 22.0)
+    SDL3.renderLine(renderer, x + 10.0, y + 10.0, x + 20.0, y + 20.0)
+    SDL3.renderLine(renderer, x + 20.0, y + 10.0, x + 10.0, y + 20.0)
+}
+
+func drawPacket(renderer: &SDL3.Renderer?, x: Float32, y: Float32, saved: Bool) {
+    if saved {
+        fillRect(renderer, x + 3.0, y + 3.0, 24.0, 24.0, 218, 156, 56)
+    }
+    else {
+        fillRect(renderer, x + 3.0, y + 3.0, 24.0, 24.0, 154, 92, 38)
+    }
+    SDL3.setRenderDrawColor(renderer, 245, 202, 105, 255)
+    SDL3.renderLine(renderer, x + 4.0, y + 4.0, x + 26.0, y + 26.0)
+    SDL3.renderLine(renderer, x + 26.0, y + 4.0, x + 4.0, y + 26.0)
+    SDL3.setRenderDrawColor(renderer, 88, 48, 28, 255)
+    var outline = SDL3.FRect(x: x + 3.0, y: y + 3.0, w: 24.0, h: 24.0)
+    SDL3.renderRect(renderer, &outline)
+}
+
+func drawWall(renderer: &SDL3.Renderer?, x: Float32, y: Float32, row: Int, col: Int) {
+    fillRect(renderer, x, y, CELL, CELL, 74, 91, 106)
+    SDL3.setRenderDrawColor(renderer, 116, 137, 151, 255)
+    let offset: Float32 = if (row + col) % 2 == 0 {
+        0.0
+    } else {
+        7.0
+    }
+    SDL3.renderLine(renderer, x, y + 10.0, x + CELL, y + 10.0)
+    SDL3.renderLine(renderer, x, y + 20.0, x + CELL, y + 20.0)
+    SDL3.renderLine(renderer, x + 15.0 + offset, y, x + 15.0 + offset, y + 10.0)
+    SDL3.renderLine(renderer, x + 7.0 - offset, y + 10.0, x + 7.0 - offset, y + 20.0)
+}
+
+func drawPlayer(renderer: &SDL3.Renderer?, x: Float32, y: Float32, onGoal: Bool) {
+    if onGoal {
+        drawGoal(renderer, x, y)
+    }
+    fillRect(renderer, x + 11.0, y + 12.0, 8.0, 13.0, 53, 116, 196)
+    fillRect(renderer, x + 7.0, y + 14.0, 16.0, 8.0, 64, 137, 222)
+    fillRect(renderer, x + 10.0, y + 4.0, 10.0, 10.0, 242, 194, 150)
+    fillRect(renderer, x + 8.0, y + 3.0, 14.0, 4.0, 197, 48, 45)
+    fillRect(renderer, x + 9.0, y + 24.0, 5.0, 4.0, 35, 48, 68)
+    fillRect(renderer, x + 17.0, y + 24.0, 5.0, 4.0, 35, 48, 68)
+}
+
+func drawText(renderer: &SDL3.Renderer?, text: String, x: Float32, y: Float32) {
+    let c = CString(text)
+    SDL3.renderDebugText(renderer, x, y, c.asCStringSlice())
+}
+
+func elapsedTimeText(milliseconds: Int) -> String {
+    let totalSeconds = milliseconds / 1000
+    let minutes = totalSeconds / 60
+    let seconds = totalSeconds % 60
+    let secondsText = if seconds < 10 {
+        "0${seconds}"
+    } else {
+        "${seconds}"
+    }
+    return "${minutes}:${secondsText}"
+}
+
+func beginScreen(renderer: &SDL3.Renderer?, title: String) {
+    SDL3.setRenderDrawColor(renderer, 20, 25, 31, 255)
+    SDL3.renderClear(renderer)
+    SDL3.setRenderDrawColor(renderer, 226, 231, 235, 255)
+    drawText(renderer, title, 26.0, 20.0)
+}
+
+func drawMenuItem(renderer: &SDL3.Renderer?, text: String, selected: Bool, y: Float32) {
+    if selected {
+        fillRect(renderer, 210.0, y - 8.0, 300.0, 30.0, 43, 65, 82)
+        SDL3.setRenderDrawColor(renderer, 245, 220, 110, 255)
+        drawText(renderer, "> ${text}", 250.0, y)
+    } else {
+        SDL3.setRenderDrawColor(renderer, 190, 199, 207, 255)
+        drawText(renderer, "  ${text}", 250.0, y)
+    }
+}
+
+func drawMainMenu(renderer: &SDL3.Renderer?, selection: Int, continueAvailable: Bool,
+                  saveAvailable: Bool, statusMessage: String?) {
+    beginScreen(renderer, "SOKOBAN")
+    SDL3.setRenderDrawColor(renderer, 116, 137, 151, 255)
+    drawText(renderer, "90 CLASSIC LEVELS", 282.0, 150.0)
+    var item = 0
+    var y: Float32 = 225.0
+    if continueAvailable {
+        drawMenuItem(renderer, "CONTINUE", selection == item, y)
+        item = item + 1
+        y = y + 50.0
+    }
+    drawMenuItem(renderer, "NEW GAME", selection == item, y)
+    item = item + 1
+    y = y + 50.0
+    drawMenuItem(renderer, "SELECT LEVEL", selection == item, y)
+    item = item + 1
+    y = y + 50.0
+    if saveAvailable {
+        drawMenuItem(renderer, "LOAD GAME", selection == item, y)
+        item = item + 1
+        y = y + 50.0
+    }
+    drawMenuItem(renderer, "QUIT", selection == item, y)
+    if statusMessage != nil && !statusMessage!.isEmpty {
+        SDL3.setRenderDrawColor(renderer, 226, 231, 235, 255)
+        drawText(renderer, statusMessage!, 250.0, 470.0)
+    }
+    drawText(renderer, "ARROWS/HJKL OR MOUSE   ENTER/CLICK CONFIRM", 190.0, 700.0)
+    SDL3.renderPresent(renderer)
+}
+
+func drawLevelMenu(renderer: &SDL3.Renderer?, selection: Int, unlockedLevel: Int) {
+    beginScreen(renderer, "SELECT LEVEL")
+    for level in 0..LEVEL_COUNT {
+        let col = level % 10
+        let row = level / 10
+        let x: Float32 = 86.0 + Float32(col) * 58.0
+        let y: Float32 = 145.0 + Float32(row) * 52.0
+        if level > unlockedLevel {
+            SDL3.setRenderDrawColor(renderer, 67, 76, 84, 255)
+        } else if level == selection {
+            fillRect(renderer, x - 10.0, y - 9.0, 48.0, 29.0, 43, 65, 82)
+            SDL3.setRenderDrawColor(renderer, 245, 220, 110, 255)
+        } else {
+            SDL3.setRenderDrawColor(renderer, 190, 199, 207, 255)
+        }
+        drawText(renderer, "${level + 1}", x, y)
+    }
+    SDL3.setRenderDrawColor(renderer, 226, 231, 235, 255)
+    drawText(renderer, "LEVEL ${selection + 1}", 314.0, 640.0)
+    drawText(renderer, "ARROWS/HJKL OR MOUSE   ENTER/CLICK PLAY   ESC BACK", 160.0, 700.0)
+    SDL3.renderPresent(renderer)
+}
+
+func drawGame(renderer: &SDL3.Renderer?, game: *Game, records: *Records, statusMessage: String?) {
+    SDL3.setRenderDrawColor(renderer, 20, 25, 31, 255)
+    SDL3.renderClear(renderer)
+
+    SDL3.setRenderDrawColor(renderer, 226, 231, 235, 255)
+    drawText(renderer, "SOKOBAN", 26.0, 20.0)
+    drawText(renderer, "LEVEL ${game.level + 1}/${LEVEL_COUNT}", 140.0, 20.0)
+    drawText(renderer, "TIME ${elapsedTimeText(game.elapsedMilliseconds)}", 280.0, 20.0)
+    drawText(renderer, "MOVES ${game.moves}", 410.0, 20.0)
+    drawText(renderer, "PUSHES ${game.pushes}", 545.0, 20.0)
+    drawText(renderer, "SAVED ${game.savedPackets}/${game.packets}", 26.0, 46.0)
+    drawText(renderer, "MOVE ARROWS/CLICK  U UNDO  R RESET  S SAVE  ESC MENU", 170.0, 46.0)
+
+    let scoreIndex = game.level
+    if statusMessage != nil && !statusMessage!.isEmpty {
+        drawText(renderer, statusMessage!, 26.0, 68.0)
+    } else if records.bestMoves[scoreIndex] > 0 {
+        drawText(renderer, "BEST ${records.bestMoves[scoreIndex]} MOVES / ${records.bestPushes[scoreIndex]} PUSHES", 26.0, 68.0)
+    }
+
+    let boardWidth = Float32(game.boardCols) * CELL
+    let boardLeft = (Float32(WIDTH) - boardWidth) * 0.5
+    for row in 0..game.boardRows {
+        for col in 0..game.boardCols {
+            let tile = game.tile(col, row)
+            let x = boardLeft + Float32(col) * CELL
+            let y = BOARD_TOP + Float32(row) * CELL
+            if tile == WALL {
+                drawWall(renderer, x, y, row, col)
+            }
+            else if tile == GOAL {
+                drawGoal(renderer, x, y)
+            }
+            else if tile == PACKET {
+                drawPacket(renderer, x, y, false)
+            }
+            else if tile == SAVED_PACKET {
+                drawPacket(renderer, x, y, true)
+            }
+        }
+    }
+
+    let px = boardLeft + Float32(game.playerCol) * CELL
+    let py = BOARD_TOP + Float32(game.playerRow) * CELL
+    drawPlayer(renderer, px, py, game.tile(game.playerCol, game.playerRow) == GOAL)
+
+    if game.complete {
+        fillRect(renderer, 210.0, 688.0, 300.0, 42.0, 43, 65, 50)
+        SDL3.setRenderDrawColor(renderer, 245, 220, 110, 255)
+        drawText(renderer, "LEVEL COMPLETE - ENTER", 278.0, 705.0)
+    }
+    SDL3.renderPresent(renderer)
+}

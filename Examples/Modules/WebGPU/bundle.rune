@@ -1,0 +1,100 @@
+public extension RenderBundle {
+    public static func fromHandle(handle: &RenderBundleHandle?) -> RenderBundle {
+        return RenderBundle(handle: handle)
+    }
+
+    public rawHandle: &RenderBundleHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func release() {
+        renderBundleRelease(handle)
+    }
+}
+
+public extension RenderBundleEncoder {
+    public static func fromHandle(handle: &RenderBundleEncoderHandle?) -> RenderBundleEncoder {
+        return RenderBundleEncoder(handle: handle)
+    }
+
+    public rawHandle: &RenderBundleEncoderHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func setPipeline(pipeline: RenderPipeline) {
+        renderBundleEncoderSetPipeline(handle, pipeline.handle)
+    }
+
+    public func setBindGroup(
+        groupIndex: UInt32,
+        group: BindGroup,
+        dynamicOffsetCount: UInt = 0,
+        dynamicOffsets: *UInt32? = nil)
+    {
+        renderBundleEncoderSetBindGroup(
+            handle,
+            groupIndex,
+            group.handle,
+            dynamicOffsetCount,
+            dynamicOffsets)
+    }
+
+    public func setVertexBuffer(
+        slot: UInt32,
+        buffer: GPUBuffer,
+        offset: UInt64 = 0,
+        size: UInt64 = WHOLE_SIZE)
+    {
+        renderBundleEncoderSetVertexBuffer(handle, slot, buffer.handle, offset, size)
+    }
+
+    public func setIndexBuffer(
+        buffer: GPUBuffer,
+        format: IndexFormat,
+        offset: UInt64 = 0,
+        size: UInt64 = WHOLE_SIZE)
+    {
+        renderBundleEncoderSetIndexBuffer(handle, buffer.handle, format, offset, size)
+    }
+
+    public func draw(
+        vertexCount: UInt32,
+        instanceCount: UInt32 = 1,
+        firstVertex: UInt32 = 0,
+        firstInstance: UInt32 = 0)
+    {
+        renderBundleEncoderDraw(handle, vertexCount, instanceCount, firstVertex, firstInstance)
+    }
+
+    public func drawIndexed(
+        indexCount: UInt32,
+        instanceCount: UInt32 = 1,
+        firstIndex: UInt32 = 0,
+        baseVertex: Int32 = 0,
+        firstInstance: UInt32 = 0)
+    {
+        renderBundleEncoderDrawIndexed(
+            handle,
+            indexCount,
+            instanceCount,
+            firstIndex,
+            baseVertex,
+            firstInstance)
+    }
+
+    public func finish(descriptor: *RenderBundleDescriptor? = nil) -> RenderBundle {
+        return RenderBundle(handle: renderBundleEncoderFinish(handle, descriptor))
+    }
+
+    public func release() {
+        renderBundleEncoderRelease(handle)
+    }
+}

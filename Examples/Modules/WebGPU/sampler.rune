@@ -1,0 +1,17 @@
+public extension Sampler {
+    public static func fromHandle(handle: &SamplerHandle?) -> Sampler {
+        return Sampler(handle: handle)
+    }
+
+    public rawHandle: &SamplerHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func release() {
+        samplerRelease(handle)
+    }
+}

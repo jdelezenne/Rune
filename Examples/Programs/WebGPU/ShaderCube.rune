@@ -1,0 +1,481 @@
+// Rotating cube rendered through the standardized WebGPU C API.
+
+import Standard.*
+import WebGPU
+
+const WIDTH: UInt32 = 800
+const HEIGHT: UInt32 = 600
+const VERTEX_COUNT: UInt32 = 36
+
+let shaderSource: String = """
+struct Uniforms {
+    mvp: mat4x4<f32>,
+}
+
+@group(0) @binding(0)
+var<uniform> uniforms: Uniforms;
+
+struct VertexInput {
+    @location(0) position: vec3<f32>,
+    @location(1) color: vec3<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec3<f32>,
+}
+
+@vertex
+fn vertexMain(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    output.position = uniforms.mvp * vec4<f32>(input.position, 1.0);
+    output.position.z = (output.position.z + output.position.w) * 0.5;
+    output.color = input.color;
+    return output;
+}
+
+@fragment
+fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(input.color, 1.0);
+}
+"""
+
+@layout(kind: c)
+struct Vertex {
+    var x: Float32
+    var y: Float32
+    var z: Float32
+    var red: Float32
+    var green: Float32
+    var blue: Float32
+}
+
+struct Corner {
+    var x: Float32
+    var y: Float32
+    var z: Float32
+}
+
+struct Face {
+    var vertex0: Int
+    var vertex1: Int
+    var vertex2: Int
+    var vertex3: Int
+    var red: Float32
+    var green: Float32
+    var blue: Float32
+}
+
+let corners: [Corner, 8] = [
+    Corner(x: -1.0, y: -1.0, z: -1.0),
+    Corner(x:  1.0, y: -1.0, z: -1.0),
+    Corner(x:  1.0, y:  1.0, z: -1.0),
+    Corner(x: -1.0, y:  1.0, z: -1.0),
+    Corner(x: -1.0, y: -1.0, z:  1.0),
+    Corner(x:  1.0, y: -1.0, z:  1.0),
+    Corner(x:  1.0, y:  1.0, z:  1.0),
+    Corner(x: -1.0, y:  1.0, z:  1.0),
+]
+
+let faces: [Face, 6] = [
+    Face(vertex0: 0, vertex1: 3, vertex2: 2, vertex3: 1, red: 0.95, green: 0.25, blue: 0.20),
+    Face(vertex0: 4, vertex1: 5, vertex2: 6, vertex3: 7, red: 0.25, green: 0.85, blue: 0.30),
+    Face(vertex0: 0, vertex1: 4, vertex2: 7, vertex3: 3, red: 0.25, green: 0.45, blue: 0.95),
+    Face(vertex0: 1, vertex1: 2, vertex2: 6, vertex3: 5, red: 0.95, green: 0.85, blue: 0.15),
+    Face(vertex0: 0, vertex1: 1, vertex2: 5, vertex3: 4, red: 0.15, green: 0.85, blue: 0.85),
+    Face(vertex0: 3, vertex1: 7, vertex2: 6, vertex3: 2, red: 0.85, green: 0.25, blue: 0.85),
+]
+
+var instance: &WebGPU.InstanceHandle? = nil
+var surface: &WebGPU.SurfaceHandle? = nil
+var adapter: &WebGPU.AdapterHandle? = nil
+var device: &WebGPU.DeviceHandle? = nil
+var queue: &WebGPU.QueueHandle? = nil
+var pipeline: &WebGPU.RenderPipelineHandle? = nil
+var bindGroup: &WebGPU.BindGroupHandle? = nil
+var vertexBuffer: &WebGPU.BufferHandle? = nil
+var uniformBuffer: &WebGPU.BufferHandle? = nil
+var surfaceFormat: WebGPU.TextureFormat = WebGPU.TextureFormat.undefined
+var angleX: Float32 = 0.0
+var angleY: Float32 = 0.0
+var ready: Bool = false
+
+func reportResourceError(
+    status: WebGPU.PopErrorScopeStatus,
+    errorType: WebGPU.ErrorType,
+    message: WebGPU.StringView,
+    userdata1: &Byte?,
+    userdata2: &Byte?) {
+    if status != WebGPU.PopErrorScopeStatus.success {
+        Console.printLine("WebGPU validation scope failed with status ${Int32(status)}.")
+        return
+    }
+    if errorType == WebGPU.ErrorType.noError {
+        return
+    }
+    if message.data == nil {
+        Console.printLine("WebGPU resource validation failed with type ${Int32(errorType)}.")
+        return
+    }
+    let messageData = message.data!
+    let text = String.fromBytes(
+        source: (messageData as *Byte),
+        length: message.length)
+    Console.printLine("WebGPU resource validation failed: ${text}")
+}
+
+func emptyStringView() -> WebGPU.StringView {
+    return WebGPU.StringView(data: nil, length: WebGPU.STRLEN)
+}
+
+func makeVertex(corner: Corner, face: Face) -> Vertex {
+    return Vertex(
+        x: corner.x, y: corner.y, z: corner.z,
+        red: face.red, green: face.green, blue: face.blue)
+}
+
+func buildCubeVertices() -> [Vertex, 36] {
+    var vertices: [Vertex, 36] = []
+    for faceIndex in 0..6 {
+        let face = faces[faceIndex]
+        let a = corners[face.vertex0]
+        let b = corners[face.vertex1]
+        let c = corners[face.vertex2]
+        let d = corners[face.vertex3]
+        let base = faceIndex * 6
+        vertices[base] = makeVertex(a, face)
+        vertices[base + 1] = makeVertex(b, face)
+        vertices[base + 2] = makeVertex(c, face)
+        vertices[base + 3] = makeVertex(a, face)
+        vertices[base + 4] = makeVertex(c, face)
+        vertices[base + 5] = makeVertex(d, face)
+    }
+    return vertices
+}
+
+func renderFrame() {
+    if !ready {
+        return
+    }
+
+    angleX = angleX + 0.010
+    angleY = angleY + 0.015
+
+    let projection = Matrix4.perspective(
+        45.0, Float32(WIDTH) / Float32(HEIGHT), 0.1, 100.0)
+    let view = Matrix4.translation(x: 0.0, y: 0.0, z: -5.0)
+    let rotation = Matrix4.rotation(axis: Vector3.up(), angle: angleY) *
+        Matrix4.rotation(axis: Vector3(x: 1.0, y: 0.0, z: 0.0), angle: angleX)
+    let mvp = projection * (view * rotation)
+    WebGPU.queueWriteBuffer(
+        queue, uniformBuffer, 0, (mvp.m.bytes as *Byte), 64)
+
+    var surfaceTexture = WebGPU.SurfaceTexture(
+        nextInChain: nil,
+        texture: nil,
+        status: WebGPU.SurfaceGetCurrentTextureStatus.error)
+    WebGPU.surfaceGetCurrentTexture(surface, &surfaceTexture)
+    if surfaceTexture.status != WebGPU.SurfaceGetCurrentTextureStatus.successOptimal and
+        surfaceTexture.status != WebGPU.SurfaceGetCurrentTextureStatus.successSuboptimal {
+        return
+    }
+
+    let surfaceTextureHandle = surfaceTexture.texture
+    let textureView = WebGPU.textureCreateView(surfaceTextureHandle, nil)
+    if textureView == nil {
+        WebGPU.textureRelease(surfaceTextureHandle)
+        return
+    }
+
+    let encoder = WebGPU.deviceCreateCommandEncoder(device, nil)
+    if encoder == nil {
+        WebGPU.textureViewRelease(textureView)
+        WebGPU.textureRelease(surfaceTextureHandle)
+        return
+    }
+
+    var colorAttachment = WebGPU.RenderPassColorAttachment(
+        nextInChain: nil,
+        view: textureView,
+        depthSlice: WebGPU.DEPTH_SLICE_UNDEFINED,
+        resolveTarget: nil,
+        loadOp: WebGPU.LoadOp.clear,
+        storeOp: WebGPU.StoreOp.store,
+        clearValue: WebGPU.Color(r: 0.04, g: 0.05, b: 0.09, a: 1.0))
+    var passDescriptor = WebGPU.RenderPassDescriptor(
+        nextInChain: nil,
+        label: emptyStringView(),
+        colorAttachmentCount: 1,
+        colorAttachments: *colorAttachment,
+        depthStencilAttachment: nil,
+        occlusionQuerySet: nil,
+        timestampWrites: nil)
+    let pass = WebGPU.commandEncoderBeginRenderPass(encoder, &passDescriptor)
+    WebGPU.renderPassEncoderSetPipeline(pass, pipeline)
+    WebGPU.renderPassEncoderSetBindGroup(pass, 0, bindGroup, 0, nil)
+    WebGPU.renderPassEncoderSetVertexBuffer(
+        pass, 0, vertexBuffer, 0, WebGPU.WHOLE_SIZE)
+    WebGPU.renderPassEncoderDraw(pass, VERTEX_COUNT, 1, 0, 0)
+    WebGPU.renderPassEncoderEnd(pass)
+
+    let commandBuffer = WebGPU.commandEncoderFinish(encoder, nil)
+    WebGPU.queueSubmit(queue, 1, *commandBuffer)
+    // Emscripten presents the surface when this animation-frame callback returns.
+
+    WebGPU.commandBufferRelease(commandBuffer)
+    WebGPU.renderPassEncoderRelease(pass)
+    WebGPU.commandEncoderRelease(encoder)
+    WebGPU.textureViewRelease(textureView)
+    WebGPU.textureRelease(surfaceTextureHandle)
+}
+
+func createResources() -> Bool {
+    queue = WebGPU.deviceGetQueue(device)
+    if queue == nil {
+        Console.printLine("WebGPU queue creation failed.")
+        return false
+    }
+
+    WebGPU.devicePushErrorScope(device, WebGPU.ErrorFilter.validation)
+
+    var capabilities = WebGPU.SurfaceCapabilities(
+        nextInChain: nil,
+        usages: 0,
+        formatCount: 0,
+        formats: nil,
+        presentModeCount: 0,
+        presentModes: nil,
+        alphaModeCount: 0,
+        alphaModes: nil)
+    if WebGPU.surfaceGetCapabilities(surface, adapter, &capabilities) != WebGPU.Status.success or
+        capabilities.formatCount == 0 or
+        capabilities.presentModeCount == 0 or
+        capabilities.alphaModeCount == 0 {
+        Console.printLine("WebGPU surface capabilities are unavailable.")
+        return false
+    }
+
+    surfaceFormat = capabilities.formats!^
+    let presentMode = capabilities.presentModes!^
+    let alphaMode = capabilities.alphaModes!^
+    var configuration = WebGPU.SurfaceConfiguration(
+        nextInChain: nil,
+        device: device,
+        format: surfaceFormat,
+        usage: WebGPU.TEXTURE_USAGE_RENDER_ATTACHMENT,
+        width: WIDTH,
+        height: HEIGHT,
+        viewFormatCount: 0,
+        viewFormats: nil,
+        alphaMode: alphaMode,
+        presentMode: presentMode)
+    WebGPU.surfaceConfigure(surface, &configuration)
+    WebGPU.surfaceCapabilitiesFreeMembers(capabilities)
+
+    let shaderCString = CString(value: shaderSource)
+    var shaderWGSL = WebGPU.ShaderSourceWGSL(
+        chain: WebGPU.ChainedStruct(
+            next: nil,
+            sType: WebGPU.SType.shaderSourceWGSL),
+        code: WebGPU.StringView(
+            data: (shaderCString.asCStringSlice().rawPointer() as *Int8),
+            length: (shaderCString.asSlice().length as! UInt)))
+    var shaderDescriptor = WebGPU.ShaderModuleDescriptor(
+        nextInChain: *shaderWGSL.chain,
+        label: emptyStringView())
+    let shader = WebGPU.deviceCreateShaderModule(device, &shaderDescriptor)
+    if shader == nil {
+        Console.printLine("WebGPU shader module creation failed.")
+        return false
+    }
+
+    var vertices = buildCubeVertices()
+    var vertexBufferDescriptor = WebGPU.BufferDescriptor(
+        nextInChain: nil,
+        label: emptyStringView(),
+        usage: WebGPU.BUFFER_USAGE_VERTEX | WebGPU.BUFFER_USAGE_COPY_DST,
+        size: (vertices.byteLength as! UInt64),
+        mappedAtCreation: 0)
+    vertexBuffer = WebGPU.deviceCreateBuffer(device, &vertexBufferDescriptor)
+    WebGPU.queueWriteBuffer(
+        queue, vertexBuffer, 0, (vertices.bytes as *Byte),
+        (vertices.byteLength as! UInt))
+
+    var uniformBufferDescriptor = WebGPU.BufferDescriptor(
+        nextInChain: nil,
+        label: emptyStringView(),
+        usage: WebGPU.BUFFER_USAGE_UNIFORM | WebGPU.BUFFER_USAGE_COPY_DST,
+        size: 64,
+        mappedAtCreation: 0)
+    uniformBuffer = WebGPU.deviceCreateBuffer(device, &uniformBufferDescriptor)
+    if vertexBuffer == nil or uniformBuffer == nil {
+        Console.printLine("WebGPU buffer creation failed.")
+        WebGPU.shaderModuleRelease(shader)
+        return false
+    }
+
+    var attributes: [WebGPU.VertexAttribute, 2] = [
+        WebGPU.VertexAttribute(
+            nextInChain: nil,
+            format: WebGPU.VertexFormat.float32x3,
+            offset: 0,
+            shaderLocation: 0),
+        WebGPU.VertexAttribute(
+            nextInChain: nil,
+            format: WebGPU.VertexFormat.float32x3,
+            offset: 12,
+            shaderLocation: 1),
+    ]
+    var vertexBufferLayout = WebGPU.VertexBufferLayout(
+        nextInChain: nil,
+        stepMode: WebGPU.VertexStepMode.vertex,
+        arrayStride: 24,
+        attributeCount: 2,
+        attributes: (attributes.bytes as *WebGPU.VertexAttribute))
+
+    let vertexEntryPoint: CStringSlice = "vertexMain"
+    var vertexState = WebGPU.VertexState(
+        nextInChain: nil,
+        module: shader,
+        entryPoint: WebGPU.StringView(
+            data: (vertexEntryPoint.rawPointer() as *Int8), length: 10),
+        constantCount: 0,
+        constants: nil,
+        bufferCount: 1,
+        buffers: *vertexBufferLayout)
+    var colorTarget = WebGPU.ColorTargetState(
+        nextInChain: nil,
+        format: surfaceFormat,
+        blend: nil,
+        writeMask: WebGPU.COLOR_WRITE_MASK_ALL)
+    let fragmentEntryPoint: CStringSlice = "fragmentMain"
+    var fragmentState = WebGPU.FragmentState(
+        nextInChain: nil,
+        module: shader,
+        entryPoint: WebGPU.StringView(
+            data: (fragmentEntryPoint.rawPointer() as *Int8), length: 12),
+        constantCount: 0,
+        constants: nil,
+        targetCount: 1,
+        targets: *colorTarget)
+    var pipelineDescriptor = WebGPU.RenderPipelineDescriptor(
+        nextInChain: nil,
+        label: emptyStringView(),
+        layout: nil,
+        vertex: vertexState,
+        primitive: WebGPU.PrimitiveState(
+            nextInChain: nil,
+            topology: WebGPU.PrimitiveTopology.triangleList,
+            stripIndexFormat: WebGPU.IndexFormat.undefined,
+            frontFace: WebGPU.FrontFace.ccw,
+            cullMode: WebGPU.CullMode.back,
+            unclippedDepth: 0),
+        depthStencil: nil,
+        multisample: WebGPU.MultisampleState(
+            nextInChain: nil,
+            count: 1,
+            mask: 0xFFFFFFFF,
+            alphaToCoverageEnabled: 0),
+        fragment: *fragmentState)
+    pipeline = WebGPU.deviceCreateRenderPipeline(device, &pipelineDescriptor)
+    WebGPU.shaderModuleRelease(shader)
+    if pipeline == nil {
+        Console.printLine("WebGPU render pipeline creation failed.")
+        return false
+    }
+
+    let bindGroupLayout = WebGPU.renderPipelineGetBindGroupLayout(pipeline, 0)
+    var bindGroupEntry = WebGPU.BindGroupEntry(
+        nextInChain: nil,
+        binding: 0,
+        buffer: uniformBuffer,
+        offset: 0,
+        size: 64,
+        sampler: nil,
+        textureView: nil)
+    var bindGroupDescriptor = WebGPU.BindGroupDescriptor(
+        nextInChain: nil,
+        label: emptyStringView(),
+        layout: bindGroupLayout,
+        entryCount: 1,
+        entries: *bindGroupEntry)
+    bindGroup = WebGPU.deviceCreateBindGroup(device, &bindGroupDescriptor)
+    WebGPU.bindGroupLayoutRelease(bindGroupLayout)
+    if bindGroup == nil {
+        Console.printLine("WebGPU bind group creation failed.")
+        return false
+    }
+    let _ = WebGPU.devicePopErrorScope(
+        device,
+        WebGPU.PopErrorScopeCallbackInfo(
+            nextInChain: nil,
+            mode: WebGPU.CallbackMode.allowSpontaneous,
+            callback: reportResourceError,
+            userdata1: nil,
+            userdata2: nil))
+    return true
+}
+
+func deviceReady(
+    status: WebGPU.RequestDeviceStatus,
+    receivedDevice: &WebGPU.DeviceHandle?,
+    message: WebGPU.StringView,
+    userdata1: &Byte?,
+    userdata2: &Byte?) {
+    if status != WebGPU.RequestDeviceStatus.success or receivedDevice == nil {
+        Console.printLine("WebGPU device request failed.")
+        return
+    }
+    device = receivedDevice
+    if !createResources() {
+        return
+    }
+    ready = true
+    Console.printLine("WebGPU shader cube started.")
+}
+
+func adapterReady(
+    status: WebGPU.RequestAdapterStatus,
+    receivedAdapter: &WebGPU.AdapterHandle?,
+    message: WebGPU.StringView,
+    userdata1: &Byte?,
+    userdata2: &Byte?) {
+    if status != WebGPU.RequestAdapterStatus.success or receivedAdapter == nil {
+        Console.printLine("WebGPU adapter request failed.")
+        return
+    }
+    adapter = receivedAdapter
+    WebGPU.adapterRequestDevice(adapter, deviceReady, nil, nil)
+}
+
+func main() -> Int {
+    instance = WebGPU.createInstance(nil)
+    if instance == nil {
+        Console.printLine("WebGPU instance creation failed.")
+        return 1
+    }
+
+    let canvasSelector: CStringSlice = "#canvas"
+    var surfaceSource = WebGPU.EmscriptenSurfaceSourceCanvasHTMLSelector(
+        chain: WebGPU.ChainedStruct(
+            next: nil,
+            sType: WebGPU.SType.emscriptenSurfaceSourceCanvasHTMLSelector),
+        selector: WebGPU.StringView(
+            data: (canvasSelector.rawPointer() as *Int8), length: 7))
+    var surfaceDescriptor = WebGPU.SurfaceDescriptor(
+        nextInChain: *surfaceSource.chain,
+        label: emptyStringView())
+    surface = WebGPU.instanceCreateSurface(instance, &surfaceDescriptor)
+    if surface == nil {
+        Console.printLine("WebGPU canvas surface creation failed.")
+        return 1
+    }
+
+    Console.printLine("Requesting a WebGPU adapter...")
+    WebGPU.instanceRequestAdapter(instance, adapterReady, nil, nil)
+    // Keep the loaded VM program alive while the browser resolves the
+    // asynchronous adapter and device requests. renderFrame is intentionally
+    // idle until deviceReady marks the renderer ready.
+    Platform.Emscripten.setMainLoop(renderFrame, 0, 1)
+    return 0
+}

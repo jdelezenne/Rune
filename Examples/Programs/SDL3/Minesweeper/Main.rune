@@ -1,0 +1,166 @@
+// Minesweeper - the classic desktop mine-hunting puzzle: clear every safe
+// cell of the field without opening a mine. The first click is always safe
+// and starts the timer; numbers count the mines in the eight surrounding
+// cells. Flag suspected mines to keep the counter honest, question-mark the
+// undecided, and chord on a satisfied number to open its remaining
+// neighbours in one stroke. Clearing the field wins; the face button starts
+// a fresh game any time.
+//
+// Controls:
+//   Left click            - open a cell (hold to see it sink)
+//   Right click           - cycle flag / question mark / clear
+//   Middle click, or
+//   left+right together   - chord a satisfied number
+//   Face button           - new game
+//   1 / 2 / 3             - Beginner 9x9x10 / Intermediate 16x16x40 /
+//                           Expert 30x16x99
+//   N or R                - new game
+//   Escape / close        - quit
+
+import Standard.*
+import SDL3
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var game = makeGame()
+var running = true
+var perfFreq: UInt64 = 1
+var lastCounter: UInt64 = 0
+var leftHeld = false
+var rightHeld = false
+
+func handleKey(scancode: SDL3.Scancode) {
+    if scancode == SDL3.Scancode.escape {
+        running = false
+    } else if scancode == SDL3.Scancode.one {
+        game.newGame(0)
+    } else if scancode == SDL3.Scancode.two {
+        game.newGame(1)
+    } else if scancode == SDL3.Scancode.three {
+        game.newGame(2)
+    } else if scancode == SDL3.Scancode.n || scancode == SDL3.Scancode.r {
+        game.newGame(game.difficulty)
+    }
+}
+
+// Buttons are tracked across events so left+right chording works no matter
+// which of the two buttons lands first.
+func handleMouseButton(mouse: &SDL3.MouseButtonEvent) {
+    if mouse.down {
+        if mouse.button == SDL3.MouseButtonId.middle {
+            game.chordAt(mouse.x, mouse.y)
+        } else if mouse.button == SDL3.MouseButtonId.left {
+            leftHeld = true
+            if rightHeld {
+                game.chordAt(mouse.x, mouse.y)
+            } else {
+                game.pressAt(mouse.x, mouse.y)
+            }
+        } else if mouse.button == SDL3.MouseButtonId.right {
+            rightHeld = true
+            if leftHeld {
+                game.chordAt(mouse.x, mouse.y)
+            } else {
+                game.rightClickAt(mouse.x, mouse.y)
+            }
+        }
+        return
+    }
+
+    if mouse.button == SDL3.MouseButtonId.left {
+        leftHeld = false
+        game.releaseLeft(mouse.x, mouse.y)
+    } else if mouse.button == SDL3.MouseButtonId.right {
+        rightHeld = false
+    }
+}
+
+func handleEvent(event: &SDL3.Event) {
+    if event.type == SDL3.EventType.quit {
+        running = false
+        return
+    }
+
+    if event.type == SDL3.EventType.keyDown && event.down {
+        handleKey(event.scancode)
+        return
+    }
+
+    if event.type == SDL3.EventType.mouseButtonDown || event.type == SDL3.EventType.mouseButtonUp {
+        handleMouseButton(SDL3.mouseButtonEvent(event))
+        return
+    }
+
+    if event.type == SDL3.EventType.mouseMotion {
+        let motion = SDL3.mouseMotionEvent(event)
+        if leftHeld {
+            game.dragTo(motion.x, motion.y)
+        }
+    }
+}
+
+func shutdown() {
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    Console.printLine("Minesweeper finished.")
+}
+
+func mainLoop() {
+    var event = SDL3.Event()
+    while SDL3.pollEvent(&event) {
+        handleEvent(&event)
+    }
+
+    let counter = SDL3.getPerformanceCounter()
+    var deltaTime = Float32(counter - lastCounter) / Float32(perfFreq)
+    lastCounter = counter
+    if deltaTime > 0.05 {
+        deltaTime = 0.05
+    }
+
+    if !running {
+        shutdown()
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    game.tick(deltaTime)
+    drawGame(renderer, *game)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune SDL3 - Minesweeper", WIDTH, HEIGHT, 0, &window, &renderer) {
+        Console.printLine("SDL_CreateWindowAndRenderer failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.setRenderVSync(renderer, 1) {
+        Console.printLine("SDL_SetRenderVSync failed: ${SDL3.getError()!}")
+    }
+
+    game = makeGame()
+    running = true
+    perfFreq = SDL3.getPerformanceFrequency()
+    lastCounter = SDL3.getPerformanceCounter()
+
+    Console.printLine("Minesweeper - left click opens, right click flags, middle or left+right chords, 1/2/3 difficulty, N new game.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+
+    return 0
+}

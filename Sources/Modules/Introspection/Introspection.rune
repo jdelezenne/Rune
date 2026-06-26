@@ -1,0 +1,500 @@
+/// Type introspection: compile-time queries and runtime type metadata.
+///
+/// `#typeIdOf<T>()` returns the stable 64-bit identity of `T` as a `UInt64`.
+/// `#typeInfoOf<T>()` returns a `TypeInfo` value describing `T`.
+/// `typeRegistry()` returns the program's `TypeRegistry`, initialized by the
+/// Rune runtime from the introspection metadata section persisted in the
+/// compiled artifact - populated automatically, with no registration.
+///
+/// Every module persists the same identities and records in the
+/// `introspection` metadata section of its `.runemodule`.
+
+/// Classification of a Rune type.
+///
+/// Raw values are part of the `.runemodule` introspection section format and
+/// mirror the compiler-side `sema::IntrospectionTypeKind`; do not renumber.
+public enum TypeKind: Int32 {
+    unknown = 0
+    void = 1
+    boolean = 2
+    integer = 3
+    unsignedInteger = 4
+    floatingPoint = 5
+    character = 6
+    byte = 7
+    string = 8
+    array = 9
+    slice = 10
+    inlineArray = 11
+    buffer = 12
+    map = 13
+    set = 14
+    optional = 15
+    result = 16
+    range = 17
+    tuple = 18
+    function = 19
+    reference = 20
+    structure = 21
+    enumeration = 22
+    flags = 23
+    unionType = 24
+    interfaceType = 25
+    distinctType = 26
+    aliasType = 27
+    any = 28
+}
+
+/// Describes one case of an enum, flags, or union type.
+public struct CaseInfo {
+    /// Case name as declared.
+    public var name: String
+    /// Raw value for enum/flags cases; declaration index for union cases.
+    public var value: Int64
+
+    public init(name: String, value: Int64) {
+        self.name = name
+        self.value = value
+    }
+}
+
+/// Describes one stored field of a struct type.
+public struct FieldInfo {
+    /// Field name as declared.
+    public var name: String
+    /// Stable identity of the field type (same value as `#typeIdOf` on that type).
+    public var typeId: UInt64
+    /// Qualified name of the field type.
+    public var typeName: String
+    /// Byte offset of the field inside the struct storage.
+    public var offset: UInt
+    /// Storage size of the field in bytes.
+    public var size: UInt
+
+    public init(name: String, typeId: UInt64, typeName: String, offset: UInt, size: UInt) {
+        self.name = name
+        self.typeId = typeId
+        self.typeName = typeName
+        self.offset = offset
+        self.size = size
+    }
+}
+
+/// Describes a Rune type: identity, naming, classification, layout, and fields.
+public struct TypeInfo {
+    /// Stable identity of the type (same value as `#typeIdOf` on the type).
+    public var typeId: UInt64
+    /// Local type name (for example `Point`).
+    public var name: String
+    /// Module-qualified type name (for example `Main.Point`).
+    public var qualifiedName: String
+    /// Classification of the type.
+    public var kind: TypeKind
+    /// Storage size in bytes (0 when unknown at compile time).
+    public var size: UInt
+    /// Alignment requirement in bytes.
+    public var alignment: UInt
+    /// Distance between consecutive elements in an array of this type.
+    public var stride: UInt
+    /// Identity of the raw type: the integer raw type for enums and flags, or
+    /// the base type for distinct types; 0 otherwise.
+    public var rawTypeId: UInt64
+    /// Stored fields when `kind` is `TypeKind.structure`; empty otherwise.
+    public var fields: Array<FieldInfo>
+    /// Cases when the type is an enum, flags, or union; empty otherwise.
+    /// Union cases report their declaration index as the value.
+    public var cases: Array<CaseInfo>
+
+    public init(
+        typeId: UInt64,
+        name: String,
+        qualifiedName: String,
+        kind: TypeKind,
+        size: UInt,
+        alignment: UInt,
+        stride: UInt,
+        rawTypeId: UInt64,
+        fields: Array<FieldInfo>,
+        cases: Array<CaseInfo>) {
+        self.typeId = typeId
+        self.name = name
+        self.qualifiedName = qualifiedName
+        self.kind = kind
+        self.size = size
+        self.alignment = alignment
+        self.stride = stride
+        self.rawTypeId = rawTypeId
+        self.fields = fields
+        self.cases = cases
+    }
+
+    /// Number of stored fields.
+    public func fieldCount() -> Int {
+        return fields.count
+    }
+
+    /// Returns the field named `name`, or `nil` when the type has no such field.
+    public func field(name: String) -> FieldInfo? {
+        for field in fields {
+            if field.name == name {
+                return field
+            }
+        }
+
+        return nil
+    }
+
+    /// Number of cases.
+    public func caseCount() -> Int {
+        return cases.count
+    }
+
+    /// Returns the case named `name`, or `nil` when the type has no such case.
+    public func caseNamed(name: String) -> CaseInfo? {
+        for currentCase in cases {
+            if currentCase.name == name {
+                return currentCase
+            }
+        }
+
+        return nil
+    }
+
+    /// Returns the name of the case with raw value `value`, or `nil`.
+    public func caseName(value: Int64) -> String? {
+        for currentCase in cases {
+            if currentCase.value == value {
+                return currentCase.name
+            }
+        }
+
+        return nil
+    }
+
+    /// True when the type declares a case named `name`.
+    public func hasCase(name: String) -> Bool {
+        for currentCase in cases {
+            if currentCase.name == name {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// True when the type is a struct.
+    public func isStruct() -> Bool {
+        return kind == TypeKind.structure
+    }
+
+    /// True when the type is an enum or flags type.
+    public func isEnum() -> Bool {
+        return kind == TypeKind.enumeration or kind == TypeKind.flags
+    }
+
+    /// True when the type is a union.
+    public func isUnion() -> Bool {
+        return kind == TypeKind.unionType
+    }
+
+    /// True when the type is one of the numeric primitives.
+    public func isNumeric() -> Bool {
+        return kind == TypeKind.integer or
+               kind == TypeKind.unsignedInteger or
+               kind == TypeKind.floatingPoint
+    }
+}
+
+public extension TypeInfo implements CustomStringConvertible {
+    public func toString() -> String {
+        return qualifiedName
+    }
+}
+
+/// Little-endian cursor over an introspection metadata section
+/// (`RINT` magic, version 1) as stored in compiled artifacts.
+struct IntrospectionDataReader {
+    var base: Int = 0
+    var offset: Int = 0
+    var length: Int = 0
+    var valid: Bool = true
+
+    init(address: Int, length: Int) {
+        base = address
+        offset = 0
+        self.length = length
+    }
+
+    mutating func u8() -> UInt64 {
+        if !valid or offset + 1 > length {
+            valid = false
+            return 0
+        }
+
+        let value = ((base + offset) as *UInt8)^
+        offset = offset + 1
+        return UInt64(value)
+    }
+
+    mutating func u32() -> UInt64 {
+        var value: UInt64 = 0
+        var shift: UInt64 = 0
+        var index = 0
+        while index < 4 {
+            value = value | (u8() << shift)
+            shift = shift + 8
+            index = index + 1
+        }
+
+        return value
+    }
+
+    mutating func u64() -> UInt64 {
+        var value: UInt64 = 0
+        var shift: UInt64 = 0
+        var index = 0
+        while index < 8 {
+            value = value | (u8() << shift)
+            shift = shift + 8
+            index = index + 1
+        }
+
+        return value
+    }
+
+    mutating func text() -> String {
+        let count = Int(u32())
+        if !valid or offset + count > length {
+            valid = false
+            return ""
+        }
+
+        let pointer = (base + offset) as *Byte
+        offset = offset + count
+        return String.fromBytes(source: pointer, length: UInt(count))
+    }
+}
+
+/// Index of immutable introspection records keyed by their stable identity.
+/// `TypeInfo` values are materialized on lookup so their owned arrays never
+/// pass through the registry's byte-oriented index storage.
+///
+/// The Rune runtime initializes the program's registry from the introspection
+/// metadata persisted in the compiled artifact; obtain it with
+/// `typeRegistry()`. There is no registration - manual or otherwise.
+///
+/// ```rune
+/// let registry = typeRegistry()
+///
+/// let byId = registry.typeInfo(typeId: #typeIdOf<Point>())
+/// let byName = registry.typeInfo(name: "Main.Point")
+/// ```
+struct IntrospectionRecordLocation {
+    var address: Int
+    var length: Int
+
+    init(address: Int, length: Int) {
+        self.address = address
+        self.length = length
+    }
+}
+
+public struct TypeRegistry {
+    var _recordsById: HashMap<UInt64, IntrospectionRecordLocation>
+
+    /// Creates an empty registry; `typeRegistry()` fills it from the
+    /// program's introspection metadata.
+    init() {
+        _recordsById = HashMap<UInt64, IntrospectionRecordLocation>()
+    }
+
+    /// Decodes one introspection metadata section into the registry,
+    /// replacing entries with matching identities.
+    mutating func decodeIntrospectionData(address: Int, length: Int) {
+        var reader = IntrospectionDataReader(address: address, length: length)
+
+        // Magic "RINT" followed by the format version.
+        if reader.u8() != 82 or reader.u8() != 73 or reader.u8() != 78 or reader.u8() != 84 {
+            return
+        }
+        if reader.u32() != 1 {
+            return
+        }
+
+        let typeCount = Int(reader.u32())
+        var typeIndex = 0
+        while typeIndex < typeCount {
+            let recordAddress = address + reader.offset
+            let _ = reader.u32() // declId: joins compile-time records; unused here.
+            let typeId = reader.u64()
+            let _ = reader.u8() // kind
+            let _ = reader.text() // name
+            let _ = reader.text() // qualifiedName
+            let _ = reader.u32() // size
+            let _ = reader.u32() // alignment
+            let _ = reader.u32() // stride
+            let _ = reader.u64() // rawTypeId
+            let _ = reader.text() // rawTypeName: derivable from rawTypeId; unused here.
+
+            let fieldCount = Int(reader.u32())
+            var fieldIndex = 0
+            while fieldIndex < fieldCount {
+                let _ = reader.text() // fieldName
+                let _ = reader.u64() // fieldTypeId
+                let _ = reader.text() // fieldTypeName
+                let _ = reader.u32() // fieldOffset
+                let _ = reader.u32() // fieldSize
+                fieldIndex = fieldIndex + 1
+            }
+
+            let caseCount = Int(reader.u32())
+            var caseIndex = 0
+            while caseIndex < caseCount {
+                let _ = reader.text() // caseName
+                let _ = reader.u64() // caseValue
+                caseIndex = caseIndex + 1
+            }
+
+            if !reader.valid {
+                return
+            }
+
+            _recordsById.insert(
+                key: typeId,
+                value: IntrospectionRecordLocation(
+                    address: recordAddress,
+                    length: address + reader.offset - recordAddress))
+            typeIndex = typeIndex + 1
+        }
+    }
+
+    /// Returns the stable identity of the type whose canonical qualified name
+    /// is `name` (for example `Main.Point` or `Rune.Array<Rune.Int>`).
+    ///
+    /// Produces the same value as `#typeIdOf` for the same spelling:
+    /// `String.hash()` is the identical 64-bit FNV-1a hash the compiler uses.
+    /// 0 is reserved as "no identity".
+    public static func typeId(name: String) -> UInt64 {
+        let hash = UInt64.truncating(name.hash())
+        if hash == 0 {
+            return 1
+        }
+
+        return hash
+    }
+
+    /// Number of types in the registry.
+    public func count() -> Int {
+        return _recordsById.count
+    }
+
+    /// True when a type with `typeId` is known.
+    public func contains(typeId: UInt64) -> Bool {
+        return _recordsById.contains(key: typeId)
+    }
+
+    /// Returns the type with `typeId`, or `nil`.
+    public func typeInfo(typeId: UInt64) -> TypeInfo? {
+        if let location = _recordsById.tryGet(key: typeId) {
+            var reader = IntrospectionDataReader(address: location.address, length: location.length)
+            let _ = reader.u32() // declId
+            let decodedTypeId = reader.u64()
+            let kindRaw = reader.u8()
+            let name = reader.text()
+            let qualifiedName = reader.text()
+            let size = reader.u32()
+            let alignment = reader.u32()
+            let stride = reader.u32()
+            let rawTypeId = reader.u64()
+            let _ = reader.text() // rawTypeName
+
+            var fields = Array<FieldInfo>()
+            let fieldCount = Int(reader.u32())
+            var fieldIndex = 0
+            while fieldIndex < fieldCount {
+                fields.append(element: FieldInfo(
+                    name: reader.text(),
+                    typeId: reader.u64(),
+                    typeName: reader.text(),
+                    offset: UInt(reader.u32()),
+                    size: UInt(reader.u32())))
+                fieldIndex = fieldIndex + 1
+            }
+
+            var cases = Array<CaseInfo>()
+            let caseCount = Int(reader.u32())
+            var caseIndex = 0
+            while caseIndex < caseCount {
+                cases.append(element: CaseInfo(
+                    name: reader.text(),
+                    value: Int64.truncating(reader.u64())))
+                caseIndex = caseIndex + 1
+            }
+
+            return TypeInfo(
+                typeId: decodedTypeId,
+                name: name,
+                qualifiedName: qualifiedName,
+                kind: TypeKind(Int32(kindRaw)),
+                size: UInt(size),
+                alignment: UInt(alignment),
+                stride: UInt(stride),
+                rawTypeId: rawTypeId,
+                fields: fields,
+                cases: cases)
+        }
+
+        return nil
+    }
+
+    /// Returns the type whose canonical qualified name is `name`, or `nil`.
+    /// The name is hashed with `TypeRegistry.typeId(name:)`.
+    public func typeInfo(name: String) -> TypeInfo? {
+        return typeInfo(typeId: TypeRegistry.typeId(name: name))
+    }
+}
+
+/// Raw access to the introspection metadata sections persisted in the loaded
+/// program's artifacts, answered by the host runtime itself.
+/// Compiler/runtime plumbing - use `typeRegistry()` instead.
+public static IntrospectionRuntime {
+    /// Number of introspection metadata sections in the loaded program.
+    @runtime("rune_introspection_data_count")
+    public func dataCount() -> Int
+
+    /// Start address of the section at `index`, or 0 when out of range.
+    @runtime("rune_introspection_data_address")
+    public func dataAddress(index: Int) -> Int
+
+    /// Byte length of the section at `index`, or 0 when out of range.
+    @runtime("rune_introspection_data_length")
+    public func dataLength(index: Int) -> Int
+}
+
+/// The program's type registry, initialized by the Rune runtime from the
+/// introspection metadata persisted in the compiled artifact.
+///
+/// Like `.NET` assembly metadata, the records travel in the artifact itself:
+/// every module persists its type records in a metadata section, and the
+/// runtime serves the loaded program's sections directly - there is no
+/// registration step, manual or otherwise:
+///
+/// ```rune
+/// import Introspection.*
+///
+/// let registry = typeRegistry()
+/// let point = registry.typeInfo(name: "Main.Point")
+/// ```
+public func typeRegistry() -> TypeRegistry {
+    var registry = TypeRegistry()
+    let count = IntrospectionRuntime.dataCount()
+    var index = 0
+    while index < count {
+        registry.decodeIntrospectionData(
+            address: IntrospectionRuntime.dataAddress(index: index),
+            length: IntrospectionRuntime.dataLength(index: index))
+        index = index + 1
+    }
+
+    return registry
+}

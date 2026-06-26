@@ -1,0 +1,138 @@
+/// Opaque platform socket handle.
+public distinct SocketHandle
+
+/// A cross-platform TCP or UDP socket.
+///
+/// For TCP: use as a client with `connect`, or as a server with `listen` followed
+/// by repeated `accept` calls.
+/// For UDP: `bind` and exchange datagrams with `sendTo`/`receiveFrom`.
+@builtin
+public struct Socket {
+    /// Creates an unconnected, unbound socket.
+    @runtime("rune_runtime_socket_create")
+    public init()
+
+    /// Releases the socket when the value is destroyed.
+    @runtime("rune_socket_close")
+    final()
+
+    /// True while this socket holds a live descriptor.
+    public isOpen: Bool {
+        @runtime("rune_socket_is_open")
+        get
+    }
+
+    /// Handle suitable for passing to native callbacks.
+    public nativeHandle: *SocketHandle? {
+        @runtime("rune_socket_native_handle")
+        get
+    }
+
+    /// Address of the remote peer, formatted "host:port" ("[host]:port" for IPv6).
+    /// Empty when not connected or the address cannot be determined.
+    public remoteAddress: String {
+        @runtime("rune_runtime_socket_remote_address")
+        get
+    }
+
+    /// Local address this socket is bound to, formatted "host:port".
+    /// Empty when unbound or the address cannot be determined.
+    public localAddress: String {
+        @runtime("rune_runtime_socket_local_address")
+        get
+    }
+
+    /// Opens a TCP connection to `host`:`port`. On failure, `error` receives a
+    /// human-readable message describing why (left untouched on success).
+    /// @return True on success.
+    @runtime("rune_runtime_socket_connect")
+    public mutating func connect(host: String, port: UInt16, error: &String) -> Bool
+
+    /// Binds and listens on `host`:`port` with the given pending-connection backlog.
+    /// Pass "0.0.0.0" (IPv4) or "::" (IPv6) to bind all interfaces. On failure, `error`
+    /// receives a human-readable message describing why (left untouched on success).
+    /// @return True on success.
+    @runtime("rune_runtime_socket_listen")
+    public mutating func listen(host: String, port: UInt16, backlog: Int32, error: &String) -> Bool
+
+    /// Blocks until a connection arrives on a listening socket, and returns it. On
+    /// failure, `error` receives a human-readable message (left untouched on success);
+    /// check the result's `isOpen`.
+    @runtime("rune_runtime_socket_accept")
+    public mutating func accept(error: &String) -> Socket
+
+    /// Attempts to accept one pending connection without blocking. `wouldBlock`
+    /// receives true when no connection is ready yet.
+    @runtime("rune_runtime_socket_accept_available")
+    public mutating func acceptAvailable(wouldBlock: &Bool, error: &String) -> Socket
+
+    /// Binds this socket for UDP on `host`:`port` without listening; receive datagrams
+    /// with `receiveFrom`. Pass "0.0.0.0" (IPv4) or "::" (IPv6) to bind all interfaces.
+    /// On failure, `error` receives a human-readable message (left untouched on success).
+    /// @return True on success.
+    @runtime("rune_runtime_socket_bind")
+    public mutating func bind(host: String, port: UInt16, error: &String) -> Bool
+
+    /// Sends up to `length` bytes starting at `data`. On failure, `error` receives a
+    /// human-readable message (left untouched otherwise).
+    /// @return The number of bytes written, or -1 on failure.
+    @runtime("rune_runtime_socket_send")
+    public mutating func send(data: *Byte?, length: UInt, error: &String) -> Int64
+
+    /// Reads up to `length` bytes into `buffer`. On failure, `error` receives a
+    /// human-readable message (left untouched otherwise).
+    /// @return The number of bytes read, 0 at end of stream, or -1 on failure.
+    @runtime("rune_runtime_socket_receive")
+    public mutating func receive(buffer: &Byte?, length: UInt, error: &String) -> Int64
+
+    /// Attempts one stream read without treating "no bytes are ready yet" as an
+    /// error. `wouldBlock` receives true when the operation would block.
+    @runtime("rune_runtime_socket_receive_available")
+    public mutating func receiveAvailable(buffer: &Byte?, length: UInt, received: &UInt64, wouldBlock: &Bool, error: &String) -> Bool
+
+    /// Sends up to `length` bytes starting at `data` to `host`:`port` as a UDP datagram.
+    /// Implicitly creates the underlying socket on first use if not already `bind`-ed.
+    /// On failure, `error` receives a human-readable message (left untouched otherwise).
+    /// @return The number of bytes sent, or -1 on failure.
+    @runtime("rune_runtime_socket_send_to")
+    public mutating func sendTo(data: *Byte?, length: UInt, host: String, port: UInt16, error: &String) -> Int64
+
+    /// Receives up to `length` bytes into `buffer` as a UDP datagram. `fromHost`
+    /// and `fromPort` receive the sender address. On failure, `error` receives a
+    /// human-readable message (left untouched otherwise).
+    /// @return The number of bytes read, or -1 on failure.
+    @runtime("rune_runtime_socket_receive_from")
+    public mutating func receiveFrom(buffer: &Byte?, length: UInt, fromHost: &String, fromPort: &UInt16, error: &String) -> Int64
+
+    /// Shuts down the connection without closing the descriptor.
+    @runtime("rune_runtime_socket_shutdown")
+    public mutating func shutdown() -> Bool
+
+    /// Closes the socket, releasing the underlying descriptor.
+    @runtime("rune_socket_close")
+    public mutating func close()
+
+    /// Sets whether this socket performs blocking or non-blocking I/O.
+    @runtime("rune_runtime_socket_set_nonblocking")
+    public mutating func setNonblocking(enabled: Bool) -> Bool
+
+    /// Sets `SO_REUSEADDR`, allowing a listening socket to bind to an address still in
+    /// `TIME_WAIT` from a previous listener. Enabled by default after `listen`.
+    @runtime("rune_runtime_socket_set_reuse_address")
+    public mutating func setReuseAddress(enabled: Bool) -> Bool
+
+    /// Sets `TCP_NODELAY`, disabling Nagle's algorithm so small writes are sent
+    /// immediately instead of being coalesced.
+    @runtime("rune_runtime_socket_set_nodelay")
+    public mutating func setNoDelay(enabled: Bool) -> Bool
+
+    /// Sets the maximum time a blocking `receive` call will wait for data.
+    /// @param milliseconds Timeout in milliseconds; 0 disables the timeout.
+    @runtime("rune_runtime_socket_set_receive_timeout")
+    public mutating func setReceiveTimeout(milliseconds: UInt32) -> Bool
+
+    /// Sets the maximum time a blocking `send` call will wait for buffer space.
+    /// @param milliseconds Timeout in milliseconds; 0 disables the timeout.
+    @runtime("rune_runtime_socket_set_send_timeout")
+    public mutating func setSendTimeout(milliseconds: UInt32) -> Bool
+}

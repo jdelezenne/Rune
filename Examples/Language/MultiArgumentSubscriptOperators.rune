@@ -1,0 +1,13 @@
+struct Grid {
+    var width: Int
+    var base: Int
+
+    operator [](row: Int, column: Int) -> Int {
+        return base + row * width + column
+    }
+}
+
+func main() -> Int {
+    let grid = Grid(width: 10, base: 100)
+    return grid[2, 3] - 123
+}

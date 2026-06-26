@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "name": "WebGPUComputeLife",
+  "kind": "executable",
+  "unsafe": true,
+  "sources": [
+    "ComputeLife.rune"
+  ],
+  "dependencies": [
+    "../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../Modules/WebGPU/WebGPU.runemanifest"
+  ]
+}

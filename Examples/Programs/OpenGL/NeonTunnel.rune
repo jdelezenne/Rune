@@ -1,0 +1,339 @@
+// Endless shader-driven tunnel. All transforms, tunnel animation,
+// and fog are performed by GLSL shaders.
+
+import Standard.*
+import SDL3
+import OpenGL
+
+const WIDTH: Int32 = 1280
+const HEIGHT: Int32 = 720
+const SIDES: Int = 20
+const RINGS: Int = 72
+const VERTICES_PER_RING: Int = SIDES + 1
+const VERTEX_COUNT: Int = VERTICES_PER_RING * RINGS
+const INDEX_COUNT: Int = (RINGS - 1) * SIDES * 6
+const TUNNEL_RADIUS: Float32 = 5.0
+const RING_SPACING: Float32 = 1.2
+const TUNNEL_DEPTH: Float32 = 85.2
+
+@layout(kind: c)
+struct TunnelVertex {
+    var x: Float32
+    var y: Float32
+    var z: Float32
+    var band: Float32
+}
+
+let glsl150Header: String = "#version 150 core\n"
+let glsl300ESHeader: String = "#version 300 es\n"
+
+let tunnelVertexShaderBody: String = """
+#ifdef GL_ES
+precision highp float;
+#endif
+in vec3 position;
+in float band;
+
+uniform mat4 projection;
+uniform float travel;
+uniform float time;
+
+out float vertexBand;
+out float depthFade;
+out vec3 neonColor;
+
+void main() {
+    // Keep the mesh stationary. Recycling the connected ring mesh with mod()
+    // made the front ring cross the camera and stretched its triangles across
+    // the screen. Motion now comes from continuous curve and color phases.
+    float z = position.z;
+    float depth = -z;
+    float path = z - travel;
+    float twist = path * 0.055 + sin(path * 0.035) * 0.7;
+    float c = cos(twist);
+    float s = sin(twist);
+    vec2 ring = mat2(c, -s, s, c) * position.xy;
+
+    vec2 bend = vec2(
+        sin(path * 0.042) * 1.15,
+        cos(path * 0.033) * 0.85);
+    vec3 viewPosition = vec3(ring + bend, z);
+
+    float movingBand = band + travel * 0.32;
+    float pulse = 0.5 + 0.5 * sin(movingBand * 2.1);
+    neonColor = mix(vec3(0.02, 0.65, 1.0), vec3(0.92, 0.08, 1.0), pulse);
+    vertexBand = movingBand;
+    depthFade = clamp(1.0 - depth / 88.0, 0.0, 1.0);
+    gl_Position = projection * vec4(viewPosition, 1.0);
+}
+"""
+
+let tunnelFragmentShaderBody: String = """
+#ifdef GL_ES
+precision mediump float;
+#endif
+in float vertexBand;
+in float depthFade;
+in vec3 neonColor;
+out vec4 fragmentColor;
+
+void main() {
+    float grid = 0.32 + 0.68 * pow(abs(sin(vertexBand * 3.14159265)), 18.0);
+    float distanceFog = 0.10 + 0.90 * depthFade * depthFade;
+    fragmentColor = vec4(neonColor * grid * distanceFog, 1.0);
+}
+"""
+
+func resolveOpenGLFunction(name: CStringSlice) -> &Byte? {
+    return SDL3.glGetProcAddress(name)
+}
+
+func compileShader(kind: OpenGL.GLenum, source: String) -> OpenGL.GLuint {
+    let shader = OpenGL.createShader(kind)
+    var sourceBuffer: [Byte, 8192] = []
+    let sourceLength = source.copyBytes(destination: (sourceBuffer.bytes as &Byte), maxLength: 8192)
+    var sourcePointer: *Int8 = (sourceBuffer.bytes as *Int8)
+    var sourceLengthValue: OpenGL.GLint = sourceLength as! OpenGL.GLint
+    OpenGL.shaderSource(shader, 1, &sourcePointer, &sourceLengthValue)
+    OpenGL.compileShader(shader)
+
+    return shader
+}
+
+func shaderCompiled(shader: OpenGL.GLuint) -> Bool {
+    var status: OpenGL.GLint = 0
+    OpenGL.getShaderiv(shader, OpenGL.COMPILE_STATUS, &status)
+    return status != 0
+}
+
+func programLinked(program: OpenGL.GLuint) -> Bool {
+    var status: OpenGL.GLint = 0
+    OpenGL.getProgramiv(program, OpenGL.LINK_STATUS, &status)
+    return status != 0
+}
+
+func buildProgram(header: String) -> OpenGL.GLuint {
+    let vertexShader = compileShader(OpenGL.VERTEX_SHADER, header + tunnelVertexShaderBody)
+    let fragmentShader = compileShader(OpenGL.FRAGMENT_SHADER, header + tunnelFragmentShaderBody)
+    let program = OpenGL.createProgram()
+    OpenGL.attachShader(program, vertexShader)
+    OpenGL.attachShader(program, fragmentShader)
+    if shaderCompiled(vertexShader) && shaderCompiled(fragmentShader) {
+        OpenGL.linkProgram(program)
+    }
+    OpenGL.deleteShader(vertexShader)
+    OpenGL.deleteShader(fragmentShader)
+    return program
+}
+
+func createProgram() -> OpenGL.GLuint {
+    let glsl150Program = buildProgram(glsl150Header)
+    if programLinked(glsl150Program) {
+        return glsl150Program
+    }
+    OpenGL.deleteProgram(glsl150Program)
+
+    let glsl300ESProgram = buildProgram(glsl300ESHeader)
+    if !programLinked(glsl300ESProgram) {
+        Console.printLine("Neon Tunnel shader program creation failed.")
+        OpenGL.deleteProgram(glsl300ESProgram)
+        return 0
+    }
+    return glsl300ESProgram
+}
+
+func buildTunnelVertices() -> [TunnelVertex, VERTEX_COUNT] {
+    var vertices: [TunnelVertex, VERTEX_COUNT] = []
+    for ring in 0..RINGS {
+        let z = -Float32(ring) * RING_SPACING - 0.3
+        // Duplicate side zero at side SIDES. The positions meet, while the
+        // band coordinate remains continuous across the cylinder seam.
+        for side in 0..VERTICES_PER_RING {
+            let angle = Float32(side) * 2.0 * 3.14159265 / Float32(SIDES)
+            let index = ring * VERTICES_PER_RING + side
+            vertices[index] = TunnelVertex(
+                x: Math.cos(angle) * TUNNEL_RADIUS,
+                y: Math.sin(angle) * TUNNEL_RADIUS,
+                z: z,
+                band: Float32(side) + Float32(ring) * 0.18)
+        }
+    }
+    return vertices
+}
+
+func buildTunnelIndices() -> [UInt32, INDEX_COUNT] {
+    var indices: [UInt32, INDEX_COUNT] = []
+    var index = 0
+    for ring in 0..(RINGS - 1) {
+        for side in 0..SIDES {
+            let near0 = UInt32(ring * VERTICES_PER_RING + side)
+            let near1 = UInt32(ring * VERTICES_PER_RING + side + 1)
+            let far0 = UInt32((ring + 1) * VERTICES_PER_RING + side)
+            let far1 = UInt32((ring + 1) * VERTICES_PER_RING + side + 1)
+            indices[index] = near0
+            indices[index + 1] = far1
+            indices[index + 2] = far0
+            indices[index + 3] = near0
+            indices[index + 4] = near1
+            indices[index + 5] = far1
+            index = index + 6
+        }
+    }
+    return indices
+}
+
+var window: &SDL3.Window? = nil
+var glContext: &SDL3.GLContext? = nil
+var event = SDL3.Event()
+var running = true
+var tunnelProgram: OpenGL.GLuint = 0
+var tunnelVertexArray: OpenGL.GLuint = 0
+var tunnelVertexBuffer: OpenGL.GLuint = 0
+var tunnelIndexBuffer: OpenGL.GLuint = 0
+var positionAttribute: OpenGL.GLuint = 0
+var bandAttribute: OpenGL.GLuint = 0
+var projection: Matrix4 = Matrix4.identity()
+var travel: Float32 = 0.0
+var elapsed: Float32 = 0.0
+var speed: Float32 = 9.0
+var lastCounter: UInt64 = 0
+var performanceFrequency: UInt64 = 1
+
+func setCommonUniforms(program: OpenGL.GLuint) {
+    OpenGL.useProgram(program)
+    OpenGL.uniformMatrix4fv(OpenGL.getUniformLocation(program, "projection"), 1, OpenGL.FALSE, (projection.m.bytes as *OpenGL.GLfloat))
+    OpenGL.uniform1f(OpenGL.getUniformLocation(program, "travel"), travel)
+    OpenGL.uniform1f(OpenGL.getUniformLocation(program, "time"), elapsed)
+}
+
+func updateAnimation(deltaTime: Float32) {
+    travel = travel + speed * deltaTime
+    elapsed = elapsed + deltaTime
+    speed = if speed < 18.0 {
+        speed + deltaTime * 0.12
+    } else {
+        18.0
+    }
+}
+
+func renderGame() {
+    OpenGL.clearColor(0.008, 0.006, 0.025, 1.0)
+    OpenGL.clear(OpenGL.COLOR_BUFFER_BIT | OpenGL.DEPTH_BUFFER_BIT)
+
+    setCommonUniforms(tunnelProgram)
+    OpenGL.bindVertexArray(tunnelVertexArray)
+    OpenGL.drawElements(OpenGL.TRIANGLES, Int32(INDEX_COUNT), OpenGL.UNSIGNED_INT, nil)
+
+    SDL3.glSwapWindow(window)
+}
+
+func destroyGame() {
+    OpenGL.deleteProgram(tunnelProgram)
+    OpenGL.deleteBuffers(1, &tunnelVertexBuffer)
+    OpenGL.deleteBuffers(1, &tunnelIndexBuffer)
+    OpenGL.deleteVertexArrays(1, &tunnelVertexArray)
+    SDL3.glDestroyContext(glContext)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+}
+
+func mainLoop() {
+    while SDL3.pollEvent(&event) {
+        if event.type == SDL3.EventType.quit {
+            running = false
+        } else if event.type == SDL3.EventType.keyDown && event.down && event.scancode == SDL3.Scancode.escape {
+            running = false
+        }
+    }
+    if !running {
+        destroyGame()
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    let counter = SDL3.getPerformanceCounter()
+    var deltaTime = Float32(counter - lastCounter) / Float32(performanceFrequency)
+    lastCounter = counter
+    if deltaTime > 0.05 {
+        deltaTime = 0.05
+    }
+    updateAnimation(deltaTime)
+    renderGame()
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        Console.printLine("SDL initialization failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    SDL3.glResetAttributes()
+    SDL3.glSetAttribute(SDL3.GLAttribute.contextMajorVersion, 3)
+    SDL3.glSetAttribute(SDL3.GLAttribute.contextMinorVersion, 2)
+    SDL3.glSetAttribute(SDL3.GLAttribute.contextProfileMask, 1)
+    SDL3.glSetAttribute(SDL3.GLAttribute.contextFlags, 2)
+    SDL3.glSetAttribute(SDL3.GLAttribute.doubleBuffer, 1)
+    SDL3.glSetAttribute(SDL3.GLAttribute.depthSize, 24)
+
+    window = SDL3.createWindow("Rune OpenGL: Neon Tunnel", WIDTH, HEIGHT, SDL3.WindowFlags.opengl)
+    if window == nil {
+        Console.printLine("Window creation failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+    glContext = SDL3.glCreateContext(window)
+    if glContext == nil {
+        Console.printLine("OpenGL 3.2 core context creation failed: ${SDL3.getError()!}")
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        return 1
+    }
+    SDL3.glMakeCurrent(window, glContext)
+    SDL3.glSetSwapInterval(1)
+    OpenGL.loadFunctions(resolveOpenGLFunction)
+
+    OpenGL.viewport(0, 0, WIDTH, HEIGHT)
+    OpenGL.enable(OpenGL.DEPTH_TEST)
+    OpenGL.depthFunc(OpenGL.LEQUAL)
+    projection = Matrix4.perspective(72.0, Float32(WIDTH) / Float32(HEIGHT), 0.1, 100.0)
+
+    tunnelProgram = createProgram()
+    if tunnelProgram == 0 {
+        SDL3.glDestroyContext(glContext)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        return 1
+    }
+    var vertices = buildTunnelVertices()
+    var indices = buildTunnelIndices()
+
+    OpenGL.genVertexArrays(1, &tunnelVertexArray)
+    OpenGL.bindVertexArray(tunnelVertexArray)
+    OpenGL.genBuffers(1, &tunnelVertexBuffer)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, tunnelVertexBuffer)
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, VERTEX_COUNT * 16, (vertices.bytes as *Byte), OpenGL.STATIC_DRAW)
+    OpenGL.genBuffers(1, &tunnelIndexBuffer)
+    OpenGL.bindBuffer(OpenGL.ELEMENT_ARRAY_BUFFER, tunnelIndexBuffer)
+    OpenGL.bufferData(OpenGL.ELEMENT_ARRAY_BUFFER, INDEX_COUNT * 4, (indices.bytes as *Byte), OpenGL.STATIC_DRAW)
+    positionAttribute = OpenGL.getAttribLocation(tunnelProgram, "position") as! UInt32
+    bandAttribute = OpenGL.getAttribLocation(tunnelProgram, "band") as! UInt32
+    OpenGL.enableVertexAttribArray(positionAttribute)
+    OpenGL.vertexAttribPointer(positionAttribute, 3, OpenGL.FLOAT, OpenGL.FALSE, 16, 0 as *Byte)
+    OpenGL.enableVertexAttribArray(bandAttribute)
+    OpenGL.vertexAttribPointer(bandAttribute, 1, OpenGL.FLOAT, OpenGL.FALSE, 16, 12 as *Byte)
+
+    performanceFrequency = SDL3.getPerformanceFrequency()
+    lastCounter = SDL3.getPerformanceCounter()
+    Console.printLine("Neon Tunnel: press Escape to quit.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

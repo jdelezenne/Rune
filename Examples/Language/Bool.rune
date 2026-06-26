@@ -1,0 +1,11 @@
+func main() -> Int {
+    let enabled = true
+    let disabled = false
+    let ready = enabled and not disabled
+
+    if not ready {
+        return 1
+    }
+
+    return 0
+}

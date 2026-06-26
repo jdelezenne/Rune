@@ -1,0 +1,192 @@
+// Mesh generation: the same hidden-face-culling approach as
+// Examples/Programs/OpenGL/VoxelPlanet/Mesh.rune (only emit a face where
+// the neighboring voxel is empty), rebuilt from scratch here because it
+// runs after *every* edit rather than once at world-generation time -- an
+// editor's whole appeal is the mesh always reflecting the current grid.
+// Also builds the two small line meshes the editor overlays on top: a
+// wireframe cursor cube (highlighting whichever voxel the current tool
+// would affect) and a reference work grid translated to the active height.
+
+import Standard.*
+
+@layout(kind: c)
+struct Vertex {
+    var x: Float32
+    var y: Float32
+    var z: Float32
+    var nx: Float32
+    var ny: Float32
+    var nz: Float32
+    var r: Float32
+    var g: Float32
+    var b: Float32
+}
+
+func appendVertex(vertices: &Array<Vertex>, position: Vector3, normal: Vector3, color: Vector3) {
+    vertices.append(Vertex(
+        x: position.x, y: position.y, z: position.z,
+        nx: normal.x, ny: normal.y, nz: normal.z,
+        r: color.x, g: color.y, b: color.z))
+}
+
+// Emits one face (as 2 triangles) of the unit cube whose min corner is at
+// `base`. `direction` selects which of the 6 axis-aligned faces: 0=+X
+// 1=-X 2=+Y 3=-Y 4=+Z 5=-Z.
+func appendFace(vertices: &Array<Vertex>, base: Vector3, direction: Int32, color: Vector3) {
+    var c0 = base
+    var c1 = base
+    var c2 = base
+    var c3 = base
+    var normal = Vector3(x: 0.0, y: 0.0, z: 0.0)
+
+    if direction == 0 {
+        c0 = base + Vector3(x: 1.0, y: 0.0, z: 0.0)
+        c1 = base + Vector3(x: 1.0, y: 0.0, z: 1.0)
+        c2 = base + Vector3(x: 1.0, y: 1.0, z: 1.0)
+        c3 = base + Vector3(x: 1.0, y: 1.0, z: 0.0)
+        normal = Vector3(x: 1.0, y: 0.0, z: 0.0)
+    } else if direction == 1 {
+        c0 = base + Vector3(x: 0.0, y: 0.0, z: 1.0)
+        c1 = base + Vector3(x: 0.0, y: 0.0, z: 0.0)
+        c2 = base + Vector3(x: 0.0, y: 1.0, z: 0.0)
+        c3 = base + Vector3(x: 0.0, y: 1.0, z: 1.0)
+        normal = Vector3(x: -1.0, y: 0.0, z: 0.0)
+    } else if direction == 2 {
+        c0 = base + Vector3(x: 0.0, y: 1.0, z: 0.0)
+        c1 = base + Vector3(x: 1.0, y: 1.0, z: 0.0)
+        c2 = base + Vector3(x: 1.0, y: 1.0, z: 1.0)
+        c3 = base + Vector3(x: 0.0, y: 1.0, z: 1.0)
+        normal = Vector3(x: 0.0, y: 1.0, z: 0.0)
+    } else if direction == 3 {
+        c0 = base + Vector3(x: 0.0, y: 0.0, z: 0.0)
+        c1 = base + Vector3(x: 0.0, y: 0.0, z: 1.0)
+        c2 = base + Vector3(x: 1.0, y: 0.0, z: 1.0)
+        c3 = base + Vector3(x: 1.0, y: 0.0, z: 0.0)
+        normal = Vector3(x: 0.0, y: -1.0, z: 0.0)
+    } else if direction == 4 {
+        c0 = base + Vector3(x: 1.0, y: 0.0, z: 1.0)
+        c1 = base + Vector3(x: 0.0, y: 0.0, z: 1.0)
+        c2 = base + Vector3(x: 0.0, y: 1.0, z: 1.0)
+        c3 = base + Vector3(x: 1.0, y: 1.0, z: 1.0)
+        normal = Vector3(x: 0.0, y: 0.0, z: 1.0)
+    } else {
+        c0 = base + Vector3(x: 0.0, y: 0.0, z: 0.0)
+        c1 = base + Vector3(x: 1.0, y: 0.0, z: 0.0)
+        c2 = base + Vector3(x: 1.0, y: 1.0, z: 0.0)
+        c3 = base + Vector3(x: 0.0, y: 1.0, z: 0.0)
+        normal = Vector3(x: 0.0, y: 0.0, z: -1.0)
+    }
+
+    appendVertex(vertices, c0, normal, color)
+    appendVertex(vertices, c1, normal, color)
+    appendVertex(vertices, c2, normal, color)
+    appendVertex(vertices, c0, normal, color)
+    appendVertex(vertices, c2, normal, color)
+    appendVertex(vertices, c3, normal, color)
+}
+
+// Rebuilds the entire visible mesh from the grid's current contents. Called
+// after every edit -- at GRID_SIZE^3 = 13824 voxels worst case this is a
+// few hundred thousand simple comparisons, comfortably fast enough to redo
+// on every mouse click without a visible stall.
+func buildGridMesh(grid: &Grid) -> Array<Vertex> {
+    var vertices: Array<Vertex> = []
+
+    for x in 0..GRID_SIZE {
+        for y in 0..GRID_SIZE {
+            for z in 0..GRID_SIZE {
+                let value = grid.at(x, y, z)
+                if value == EMPTY_VOXEL {
+                    continue
+                }
+
+                let color = PALETTE[Int(value) - 1]
+                let base = Vector3(x: Float32(x), y: Float32(y), z: Float32(z))
+
+                if !grid.isSolid(x + 1, y, z) {
+                    appendFace(&vertices, base, 0, color)
+                }
+                if !grid.isSolid(x - 1, y, z) {
+                    appendFace(&vertices, base, 1, color)
+                }
+                if !grid.isSolid(x, y + 1, z) {
+                    appendFace(&vertices, base, 2, color)
+                }
+                if !grid.isSolid(x, y - 1, z) {
+                    appendFace(&vertices, base, 3, color)
+                }
+                if !grid.isSolid(x, y, z + 1) {
+                    appendFace(&vertices, base, 4, color)
+                }
+                if !grid.isSolid(x, y, z - 1) {
+                    appendFace(&vertices, base, 5, color)
+                }
+            }
+        }
+    }
+
+    return vertices
+}
+
+@layout(kind: c)
+struct LineVertex {
+    var x: Float32
+    var y: Float32
+    var z: Float32
+}
+
+const CURSOR_CUBE_VERTEX_COUNT: Int = 24
+
+// Cursor cube edge list: bottom face, top face, then the 4 vertical edges
+// connecting them, as corner-index pairs (see buildCursorCubeMesh).
+const CURSOR_CUBE_EDGES: [Int, CURSOR_CUBE_VERTEX_COUNT] = [
+    0, 1, 1, 3, 3, 2, 2, 0,
+    4, 5, 5, 7, 7, 6, 6, 4,
+    0, 4, 1, 5, 2, 6, 3, 7,
+]
+
+// A unit wireframe cube (12 edges, 2 vertices each) centered on the origin
+// cell's min corner -- the caller positions it per-frame with a translation
+// matrix rather than rebuilding it, since its shape never changes.
+func buildCursorCubeMesh() -> [LineVertex, CURSOR_CUBE_VERTEX_COUNT] {
+    var corners: [Vector3, 8] = []
+    corners[0] = Vector3(x: 0.0, y: 0.0, z: 0.0)
+    corners[1] = Vector3(x: 1.0, y: 0.0, z: 0.0)
+    corners[2] = Vector3(x: 0.0, y: 1.0, z: 0.0)
+    corners[3] = Vector3(x: 1.0, y: 1.0, z: 0.0)
+    corners[4] = Vector3(x: 0.0, y: 0.0, z: 1.0)
+    corners[5] = Vector3(x: 1.0, y: 0.0, z: 1.0)
+    corners[6] = Vector3(x: 0.0, y: 1.0, z: 1.0)
+    corners[7] = Vector3(x: 1.0, y: 1.0, z: 1.0)
+
+    var vertices: [LineVertex, CURSOR_CUBE_VERTEX_COUNT] = []
+    for i in 0..CURSOR_CUBE_VERTEX_COUNT {
+        let corner = corners[CURSOR_CUBE_EDGES[i]]
+        vertices[i] = LineVertex(x: corner.x, y: corner.y, z: corner.z)
+    }
+
+    return vertices
+}
+
+const GROUND_GRID_LINE_COUNT: Int = GRID_SIZE_COUNT + 1
+const GROUND_GRID_VERTEX_COUNT: Int = GROUND_GRID_LINE_COUNT * 4
+
+// A flat reference grid in local y = 0 coordinates, one line per voxel
+// boundary along each axis. Rendering translates it to the active height.
+func buildGroundGridMesh() -> [LineVertex, GROUND_GRID_VERTEX_COUNT] {
+    var vertices: [LineVertex, GROUND_GRID_VERTEX_COUNT] = []
+    let size = Float32(GRID_SIZE)
+    var index = 0
+    for i in 0..GROUND_GRID_LINE_COUNT {
+        let position = Float32(i)
+        vertices[index] = LineVertex(x: position, y: 0.0, z: 0.0)
+        index = index + 1
+        vertices[index] = LineVertex(x: position, y: 0.0, z: size)
+        index = index + 1
+        vertices[index] = LineVertex(x: 0.0, y: 0.0, z: position)
+        index = index + 1
+        vertices[index] = LineVertex(x: size, y: 0.0, z: position)
+        index = index + 1
+    }
+    return vertices
+}

@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "name": "Clock",
+  "kind": "executable",
+  "sources": ["Clock.rune"],
+  "dependencies": [
+    "../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../Modules/SDL3/SDL3.runemanifest"
+  ]
+}

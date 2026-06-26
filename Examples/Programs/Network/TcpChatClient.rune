@@ -1,0 +1,303 @@
+// Full-duplex TCP chat client with a modern terminal prompt.
+//
+// Start Examples/Programs/Network/TcpChatServer.rune first.
+// Run:
+//   rune run Examples/Programs/Network/TcpChatClient.rune
+
+import Standard.*
+
+const HOST: String = "127.0.0.1"
+const PORT: UInt16 = 9102
+const BUFFER_SIZE: UInt = 4096
+
+struct ClientState {
+    var transcript: Array<String>
+    var input: String
+    var cursor: Int
+    var running: Bool
+}
+
+func writeAt(row: UInt32, column: UInt32, value: String) {
+    Terminal.moveCursor(row: row, column: column)
+    Terminal.write(value: value)
+}
+
+func repeatCell(cell: String, count: UInt32) -> String {
+    var result = ""
+    var index: UInt32 = 0
+    while index < count {
+        result = result + cell
+        index = index + 1
+    }
+    return result
+}
+
+func clip(value: String, width: Int) -> String {
+    if width <= 0 {
+        return ""
+    }
+    if value.count <= width {
+        return value
+    }
+    if width <= 1 {
+        return value.substring(start: 0, end: width)
+    }
+    return value.substring(start: 0, end: width - 1) + "\u{2026}"
+}
+
+func color(code: UInt8, value: String) {
+    Terminal.foreground(color: code)
+    Terminal.write(value: value)
+    Terminal.reset()
+}
+
+func quiet(value: String) {
+    Terminal.dim()
+    color(code: 245, value: value)
+}
+
+func strong(value: String) {
+    Terminal.bold()
+    color(code: 231, value: value)
+}
+
+func clearRow(row: UInt32) {
+    writeAt(row: row, column: 1, value: "\u{1b}[2K")
+}
+
+func separator(row: UInt32, columns: UInt32) {
+    writeAt(row: row, column: 1, value: "")
+    color(code: 238, value: repeatCell(cell: "\u{2500}", count: columns))
+}
+
+func push(state: &ClientState, value: String) {
+    state.transcript.append(value)
+}
+
+func drawHeader(size: TerminalSize, peer: String) {
+    clearRow(row: 1)
+    writeAt(row: 1, column: 1, value: "")
+    Terminal.background(color: 236)
+    Terminal.write(value: repeatCell(cell: " ", count: size.columns))
+    Terminal.reset()
+
+    writeAt(row: 1, column: 3, value: "")
+    color(code: 81, value: "\u{25c6} ")
+    strong(value: "Rune TCP Chat")
+    quiet(value: "  ${peer}")
+}
+
+func drawTranscript(size: TerminalSize, state: *ClientState, top: UInt32, bottom: UInt32) {
+    let width = Int(size.columns) - 4
+    var row = top
+    let visibleRows = bottom >= top ? Int(bottom - top + 1) : 0
+    let first = state.transcript.count > visibleRows ? state.transcript.count - visibleRows : 0
+    var index = first
+
+    while row <= bottom {
+        clearRow(row: row)
+        if index < state.transcript.count {
+            writeAt(row: row, column: 3, value: "")
+            Terminal.write(value: clip(value: state.transcript[index], width: width))
+            index = index + 1
+        }
+        row = row + 1
+    }
+}
+
+func drawPrompt(size: TerminalSize, state: *ClientState, row: UInt32) {
+    clearRow(row: row)
+    writeAt(row: row, column: 1, value: "")
+    color(code: 81, value: ">")
+    Terminal.write(value: " ")
+    Terminal.write(value: clip(value: state.input, width: Int(size.columns) - 3))
+}
+
+func drawHint(size: TerminalSize, row: UInt32) {
+    clearRow(row: row)
+    writeAt(row: row, column: 2, value: "")
+    quiet(value: "Type messages to chat. Use /exit to leave.")
+}
+
+func render(state: *ClientState, peer: String) throws(String) {
+    let size = try Terminal.size()
+    Terminal.setCursorVisible(visible: false)
+    Terminal.clear()
+
+    drawHeader(size: size, peer: peer)
+    separator(row: 3, columns: size.columns)
+
+    let hintRow = size.rows
+    let hintSeparatorRow = size.rows > 1 ? size.rows - 1 : 1
+    let promptRow = size.rows > 2 ? size.rows - 2 : 1
+    let promptSeparatorRow = size.rows > 3 ? size.rows - 3 : 1
+    let contentBottom = size.rows > 5 ? size.rows - 5 : 1
+
+    drawTranscript(size: size, state: state, top: 5, bottom: contentBottom)
+    separator(row: promptSeparatorRow, columns: size.columns)
+    drawPrompt(size: size, state: state, row: promptRow)
+    separator(row: hintSeparatorRow, columns: size.columns)
+    drawHint(size: size, row: hintRow)
+
+    let cursorColumn = UInt32(3 + state.cursor)
+    let boundedCursor = cursorColumn <= size.columns ? cursorColumn : size.columns
+    Terminal.moveCursor(row: promptRow, column: boundedCursor)
+    Terminal.setCursorVisible(visible: true)
+}
+
+func sendText(stream: &TcpStream, text: String) throws(String) {
+    let length = UInt(text.length)
+    if length == 0 {
+        return
+    }
+
+    let buffer = try! Memory.systemAllocate(size: length)
+    let copied = text.copyBytes(destination: buffer, maxLength: length)
+    _ = try stream.writeAll(data: buffer, length: copied)
+    Memory.systemDeallocate(address: buffer)
+}
+
+func submit(state: &ClientState, stream: &TcpStream) throws(String) {
+    if state.input.isEmpty {
+        return
+    }
+
+    let text = state.input
+    state.input = ""
+    state.cursor = 0
+
+    if text == "/exit" {
+        state.running = false
+        return
+    }
+
+    push(state, "\u{1b}[38;5;81mme\u{1b}[0m       ${text}")
+    try sendText(stream: stream, text: text + "\n")
+}
+
+func handleArrow(state: &ClientState, finalKey: Char) {
+    if finalKey == 'D' && state.cursor > 0 {
+        state.cursor = state.cursor - 1
+        return
+    }
+    if finalKey == 'C' && state.cursor < state.input.count {
+        state.cursor = state.cursor + 1
+        return
+    }
+}
+
+func handleCharacter(state: &ClientState, stream: &TcpStream, character: Char) throws(String) {
+    if character.codePoint == 3 {
+        state.running = false
+        return
+    }
+    if character.codePoint == 13 || character.codePoint == 10 {
+        try submit(state: state, stream: stream)
+        return
+    }
+    if character.codePoint == 127 || character.codePoint == 8 {
+        if state.cursor > 0 {
+            state.input = state.input.remove(at: state.cursor - 1)
+            state.cursor = state.cursor - 1
+        }
+        return
+    }
+    if character.codePoint >= 32 {
+        state.input = state.input.insert(character: character, at: state.cursor)
+        state.cursor = state.cursor + 1
+    }
+}
+
+func handleTerminalInput(state: &ClientState, stream: &TcpStream, input: String) throws(String) {
+    var index = 0
+    while index < input.count {
+        let character = input[index]
+        if character.codePoint == 27 && index + 2 < input.count && input[index + 1] == '[' {
+            handleArrow(state: state, finalKey: input[index + 2])
+            index = index + 3
+            continue
+        }
+
+        try handleCharacter(state: state, stream: stream, character: character)
+        index = index + 1
+    }
+}
+
+func pollServer(state: &ClientState, stream: &TcpStream, buffer: &Byte) throws(String) -> Bool {
+    let received = try stream.readAvailable(buffer: buffer, length: BUFFER_SIZE)
+    if received == nil {
+        return false
+    }
+
+    if received! == 0 {
+        push(state, "system    server closed the connection")
+        state.running = false
+        return true
+    }
+
+    let message = String.fromBytes(source: buffer, length: UInt(received!))
+    push(state, message)
+    return true
+}
+
+func runClient() throws(String) -> Int {
+    if !Terminal.isInteractive() {
+        Console.printLine("TCP chat client needs an interactive terminal.")
+        return 0
+    }
+
+    var stream = try TcpStream.connect(host: HOST, port: PORT)
+    _ = stream.setNonblocking(enabled: true)
+    _ = stream.setNoDelay(enabled: true)
+    let buffer = try! Memory.systemAllocate(size: BUFFER_SIZE)
+    defer Memory.systemDeallocate(address: buffer)
+
+    try Terminal.enterAlternateScreen()
+    defer Terminal.leaveAlternateScreen()
+
+    try Terminal.enableRawMode()
+    defer Terminal.disableRawMode()
+
+    Terminal.setCursorVisible(visible: true)
+    defer Terminal.setCursorVisible(visible: true)
+
+    var state = ClientState(
+        transcript: [],
+        input: "",
+        cursor: 0,
+        running: true)
+    push(&state, "system    connected to ${stream.peerAddress}")
+    render(state: *state, peer: stream.peerAddress)
+
+    while state.running {
+        var changed = false
+        let input = try Terminal.readAvailable()
+        if input != nil {
+            try handleTerminalInput(state: &state, stream: &stream, input: input!)
+            changed = true
+        }
+
+        if try pollServer(state: &state, stream: &stream, buffer: buffer) {
+            changed = true
+        }
+        if changed {
+            render(state: *state, peer: stream.peerAddress)
+        }
+    }
+
+    stream.close()
+    return 0
+}
+
+func main() -> Int {
+    do {
+        return runClient()
+    }
+    catch let error {
+        Terminal.setCursorVisible(visible: true)
+        Terminal.disableRawMode()
+        Terminal.leaveAlternateScreen()
+        Console.printLine("chat client error: ${error}")
+        return 1
+    }
+}

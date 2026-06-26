@@ -1,0 +1,19 @@
+import Standard.*
+
+var result: Int = 0
+
+func compute() async -> Void {
+    await Task.yield()
+    result = 42
+}
+
+func main() async -> Int {
+    let handle = Task.spawn(compute)
+    await Task.value(handle)
+
+    if result != 42 {
+        return 1
+    }
+
+    return 0
+}

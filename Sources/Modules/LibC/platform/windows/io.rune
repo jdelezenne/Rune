@@ -1,0 +1,29 @@
+public const STDIN_FILENO: Int32 = 0
+public const STDOUT_FILENO: Int32 = 1
+public const STDERR_FILENO: Int32 = 2
+
+public const F_OK: Int32 = 0
+public const R_OK: Int32 = 4
+public const W_OK: Int32 = 2
+public const X_OK: Int32 = 1
+
+@symbol("_getpid")
+public func getpid() -> Int32
+
+@symbol("_read")
+public func read(fd: Int32, buffer: &Byte?, count: UInt) -> Int32
+
+@symbol("_write")
+public func write(fd: Int32, buffer: *Byte?, count: UInt) -> Int32
+
+@symbol("_close")
+public func close(fd: Int32) -> Int32
+
+@symbol("_lseek")
+public func lseek(fd: Int32, offset: Int64, whence: Int32) -> Int64
+
+@symbol("_access")
+public func access(path: CStringSlice?, mode: Int32) -> Int32
+
+@symbol("_unlink")
+public func unlink(path: CStringSlice?) -> Int32

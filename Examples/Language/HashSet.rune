@@ -1,0 +1,12 @@
+func main() -> Int {
+    let ids: HashSet<Int> = [1, 2, 3, 3]
+    if ids.count != 3 {
+        return 1
+    }
+
+    if !ids.contains(element: 2) || ids.contains(element: 99) {
+        return 2
+    }
+
+    return 0
+}

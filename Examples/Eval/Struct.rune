@@ -1,0 +1,16 @@
+struct Pair {
+    var left: Int
+    var right: Int
+}
+
+func buildPair() -> Pair {
+    return Pair(left: 40, right: 2)
+}
+
+func main() -> Int {
+    const value = eval buildPair()
+    if value.left + value.right == 42 {
+        return 0
+    }
+    return 1
+}

@@ -1,0 +1,50 @@
+struct Version {
+    var major: Int
+    var minor: Int
+    var patch: Int
+
+    static operator <=>(lhs: Version, rhs: Version) -> Ordering {
+        if lhs.major != rhs.major {
+            return lhs.major <=> rhs.major
+        }
+
+        if lhs.minor != rhs.minor {
+            return lhs.minor <=> rhs.minor
+        }
+
+        return lhs.patch <=> rhs.patch
+    }
+}
+
+func main() -> Int {
+    let old = Version(major: 1, minor: 9, patch: 4)
+    let current = Version(major: 2, minor: 0, patch: 0)
+    let prerelease = Version(major: 2, minor: 0, patch: -1)
+    let same = Version(major: 2, minor: 0, patch: 0)
+
+    if (old <=> current) != Ordering.less {
+        return 1
+    }
+
+    if (current <=> prerelease) != Ordering.greater {
+        return 2
+    }
+
+    if (current <=> same) != Ordering.equal {
+        return 3
+    }
+
+    if (same <=> current) != Ordering.equal {
+        return 4
+    }
+
+    if (prerelease <=> old) != Ordering.greater {
+        return 5
+    }
+
+    if (old <=> old) != Ordering.equal {
+        return 6
+    }
+
+    return 0
+}

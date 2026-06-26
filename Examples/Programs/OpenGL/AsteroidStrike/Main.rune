@@ -1,0 +1,141 @@
+import Standard.*
+import SDL3
+import SDL3_ttf
+import OpenGL
+
+const WINDOW_WIDTH: Int32 = 1280
+const WINDOW_HEIGHT: Int32 = 720
+
+var window: &SDL3.Window? = nil
+var context: &SDL3.GLContext? = nil
+var scene: Scene? = nil
+var hud: Hud? = nil
+var audio: GameAudio? = nil
+var game = newGame(1)
+var projection = Matrix4.identity()
+var event = SDL3.Event()
+var running = true
+var frequency: UInt64 = 1
+var previousCounter: UInt64 = 0
+var previousScore: Int32 = 0
+var previousLives: Int32 = 0
+var previousWave: Int32 = 0
+var previousSpeed: Int32 = 0
+var previousGameOver = false
+
+func shutdown() {
+    destroyGameAudio(&audio!)
+    destroyHud(&hud!)
+    destroyScene(&scene!)
+    SDL3.glDestroyContext(context)
+    SDL3.destroyWindow(window)
+    SDL3_ttf.quit()
+    SDL3.quit()
+}
+
+func mainLoop() {
+    while SDL3.pollEvent(&event) {
+        if event.type == SDL3.EventType.quit { running = false }
+        if event.type == SDL3.EventType.keyDown && event.down {
+            if event.scancode == SDL3.Scancode.escape { running = false }
+            if event.scancode == SDL3.Scancode.r && game.gameOver {
+                game = newGame((SDL3.getPerformanceCounter() & 0xFFFFFFFF) as! UInt32)
+            }
+        }
+    }
+    if !running {
+        shutdown()
+        if #platform(wasm) { Platform.Emscripten.cancelMainLoop() }
+        return
+    }
+
+    let counter = SDL3.getPerformanceCounter()
+    var dt = Float32(counter - previousCounter) / Float32(frequency)
+    previousCounter = counter
+    if dt > 0.05 { dt = 0.05 }
+    var keyCount: Int32 = 0
+    let keys = SDL3.getKeyboardState(&keyCount)
+    let controls = readControls(keys)
+    let frameEvents = updateGame(&game, controls, dt)
+    playFrameAudio(&audio!, frameEvents, dt)
+
+    let speed = Int32(game.ship.velocity.length())
+    if game.score != previousScore || game.lives != previousLives || game.wave != previousWave ||
+        speed != previousSpeed || game.gameOver != previousGameOver {
+        refreshStatusLabel(&hud!, *game)
+        previousScore = game.score
+        previousLives = game.lives
+        previousWave = game.wave
+        previousSpeed = speed
+        previousGameOver = game.gameOver
+    }
+
+    beginWorldFrame(*scene!)
+    OpenGL.clearColor(0.002, 0.004, 0.012, 1.0)
+    OpenGL.clear(OpenGL.COLOR_BUFFER_BIT | OpenGL.DEPTH_BUFFER_BIT)
+    drawWorld(*scene!, *game, projection)
+    finishWorldFrame(*scene!)
+    drawHud(*hud!, WINDOW_WIDTH, WINDOW_HEIGHT, game.gameOver)
+    SDL3.glSwapWindow(window)
+    if !#platform(wasm) { SDL3.delay(1) }
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video | SDL3.InitFlags.audio) {
+        Console.printLine("SDL initialization failed: ${SDL3.getError()!}")
+        return 1
+    }
+    if !SDL3_ttf.initialize() {
+        Console.printLine("SDL_ttf initialization failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+    SDL3.glResetAttributes()
+    if #platform(wasm) {
+        SDL3.glSetAttribute(SDL3.GLAttribute.contextMajorVersion, 3)
+        SDL3.glSetAttribute(SDL3.GLAttribute.contextMinorVersion, 0)
+        SDL3.glSetAttribute(SDL3.GLAttribute.contextProfileMask, 4)
+    } else {
+        SDL3.glSetAttribute(SDL3.GLAttribute.contextMajorVersion, 4)
+        SDL3.glSetAttribute(SDL3.GLAttribute.contextMinorVersion, 1)
+        SDL3.glSetAttribute(SDL3.GLAttribute.contextProfileMask, 1)
+        SDL3.glSetAttribute(SDL3.GLAttribute.contextFlags, 2)
+    }
+    SDL3.glSetAttribute(SDL3.GLAttribute.doubleBuffer, 1)
+    SDL3.glSetAttribute(SDL3.GLAttribute.depthSize, 24)
+    window = SDL3.createWindow("Asteroid Strike", WINDOW_WIDTH, WINDOW_HEIGHT, SDL3.WindowFlags.opengl)
+    if window == nil { SDL3_ttf.quit(); SDL3.quit(); return 1 }
+    context = SDL3.glCreateContext(window)
+    if context == nil { SDL3.destroyWindow(window); SDL3_ttf.quit(); SDL3.quit(); return 1 }
+    SDL3.glMakeCurrent(window, context)
+    SDL3.glSetSwapInterval(1)
+    _ = SDL3.setWindowRelativeMouseMode(window, true)
+
+    scene = buildScene(WINDOW_WIDTH, WINDOW_HEIGHT)
+    hud = buildHud()
+    audio = buildGameAudio()
+    game = newGame((SDL3.getPerformanceCounter() & 0xFFFFFFFF) as! UInt32)
+    refreshStatusLabel(&hud!, *game)
+    OpenGL.viewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
+    OpenGL.enable(OpenGL.DEPTH_TEST)
+    OpenGL.depthFunc(OpenGL.LEQUAL)
+    if !#platform(wasm) { OpenGL.enable(OpenGL.PROGRAM_POINT_SIZE) }
+    projection = Matrix4.perspective(fovYDegrees: 67.0,
+        aspect: Float32(WINDOW_WIDTH) / Float32(WINDOW_HEIGHT), near: 0.12, far: 260.0)
+
+    frequency = SDL3.getPerformanceFrequency()
+    previousCounter = SDL3.getPerformanceCounter()
+    previousScore = game.score
+    previousLives = game.lives
+    previousWave = game.wave
+    previousSpeed = Int32(game.ship.velocity.length())
+    previousGameOver = game.gameOver
+    Console.printLine("Asteroid Strike | mouse/arrows steer, A-D bank, W thrust, S brake, mouse/Space fire")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running { mainLoop() }
+    }
+    return 0
+}

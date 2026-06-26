@@ -1,0 +1,44 @@
+struct ArenaAllocator implements Allocator {
+    let storage: &Byte
+    let capacity: UInt
+    var offset: UInt = 0
+
+    init(capacity: UInt) {
+        self.capacity = capacity
+        self.offset = 0
+        self.storage = try! Memory.systemAllocate(size: capacity)
+    }
+
+    final() {
+        Memory.systemDeallocate(address: self.storage)
+    }
+
+    public mutating func allocate(size: UInt, alignment: UInt) throws -> &Byte {
+        let start = Memory.alignUp(value: self.offset, alignment: alignment)
+        let end = start + size
+        if end > self.capacity {
+            throw
+        }
+        self.offset = end
+        return (Int(self.storage) + Int(start)) as &Byte
+    }
+
+    public mutating func deallocate(address: *Byte) {
+    }
+}
+
+struct Box {
+    var value: Int
+}
+
+func main() -> Int {
+    var allocator = ArenaAllocator(capacity: 256)
+    let box = make!(allocator) Box(value: 42)
+    let result = box.value
+    dispose(allocator) box
+    if result != 42 {
+        return 1
+    }
+
+    return 0
+}

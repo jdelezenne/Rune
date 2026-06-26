@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "name": "Sokoban",
+  "kind": "executable",
+  "sources": [
+    "Levels.rune",
+    "Main.rune",
+    "Render.rune",
+    "Save.rune",
+    "World.rune"
+  ],
+  "resources": [
+    "Levels"
+  ],
+  "dependencies": [
+    "../../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../../Modules/SDL3/SDL3.runemanifest"
+  ]
+}

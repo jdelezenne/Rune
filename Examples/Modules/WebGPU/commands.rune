@@ -1,0 +1,63 @@
+public extension CommandEncoder {
+    public static func fromHandle(handle: &CommandEncoderHandle?) -> CommandEncoder {
+        return CommandEncoder(handle: handle)
+    }
+
+    public rawHandle: &CommandEncoderHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func beginRenderPass(descriptor: *RenderPassDescriptor) -> RenderPassEncoder {
+        return RenderPassEncoder(handle: commandEncoderBeginRenderPass(handle, descriptor))
+    }
+
+    public func beginComputePass(descriptor: *ComputePassDescriptor? = nil) -> ComputePassEncoder {
+        return ComputePassEncoder(handle: commandEncoderBeginComputePass(handle, descriptor))
+    }
+
+    public func copyBufferToBuffer(
+        source: GPUBuffer,
+        sourceOffset: UInt64,
+        destination: GPUBuffer,
+        destinationOffset: UInt64,
+        size: UInt64)
+    {
+        commandEncoderCopyBufferToBuffer(
+            handle,
+            source.handle,
+            sourceOffset,
+            destination.handle,
+            destinationOffset,
+            size)
+    }
+
+    public func finish(descriptor: *CommandBufferDescriptor? = nil) -> CommandBuffer {
+        return CommandBuffer(handle: commandEncoderFinish(handle, descriptor))
+    }
+
+    public func release() {
+        commandEncoderRelease(handle)
+    }
+}
+
+public extension CommandBuffer {
+    public static func fromHandle(handle: &CommandBufferHandle?) -> CommandBuffer {
+        return CommandBuffer(handle: handle)
+    }
+
+    public rawHandle: &CommandBufferHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func release() {
+        commandBufferRelease(handle)
+    }
+}

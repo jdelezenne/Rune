@@ -1,0 +1,96 @@
+import Standard.*
+import SDL3
+
+func queueTone(
+    stream: &SDL3.AudioStream?,
+    device: UInt32,
+    playback: &AudioPlayback,
+    frequency: Float32,
+    durationSeconds: Float32,
+    volume: Float32) {
+    if stream == nil || device == 0 {
+        return
+    }
+
+    var sampleCount: Int = Int(durationSeconds * Float32(AUDIO_RATE))
+    if sampleCount <= 0 {
+        return
+    }
+
+    if sampleCount > 4096 {
+        sampleCount = 4096
+    }
+
+    var samples: [Int16, 4096] = []
+    var phase: Float32 = 0.0
+    let phaseStep: Float32 = TAU_F * frequency / Float32(AUDIO_RATE)
+    for sampleIndex in 0..sampleCount {
+        var gain: Float32 = volume
+        if sampleIndex < AUDIO_FADE {
+            gain = gain * Float32(sampleIndex) / Float32(AUDIO_FADE)
+        } else if sampleIndex >= sampleCount - AUDIO_FADE {
+            gain = gain * Float32(sampleCount - sampleIndex) / Float32(AUDIO_FADE)
+        }
+        samples[sampleIndex] = Int16(AUDIO_AMP * gain * Math.sin(phase))
+        phase = phase + phaseStep
+        if phase >= TAU_F {
+            phase = phase - TAU_F
+        }
+    }
+
+    let byteLength: Int32 = Int32(sampleCount * 2)
+    if !SDL3.putAudioStreamData(stream, samples.bytes, byteLength) {
+        return
+    }
+
+    if !playback.started {
+        if SDL3.resumeAudioDevice(device) {
+            playback.started = true
+        }
+    }
+}
+
+func queueNoiseBurst(
+    stream: &SDL3.AudioStream?,
+    device: UInt32,
+    playback: &AudioPlayback,
+    durationSeconds: Float32,
+    volume: Float32) {
+    if stream == nil || device == 0 {
+        return
+    }
+
+    var sampleCount: Int = Int(durationSeconds * Float32(AUDIO_RATE))
+    if sampleCount <= 0 {
+        return
+    }
+
+    if sampleCount > 4096 {
+        sampleCount = 4096
+    }
+
+    var samples: [Int16, 4096] = []
+    var seed: UInt32 = UInt32(SDL3.getTicks())
+    for sampleIndex in 0..sampleCount {
+        seed = seed * 1664525 + 1013904223
+        let noise = Float32(Int32(seed % 2001) - 1000) / 1000.0
+        var gain: Float32 = volume
+        if sampleIndex < AUDIO_FADE {
+            gain = gain * Float32(sampleIndex) / Float32(AUDIO_FADE)
+        } else if sampleIndex >= sampleCount - AUDIO_FADE {
+            gain = gain * Float32(sampleCount - sampleIndex) / Float32(AUDIO_FADE)
+        }
+        samples[sampleIndex] = Int16(AUDIO_AMP * gain * noise)
+    }
+
+    let byteLength: Int32 = Int32(sampleCount * 2)
+    if !SDL3.putAudioStreamData(stream, samples.bytes, byteLength) {
+        return
+    }
+
+    if !playback.started {
+        if SDL3.resumeAudioDevice(device) {
+            playback.started = true
+        }
+    }
+}

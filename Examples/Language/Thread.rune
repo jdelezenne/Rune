@@ -1,0 +1,41 @@
+// Spawn joinable OS threads. Each thread runs Rune bytecode on its own
+// interpreter call stack; module globals are shared across threads.
+// See Examples/Language/Mutex.rune for lock-based synchronization.
+
+import Standard.*
+
+var left: Int = 0
+var right: Int = 0
+
+func fillLeft() {
+    var current = Thread.current()
+    let name = current.name
+    if name != nil && name! == "fill-left" {
+        left = 10
+    }
+}
+
+func fillRight() {
+    var current = Thread.current()
+    let name = current.name
+    if name != nil && name! == "fill-right" {
+        right = 32
+    }
+}
+
+func main() -> Int {
+    let first = Thread(body: fillLeft, name: "fill-left")
+    let second = Thread(body: fillRight, name: "fill-right")
+
+    first.join()
+    second.join()
+
+    let sum = left + right
+    #printLn("left=${left} right=${right} sum=${sum}")
+
+    if sum != 42 {
+        return 1
+    }
+
+    return 0
+}

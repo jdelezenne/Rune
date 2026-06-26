@@ -1,0 +1,35 @@
+/// IP address text accepted by the platform resolver.
+///
+/// The value is intentionally textual for now because the runtime socket layer
+/// already resolves host strings and formats peer/local addresses. A future
+/// runtime address value can replace this storage without changing TCP/UDP
+/// endpoint APIs.
+public struct IpAddress {
+    public var text: String
+
+    public init(text: String) {
+        self.text = text
+    }
+}
+
+public extension IpAddress {
+    /// IPv4 loopback address.
+    public static func loopbackIPv4() -> IpAddress {
+        return IpAddress(text: "127.0.0.1")
+    }
+
+    /// IPv6 loopback address.
+    public static func loopbackIPv6() -> IpAddress {
+        return IpAddress(text: "::1")
+    }
+
+    /// IPv4 wildcard address.
+    public static func anyIPv4() -> IpAddress {
+        return IpAddress(text: "0.0.0.0")
+    }
+
+    /// IPv6 wildcard address.
+    public static func anyIPv6() -> IpAddress {
+        return IpAddress(text: "::")
+    }
+}

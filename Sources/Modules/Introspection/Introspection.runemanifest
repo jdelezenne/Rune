@@ -1,0 +1,11 @@
+{
+  "version": "1.0.0",
+  "name": "Introspection",
+  "kind": "library",
+  "sources": [
+    "Introspection.rune"
+  ],
+  "dependencies": [
+    "../Rune/Rune.runemanifest"
+  ]
+}

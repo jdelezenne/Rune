@@ -1,0 +1,47 @@
+public extension QuerySet {
+    public static func fromHandle(handle: &QuerySetHandle?) -> QuerySet {
+        return QuerySet(handle: handle)
+    }
+
+    public rawHandle: &QuerySetHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public count: UInt32 {
+        get { return querySetGetCount(handle) }
+    }
+
+    public queryType: QueryType {
+        get { return querySetGetType(handle) }
+    }
+
+    public func destroy() {
+        querySetDestroy(handle)
+    }
+
+    public func release() {
+        querySetRelease(handle)
+    }
+}
+
+public extension PipelineLayout {
+    public static func fromHandle(handle: &PipelineLayoutHandle?) -> PipelineLayout {
+        return PipelineLayout(handle: handle)
+    }
+
+    public rawHandle: &PipelineLayoutHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func release() {
+        pipelineLayoutRelease(handle)
+    }
+}

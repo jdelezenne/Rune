@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "name": "WebGPUDepthCube",
+  "kind": "executable",
+  "unsafe": true,
+  "sources": [
+    "DepthCube.rune"
+  ],
+  "dependencies": [
+    "../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../Modules/WebGPU/WebGPU.runemanifest"
+  ]
+}

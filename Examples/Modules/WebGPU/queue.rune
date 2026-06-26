@@ -1,0 +1,41 @@
+public extension Queue {
+    public static func fromHandle(handle: &QueueHandle?) -> Queue {
+        return Queue(handle: handle)
+    }
+
+    public rawHandle: &QueueHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func writeBuffer(
+        buffer: GPUBuffer,
+        bufferOffset: UInt64,
+        data: *Byte?,
+        size: UInt)
+    {
+        queueWriteBuffer(handle, buffer.handle, bufferOffset, data, size)
+    }
+
+    public func writeTexture(
+        destination: *TexelCopyTextureInfo,
+        data: *Byte?,
+        dataSize: UInt,
+        dataLayout: *TexelCopyBufferLayout,
+        writeSize: *Extent3D)
+    {
+        queueWriteTexture(handle, destination, data, dataSize, dataLayout, writeSize)
+    }
+
+    public func submit(command: CommandBuffer) {
+        var submittedCommand = command.handle
+        queueSubmit(handle, 1, *submittedCommand)
+    }
+
+    public func release() {
+        queueRelease(handle)
+    }
+}

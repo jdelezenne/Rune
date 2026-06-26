@@ -1,0 +1,32 @@
+// Duration is elapsed time. It is the relative-time type used by thread sleep
+// and elapsed-time calculations.
+
+import Standard.*
+
+func main() -> Int {
+    let millisecond = Duration.fromMilliseconds(value: 1)
+    let direct = Duration(nanoseconds: 42)
+
+    if millisecond.nanoseconds != 1000000 {
+        return 1
+    }
+
+    if direct.nanoseconds != 42 {
+        return 2
+    }
+
+    if Duration.fromSeconds(value: 1).nanoseconds != 1000000000 {
+        return 3
+    }
+
+    if Duration.fromMicroseconds(value: 1).nanoseconds != 1000 {
+        return 4
+    }
+
+    if Duration.fromNanoseconds(value: 1).nanoseconds != 1 {
+        return 5
+    }
+
+    #printLn("duration smoke: ${millisecond.nanoseconds} ns")
+    return 0
+}

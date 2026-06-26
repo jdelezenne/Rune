@@ -1,0 +1,269 @@
+{
+    "default": "standard.hello",
+    "examples": [
+        {
+            "id": "standard.hello",
+            "label": "Hello, World!",
+            "source": "Standard/Hello.rune",
+            "view": "output"
+        },
+        {
+            "id": "standard.interpolation",
+            "label": "String Interpolation",
+            "source": "Standard/StringInterpolation.rune",
+            "view": "output"
+        },
+        {
+            "id": "standard.fibonacci",
+            "label": "Fibonacci",
+            "source": "Standard/Fibonacci.rune",
+            "view": "output"
+        },
+        {
+            "id": "standard.arrays",
+            "label": "Arrays",
+            "source": "Standard/Arrays.rune",
+            "view": "output"
+        },
+        {
+            "id": "standard.enums",
+            "label": "Enums & Match",
+            "source": "Standard/Enums.rune",
+            "view": "output"
+        },
+        {
+            "id": "standard.hashmap",
+            "label": "HashMap",
+            "source": "Standard/HashMap.rune",
+            "view": "output"
+        },
+        {
+            "id": "standard.structs",
+            "label": "Structs",
+            "source": "Standard/Structs.rune",
+            "view": "output"
+        },
+        {
+            "id": "sdl3.helloWindow",
+            "label": "HelloWindow",
+            "source": "Programs/SDL3/HelloWindow.rune",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.fireworks",
+            "label": "Fireworks",
+            "source": "Programs/SDL3/Fireworks.rune",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.rect",
+            "label": "Rect",
+            "source": "Programs/SDL3/Rect.rune",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.snake",
+            "label": "Snake",
+            "source": "Programs/SDL3/Snake.rune",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.cube",
+            "label": "Cube",
+            "source": "Programs/SDL3/Cube.rune",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.bouncingShapes",
+            "label": "Bouncing Shapes",
+            "source": "Programs/SDL3/BouncingShapes.rune",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.pong",
+            "label": "Pong",
+            "source": "Programs/SDL3/Pong.rune",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.twentyFortyEight",
+            "label": "2048",
+            "source": "Programs/SDL3/TwentyFortyEight.rune",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.tetris",
+            "label": "Tetris",
+            "source": "Programs/SDL3/Tetris.rune",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.input",
+            "label": "Input Demo",
+            "source": "Programs/SDL3/Input.rune",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.mandelbrot",
+            "label": "Mandelbrot",
+            "source": "Programs/SDL3/Mandelbrot.rune",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.breakout",
+            "label": "Breakout",
+            "source": "Programs/SDL3/Breakout.rune",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.eyes",
+            "label": "Eyes",
+            "source": "Programs/SDL3/Eyes.rune",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.clock",
+            "label": "Clock",
+            "source": "Programs/SDL3/Clock.rune",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.starfield",
+            "label": "Starfield",
+            "source": "Programs/SDL3/Starfield.rune",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.pacman",
+            "label": "PacMan",
+            "manifest": "Programs/SDL3/PacMan/PacMan.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.galaxian",
+            "label": "Galaxian",
+            "manifest": "Programs/SDL3/Galaxian/Galaxian.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.sokoban",
+            "label": "Sokoban",
+            "manifest": "Programs/SDL3/Sokoban/Sokoban.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.roadFighter",
+            "label": "Road Fighter",
+            "manifest": "Programs/SDL3/RoadFighter/RoadFighter.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.minesweeper",
+            "label": "Minesweeper",
+            "manifest": "Programs/SDL3/Minesweeper/Minesweeper.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.battleCity",
+            "label": "Battle City",
+            "manifest": "Programs/SDL3/BattleCity/BattleCity.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.pool",
+            "label": "Pool",
+            "manifest": "Programs/SDL3/Pool/Pool.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "sdl3.pixelStudio",
+            "label": "Pixel Studio",
+            "manifest": "Programs/SDL3/PixelStudio/PixelStudio.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "opengl.shaderCube",
+            "label": "Shader Cube (OpenGL)",
+            "manifest": "Programs/OpenGL/ShaderCube.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "webgpu.shaderCube",
+            "label": "Shader Cube (WebGPU)",
+            "manifest": "Programs/WebGPU/ShaderCube.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "webgpu.pulse",
+            "label": "Pulse (WebGPU)",
+            "manifest": "Programs/WebGPU/Pulse.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "webgpu.wipeout",
+            "label": "Wipeout (WebGPU)",
+            "manifest": "Programs/WebGPU/Wipeout/Wipeout.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "webgpu.texturedQuad",
+            "label": "Textured Quad (WebGPU)",
+            "manifest": "Programs/WebGPU/TexturedQuad.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "webgpu.computeLife",
+            "label": "Game of Life (WebGPU)",
+            "manifest": "Programs/WebGPU/ComputeLife.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "webgpu.computeParticles",
+            "label": "Particles (WebGPU)",
+            "manifest": "Programs/WebGPU/ComputeParticles.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "webgpu.computeFractal",
+            "label": "Mandelbrot (WebGPU)",
+            "manifest": "Programs/WebGPU/ComputeFractal.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "webgpu.depthCube",
+            "label": "Depth Cube (WebGPU)",
+            "manifest": "Programs/WebGPU/DepthCube.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "webgpu.computeBlur",
+            "label": "Blur (WebGPU)",
+            "manifest": "Programs/WebGPU/ComputeBlur.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "opengl.neonTunnel",
+            "label": "Neon Tunnel (OpenGL)",
+            "manifest": "Programs/OpenGL/NeonTunnel.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "opengl.marbleLabyrinth",
+            "label": "Marble Labyrinth (OpenGL)",
+            "manifest": "Programs/OpenGL/MarbleLabyrinth.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "opengl.voxelStudio",
+            "label": "Voxel Studio (OpenGL)",
+            "manifest": "Programs/OpenGL/VoxelStudio/VoxelStudio.runemanifest",
+            "view": "display"
+        },
+        {
+            "id": "opengl.asteroidStrike",
+            "label": "Asteroid Strike (OpenGL)",
+            "manifest": "Programs/OpenGL/AsteroidStrike/AsteroidStrike.runemanifest",
+            "view": "display"
+        }
+    ]
+}

@@ -1,0 +1,210 @@
+import Standard.*
+
+const SHIP_VERTEX_COUNT: Int = 54
+const SHOT_VERTEX_COUNT: Int = 36
+const PAD_VERTEX_COUNT: Int = 36
+const TOWER_VERTEX_COUNT: Int = 36
+
+func geoNormal(a: Vector3, b: Vector3, c: Vector3) -> Vector3 {
+    return (b - a).cross(other: c - a).normalized()
+}
+
+func shipTri(
+    vertices: &[MeshVertex, SHIP_VERTEX_COUNT],
+    cursor: &Int,
+    a: Vector3,
+    b: Vector3,
+    c: Vector3,
+    color: Vector3)
+{
+    let n = geoNormal(a, b, c)
+    vertices[cursor^] = meshVertex(a, n, color)
+    vertices[cursor^ + 1] = meshVertex(b, n, color)
+    vertices[cursor^ + 2] = meshVertex(c, n, color)
+    cursor^ = cursor^ + 3
+}
+
+func shotTri(
+    vertices: &[MeshVertex, SHOT_VERTEX_COUNT],
+    cursor: &Int,
+    a: Vector3,
+    b: Vector3,
+    c: Vector3,
+    color: Vector3)
+{
+    let n = geoNormal(a, b, c)
+    vertices[cursor^] = meshVertex(a, n, color)
+    vertices[cursor^ + 1] = meshVertex(b, n, color)
+    vertices[cursor^ + 2] = meshVertex(c, n, color)
+    cursor^ = cursor^ + 3
+}
+
+func padTri(
+    vertices: &[MeshVertex, PAD_VERTEX_COUNT],
+    cursor: &Int,
+    a: Vector3,
+    b: Vector3,
+    c: Vector3,
+    color: Vector3)
+{
+    let n = geoNormal(a, b, c)
+    vertices[cursor^] = meshVertex(a, n, color)
+    vertices[cursor^ + 1] = meshVertex(b, n, color)
+    vertices[cursor^ + 2] = meshVertex(c, n, color)
+    cursor^ = cursor^ + 3
+}
+
+func towerTri(
+    vertices: &[MeshVertex, TOWER_VERTEX_COUNT],
+    cursor: &Int,
+    a: Vector3,
+    b: Vector3,
+    c: Vector3,
+    color: Vector3)
+{
+    let n = geoNormal(a, b, c)
+    vertices[cursor^] = meshVertex(a, n, color)
+    vertices[cursor^ + 1] = meshVertex(b, n, color)
+    vertices[cursor^ + 2] = meshVertex(c, n, color)
+    cursor^ = cursor^ + 3
+}
+
+func buildShipMesh(hull: Vector3, accent: Vector3, engine: Vector3) -> [MeshVertex, SHIP_VERTEX_COUNT] {
+    var vertices: [MeshVertex, SHIP_VERTEX_COUNT] = []
+    var at: Int = 0
+
+    // Local space: +Z forward, +Y up, +X right.
+    let nose = Vector3(x: 0.0, y: 0.05, z: 2.4)
+    let deck = Vector3(x: 0.0, y: 0.35, z: 0.2)
+    let belly = Vector3(x: 0.0, y: -0.25, z: 0.1)
+    let leftWing = Vector3(x: -1.35, y: 0.0, z: -0.2)
+    let rightWing = Vector3(x: 1.35, y: 0.0, z: -0.2)
+    let leftTail = Vector3(x: -0.55, y: 0.15, z: -1.7)
+    let rightTail = Vector3(x: 0.55, y: 0.15, z: -1.7)
+    let tail = Vector3(x: 0.0, y: 0.05, z: -1.9)
+    let canopy = Vector3(x: 0.0, y: 0.55, z: 0.55)
+    let glass = Vector3(x: 0.2, y: 0.7, z: 0.9)
+
+    shipTri(&vertices, &at, nose, deck, rightWing, hull)
+    shipTri(&vertices, &at, nose, leftWing, deck, hull)
+    shipTri(&vertices, &at, nose, rightWing, belly, hull * 0.75)
+    shipTri(&vertices, &at, nose, belly, leftWing, hull * 0.75)
+    shipTri(&vertices, &at, deck, leftTail, rightTail, accent)
+    shipTri(&vertices, &at, deck, rightWing, rightTail, hull)
+    shipTri(&vertices, &at, deck, leftTail, leftWing, hull)
+    shipTri(&vertices, &at, belly, rightTail, leftTail, hull * 0.65)
+    shipTri(&vertices, &at, belly, rightWing, rightTail, hull * 0.7)
+    shipTri(&vertices, &at, belly, leftTail, leftWing, hull * 0.7)
+    shipTri(&vertices, &at, leftTail, tail, rightTail, engine)
+    shipTri(&vertices, &at, deck, canopy, Vector3(x: 0.45, y: 0.35, z: 0.4), accent)
+    shipTri(&vertices, &at, deck, Vector3(x: -0.45, y: 0.35, z: 0.4), canopy, accent)
+    shipTri(&vertices, &at, canopy, Vector3(x: 0.25, y: 0.25, z: -0.2), Vector3(x: -0.25, y: 0.25, z: -0.2), glass)
+    shipTri(&vertices, &at, leftWing, leftTail, Vector3(x: -1.6, y: 0.35, z: -0.9), accent)
+    shipTri(&vertices, &at, rightWing, Vector3(x: 1.6, y: 0.35, z: -0.9), rightTail, accent)
+    shipTri(&vertices, &at, tail, leftTail, Vector3(x: -0.2, y: -0.05, z: -2.15), engine)
+    shipTri(&vertices, &at, tail, Vector3(x: 0.2, y: -0.05, z: -2.15), rightTail, engine)
+    return vertices
+}
+
+func buildShotMesh() -> [MeshVertex, SHOT_VERTEX_COUNT] {
+    var vertices: [MeshVertex, SHOT_VERTEX_COUNT] = []
+    var at: Int = 0
+    let color = Vector3(x: 1.0, y: 0.85, z: 0.2)
+    let tip = Vector3(x: 0.0, y: 0.0, z: 1.1)
+    let core = Vector3(x: 0.0, y: 0.0, z: 0.0)
+    let r0 = Vector3(x: 0.12, y: 0.0, z: -0.2)
+    let r1 = Vector3(x: 0.0, y: 0.12, z: -0.2)
+    let r2 = Vector3(x: -0.12, y: 0.0, z: -0.2)
+    let r3 = Vector3(x: 0.0, y: -0.12, z: -0.2)
+    shotTri(&vertices, &at, tip, r0, r1, color)
+    shotTri(&vertices, &at, tip, r1, r2, color)
+    shotTri(&vertices, &at, tip, r2, r3, color)
+    shotTri(&vertices, &at, tip, r3, r0, color)
+    shotTri(&vertices, &at, core, r1, r0, color * 0.7)
+    shotTri(&vertices, &at, core, r2, r1, color * 0.7)
+    shotTri(&vertices, &at, core, r3, r2, color * 0.7)
+    shotTri(&vertices, &at, core, r0, r3, color * 0.7)
+    // 24 vertices used; pad remaining with last tri verts for fixed size.
+    while at < SHOT_VERTEX_COUNT {
+        vertices[at] = vertices[0]
+        at = at + 1
+    }
+    return vertices
+}
+
+func buildPadMesh() -> [MeshVertex, PAD_VERTEX_COUNT] {
+    var vertices: [MeshVertex, PAD_VERTEX_COUNT] = []
+    var at: Int = 0
+    let color = Vector3(x: 0.25, y: 0.95, z: 1.0)
+    let y: Float32 = 0.08
+    let s: Float32 = 0.9
+    let a = Vector3(x: -s, y: y, z: -s)
+    let b = Vector3(x: s, y: y, z: -s)
+    let c = Vector3(x: s, y: y, z: s)
+    let d = Vector3(x: -s, y: y, z: s)
+    let top = Vector3(x: 0.0, y: 0.35, z: 0.0)
+    padTri(&vertices, &at, a, b, c, color)
+    padTri(&vertices, &at, a, c, d, color)
+    padTri(&vertices, &at, a, b, top, color * 0.8)
+    padTri(&vertices, &at, b, c, top, color * 0.85)
+    padTri(&vertices, &at, c, d, top, color * 0.8)
+    padTri(&vertices, &at, d, a, top, color * 0.85)
+    while at < PAD_VERTEX_COUNT {
+        vertices[at] = vertices[0]
+        at = at + 1
+    }
+    return vertices
+}
+
+func buildTowerMesh() -> [MeshVertex, TOWER_VERTEX_COUNT] {
+    var vertices: [MeshVertex, TOWER_VERTEX_COUNT] = []
+    var at: Int = 0
+    let color = Vector3(x: 0.18, y: 0.22, z: 0.32)
+    let accent = Vector3(x: 0.4, y: 0.75, z: 0.95)
+    let half: Float32 = 0.45
+    let h: Float32 = 1.0
+    let c0 = Vector3(x: -half, y: 0.0, z: -half)
+    let c1 = Vector3(x: half, y: 0.0, z: -half)
+    let c2 = Vector3(x: half, y: 0.0, z: half)
+    let c3 = Vector3(x: -half, y: 0.0, z: half)
+    let t0 = Vector3(x: -half * 0.7, y: h, z: -half * 0.7)
+    let t1 = Vector3(x: half * 0.7, y: h, z: -half * 0.7)
+    let t2 = Vector3(x: half * 0.7, y: h, z: half * 0.7)
+    let t3 = Vector3(x: -half * 0.7, y: h, z: half * 0.7)
+    towerTri(&vertices, &at, c0, c1, t1, color)
+    towerTri(&vertices, &at, c0, t1, t0, color * 1.1)
+    towerTri(&vertices, &at, c1, c2, t2, color)
+    towerTri(&vertices, &at, c1, t2, t1, color * 1.1)
+    towerTri(&vertices, &at, c2, c3, t3, color)
+    towerTri(&vertices, &at, c2, t3, t2, color * 1.1)
+    towerTri(&vertices, &at, c3, c0, t0, color)
+    towerTri(&vertices, &at, c3, t0, t3, color * 1.1)
+    towerTri(&vertices, &at, t0, t1, t2, accent)
+    towerTri(&vertices, &at, t0, t2, t3, accent)
+    while at < TOWER_VERTEX_COUNT {
+        vertices[at] = vertices[0]
+        at = at + 1
+    }
+    return vertices
+}
+
+func shipHullColor(index: Int) -> Vector3 {
+    if index == 0 { return Vector3(x: 0.85, y: 0.2, z: 0.35) }
+    if index == 1 { return Vector3(x: 0.2, y: 0.55, z: 0.95) }
+    if index == 2 { return Vector3(x: 0.25, y: 0.85, z: 0.4) }
+    return Vector3(x: 0.75, y: 0.75, z: 0.2)
+}
+
+func shipAccentColor(index: Int) -> Vector3 {
+    if index == 0 { return Vector3(x: 0.95, y: 0.55, z: 0.2) }
+    if index == 1 { return Vector3(x: 0.4, y: 0.85, z: 1.0) }
+    if index == 2 { return Vector3(x: 0.7, y: 0.95, z: 0.3) }
+    return Vector3(x: 1.0, y: 0.9, z: 0.35)
+}
+
+func shipEngineColor(index: Int) -> Vector3 {
+    if index == 0 { return Vector3(x: 0.2, y: 0.85, z: 1.0) }
+    if index == 1 { return Vector3(x: 1.0, y: 0.4, z: 0.2) }
+    if index == 2 { return Vector3(x: 0.9, y: 0.3, z: 0.8) }
+    return Vector3(x: 0.4, y: 0.5, z: 1.0)
+}

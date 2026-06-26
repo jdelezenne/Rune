@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "name": "WebGPUComputeFractal",
+  "kind": "executable",
+  "unsafe": true,
+  "sources": [
+    "ComputeFractal.rune"
+  ],
+  "dependencies": [
+    "../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../Modules/WebGPU/WebGPU.runemanifest"
+  ]
+}

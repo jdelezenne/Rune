@@ -1,0 +1,55 @@
+/// A finite 2D line segment between `start` and `end` — the Vector2 counterpart
+/// to Segment. Provides closest-point/distance queries and segment-segment
+/// crossing, the building blocks for 2D collision against walls and edges.
+@layout(kind: c)
+public struct Segment2D {
+    public var start: Vector2
+    public var end: Vector2
+
+    /// The (non-normalized) vector from start to end.
+    public func direction() -> Vector2 { return end - start }
+
+    public func length() -> Float32 { return start.distance(to: end) }
+    public func lengthSquared() -> Float32 { return start.distanceSquared(to: end) }
+    public func midpoint() -> Vector2 { return (start + end) * 0.5 }
+
+    /// The point at parameter `t` (0 = start, 1 = end); `t` is not clamped.
+    public func pointAt(t: Float32) -> Vector2 {
+        return start + (end - start) * t
+    }
+
+    /// The parameter in [0, 1] of the closest point on the segment to `point`.
+    public func closestParameter(point: Vector2) -> Float32 {
+        let d = end - start
+        let lenSq = d.dot(other: d)
+        if lenSq < Math.EPSILON_F32 {
+            return 0.0
+        }
+        return Math.clamp((point - start).dot(other: d) / lenSq, 0.0, 1.0)
+    }
+
+    /// The closest point on the segment to `point`.
+    public func closestPoint(point: Vector2) -> Vector2 {
+        return pointAt(t: closestParameter(point: point))
+    }
+
+    /// Shortest distance from `point` to the segment.
+    public func distance(point: Vector2) -> Float32 {
+        return closestPoint(point: point).distance(to: point)
+    }
+
+    /// Whether this segment crosses `other`. Parallel (including collinear)
+    /// segments are reported as non-crossing.
+    public func intersects(other: Segment2D) -> Bool {
+        let d1 = direction()
+        let d2 = other.direction()
+        let denom = d1.cross(other: d2)
+        if Math.abs(denom) < Math.EPSILON_F32 {
+            return false
+        }
+        let diff = other.start - start
+        let t = diff.cross(other: d2) / denom
+        let u = diff.cross(other: d1) / denom
+        return t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0
+    }
+}

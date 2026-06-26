@@ -1,0 +1,19 @@
+import Standard.*
+
+struct Point {
+    var x: Float64
+    var y: Float64
+
+    func distance(to: Point) -> Float64 {
+        let dx = x - to.x
+        let dy = y - to.y
+        return Math.sqrt(dx * dx + dy * dy)
+    }
+}
+
+func main() -> Int {
+    let a = Point(x: 0.0, y: 0.0)
+    let b = Point(x: 3.0, y: 4.0)
+    Console.printLine("distance = ${a.distance(to: b)}")
+    return 0
+}

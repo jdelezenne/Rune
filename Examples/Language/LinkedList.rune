@@ -1,0 +1,69 @@
+import Standard.*
+
+func main() -> Int {
+    var values: LinkedList<Int> = [10, 20, 30]
+
+    if values.count != 3 {
+        return 1
+    }
+
+    if values.first! != 10 {
+        return 2
+    }
+
+    if values.last! != 30 {
+        return 3
+    }
+
+    if values[1] != 20 {
+        return 4
+    }
+
+    values.pushFront(5)
+    values.pushBack(40)
+
+    if values.count != 5 {
+        return 5
+    }
+
+    if values.peekFront() != 5 {
+        return 6
+    }
+
+    if values.peekBack() != 40 {
+        return 7
+    }
+
+    if values[0] != 5 {
+        return 8
+    }
+
+    if values.popFront() != 5 {
+        return 9
+    }
+
+    if values.popBack() != 40 {
+        return 10
+    }
+
+    if values.count != 3 {
+        return 11
+    }
+
+    var total = 0
+    for value in values {
+        total = total + value
+    }
+
+    if total != 60 {
+        return 12
+    }
+
+    values.clear()
+
+    if !values.isEmpty {
+        return 13
+    }
+
+    return 0
+}

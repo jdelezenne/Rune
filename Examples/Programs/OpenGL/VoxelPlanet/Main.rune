@@ -1,0 +1,215 @@
+// VoxelPlanet: a procedurally generated voxel terrain explorer. World
+// generation and per-chunk meshing (Model.rune / Mesh.rune) run once at
+// startup; free-flight camera controls (mouse-look + WASD + Space/Shift,
+// see Input.rune) let the player fly around collecting glowing crystal
+// pickups scattered across the terrain. Collecting every crystal shows a
+// "win" banner.
+//
+// NOTE: build and run this against the ninja-release preset, not
+// ninja-debug -- world generation/meshing does enough interpreted work
+// (hundreds of thousands of voxel/face operations) that the unoptimized
+// debug VM build is misleadingly slow (~8x) for it.
+
+import Standard.*
+import SDL3
+import SDL3_ttf
+import OpenGL
+
+const WINDOW_WIDTH: Int32 = 1024
+const WINDOW_HEIGHT: Int32 = 768
+
+const FLY_SPEED: Float32 = 14.0
+const CRYSTAL_PICKUP_RADIUS: Float32 = 1.6
+const CRYSTAL_SPIN_SPEED: Float32 = 1.4
+
+struct Player {
+    var position: Vector3
+    var yaw: Float32
+    var pitch: Float32
+}
+
+// Forward vector for a yaw/pitch orientation (radians). Yaw rotates around
+// +Y (world up), pitch tilts away from the horizontal plane afterwards.
+func forwardFromYawPitch(yaw: Float32, pitch: Float32) -> Vector3 {
+    let cosPitch = Math.cos(pitch)
+    return Vector3(
+        x: Math.cos(yaw) * cosPitch,
+        y: Math.sin(pitch),
+        z: Math.sin(yaw) * cosPitch)
+}
+
+func startingPlayer(world: &World) -> Player {
+    let centerX = Float32(WORLD_SIZE_X) * 0.5
+    let centerZ = Float32(WORLD_SIZE_Z) * 0.5
+    let groundHeight = columnHeight(Int32(centerX), Int32(centerZ), world.seed)
+    return Player(
+        position: Vector3(x: centerX, y: Float32(groundHeight) + 18.0, z: centerZ),
+        yaw: 0.785,
+        pitch: -0.4)
+}
+
+func updatePlayer(player: &Player, input: InputState, deltaTime: Float32) {
+    player.yaw = player.yaw + input.yawDelta * deltaTime
+    player.pitch = player.pitch + input.pitchDelta * deltaTime
+    if player.pitch > 1.5 {
+        player.pitch = 1.5
+    }
+    if player.pitch < -1.5 {
+        player.pitch = -1.5
+    }
+
+    let forward = forwardFromYawPitch(yaw: player.yaw, pitch: player.pitch)
+    let worldUp = Vector3(x: 0.0, y: 1.0, z: 0.0)
+    let right = forward.cross(other: worldUp).normalized()
+
+    var move = Vector3.zero()
+    move = move + forward * input.moveForward
+    move = move + right * input.moveRight
+    move = move + worldUp * input.moveUp
+    move = move.normalized()
+
+    player.position = player.position + move * (FLY_SPEED * deltaTime)
+}
+
+func updateCrystals(world: &World, player: Player, deltaTime: Float32) -> Int32 {
+    var collectedThisFrame: Int32 = 0
+    for i in 0..CRYSTAL_COUNT {
+        world.crystals[i].spinAngle = world.crystals[i].spinAngle + CRYSTAL_SPIN_SPEED * deltaTime
+        if world.crystals[i].collected {
+            continue
+        }
+        if player.position.distance(to: world.crystals[i].position) < CRYSTAL_PICKUP_RADIUS {
+            world.crystals[i].collected = true
+            collectedThisFrame = collectedThisFrame + 1
+        }
+    }
+    return collectedThisFrame
+}
+
+func playerViewMatrix(player: Player) -> Matrix4 {
+    let forward = forwardFromYawPitch(yaw: player.yaw, pitch: player.pitch)
+    let target = player.position + forward
+    return Matrix4.lookAt(eye: player.position, target: target, up: Vector3(x: 0.0, y: 1.0, z: 0.0))
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    if !SDL3_ttf.initialize() {
+        Console.printLine("TTF_Init failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    SDL3.glSetAttribute(SDL3.GLAttribute.doubleBuffer, 1)
+    SDL3.glSetAttribute(SDL3.GLAttribute.depthSize, 24)
+    SDL3.glSetAttribute(SDL3.GLAttribute.contextMajorVersion, 2)
+    SDL3.glSetAttribute(SDL3.GLAttribute.contextMinorVersion, 1)
+
+    let window = SDL3.createWindow("Voxel Planet", WINDOW_WIDTH, WINDOW_HEIGHT, SDL3.WindowFlags.opengl)
+    if window == nil {
+        Console.printLine("SDL_CreateWindow failed: ${SDL3.getError()!}")
+        SDL3_ttf.quit()
+        SDL3.quit()
+        return 1
+    }
+
+    let glContext = SDL3.glCreateContext(window)
+    if glContext == nil {
+        Console.printLine("SDL_GL_CreateContext failed: ${SDL3.getError()!}")
+        SDL3.destroyWindow(window)
+        SDL3_ttf.quit()
+        SDL3.quit()
+        return 1
+    }
+
+    SDL3.glMakeCurrent(window, glContext)
+    SDL3.glSetSwapInterval(1)
+    _ = SDL3.setWindowRelativeMouseMode(window, true)
+
+    Console.printLine("generating world...")
+    var world = generateWorld(1234)
+    Console.printLine("world generated, building meshes...")
+    let scene = buildScene(&world)
+    Console.printLine("ready.")
+
+    var hud = buildHud()
+    var player = startingPlayer(&world)
+
+    var collectedCount: Int32 = 0
+    refreshCrystalLabel(&hud, collectedCount, Int32(CRYSTAL_COUNT))
+    var previousCollectedCount: Int32 = collectedCount
+    var wasWin = false
+
+    OpenGL.viewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
+    OpenGL.enable(OpenGL.DEPTH_TEST)
+    OpenGL.depthFunc(OpenGL.LEQUAL)
+
+    var event = SDL3.Event()
+    var running = true
+    let performanceFrequency = SDL3.getPerformanceFrequency()
+    var lastCounter = SDL3.getPerformanceCounter()
+
+    Console.printLine("Voxel Planet: mouse-look, WASD to fly, Space/Shift up-down, Escape to quit.")
+    Console.printLine("Collect all ${CRYSTAL_COUNT} crystals scattered across the terrain.")
+
+    while running {
+        while SDL3.pollEvent(&event) {
+            if event.type == SDL3.EventType.quit {
+                running = false
+            } else if event.type == SDL3.EventType.keyDown && event.down {
+                if event.scancode == SDL3.Scancode.escape {
+                    running = false
+                }
+            }
+        }
+
+        let counter = SDL3.getPerformanceCounter()
+        var deltaTime = Float32(counter - lastCounter) / Float32(performanceFrequency)
+        lastCounter = counter
+        if deltaTime > 0.05 {
+            deltaTime = 0.05
+        }
+
+        var numKeys: Int32 = 0
+        let keyboard = SDL3.getKeyboardState(&numKeys)
+        let input = readInput(keyboard)
+
+        updatePlayer(&player, input, deltaTime)
+        collectedCount = collectedCount + updateCrystals(&world, player, deltaTime)
+
+        if collectedCount != previousCollectedCount {
+            refreshCrystalLabel(&hud, collectedCount, Int32(CRYSTAL_COUNT))
+            previousCollectedCount = collectedCount
+        }
+        if collectedCount == Int32(CRYSTAL_COUNT) && !wasWin {
+            wasWin = true
+            refreshWinLabel(&hud)
+        }
+
+        OpenGL.clearColor(0.5, 0.75, 0.92, 1.0)
+        OpenGL.clear(OpenGL.COLOR_BUFFER_BIT | OpenGL.DEPTH_BUFFER_BIT)
+
+        let projection = Matrix4.perspective(
+            fovYDegrees: 70.0,
+            aspect: Float32(WINDOW_WIDTH) / Float32(WINDOW_HEIGHT),
+            near: 0.1,
+            far: 400.0)
+        let view = playerViewMatrix(player)
+        let viewProjection = projection * view
+        drawWorld(*scene, *world, viewProjection)
+        drawHud(*hud, WINDOW_WIDTH, WINDOW_HEIGHT, wasWin)
+
+        SDL3.glSwapWindow(window)
+        SDL3.delay(1)
+    }
+
+    SDL3.glDestroyContext(glContext)
+    SDL3.destroyWindow(window)
+    SDL3_ttf.quit()
+    SDL3.quit()
+    return 0
+}

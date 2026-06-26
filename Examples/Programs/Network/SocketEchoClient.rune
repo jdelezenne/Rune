@@ -1,0 +1,77 @@
+// TCP echo client (RFC 862): connects to Examples/Programs/EchoServer.rune,
+// sends a handful of fixed-fill byte payloads, and verifies each is echoed
+// back unchanged.
+//
+// Usage:
+//   rune run Examples/Programs/EchoClient.rune
+//
+// Start Examples/Programs/EchoServer.rune first, in a separate terminal.
+// Change PORT below to match the server if you changed it there.
+
+import Standard.*
+
+const HOST: String = "127.0.0.1"
+const PORT: UInt16 = 9000
+
+func roundTrip(stream: &Socket, fillValue: UInt8, length: UInt, round: Int) -> Bool {
+    let sendBuffer = try! Memory.systemAllocate(size: length)
+    Memory.fill(destination: sendBuffer, value: fillValue, byteCount: length)
+
+    var sendErr = ""
+    let sent = stream.send(data: sendBuffer, length: length, error: &sendErr)
+    if sent != Int64(length) {
+        Console.printLine("round ${round}: send failed: ${sendErr}")
+        Memory.systemDeallocate(address: sendBuffer)
+        return false
+    }
+
+    let receiveBuffer = try! Memory.systemAllocate(size: length)
+    var receiveErr = ""
+    let received = stream.receive(buffer: receiveBuffer, length: length, error: &receiveErr)
+    if received != Int64(length) {
+        Console.printLine("round ${round}: receive failed: got ${received} of ${length} bytes (${receiveErr})")
+        Memory.systemDeallocate(address: sendBuffer)
+        Memory.systemDeallocate(address: receiveBuffer)
+        return false
+    }
+
+    let matches = Memory.compare(source: sendBuffer, destination: receiveBuffer, byteCount: length) == Ordering.equal
+    Console.printLine("round ${round}: sent ${length} bytes (fill=${fillValue}), echoed back, matches=${matches}")
+
+    Memory.systemDeallocate(address: sendBuffer)
+    Memory.systemDeallocate(address: receiveBuffer)
+    return matches
+}
+
+func main() -> Int {
+    var stream = Socket()
+    var connectErr = ""
+    if !stream.connect(host: HOST, port: PORT, error: &connectErr) {
+        Console.printLine("failed to connect to ${HOST}:${PORT}: ${connectErr}")
+        Console.printLine("(is Examples/Programs/EchoServer.rune running?)")
+        return 1
+    }
+
+    Console.printLine("connected to ${stream.remoteAddress}")
+
+    var allMatched = true
+    if !roundTrip(stream: &stream, fillValue: 65, length: 16, round: 1) {
+        allMatched = false
+    }
+    if !roundTrip(stream: &stream, fillValue: 66, length: 256, round: 2) {
+        allMatched = false
+    }
+    if !roundTrip(stream: &stream, fillValue: 67, length: 4096, round: 3) {
+        allMatched = false
+    }
+
+    stream.close()
+
+    if !allMatched {
+        Console.printLine("one or more rounds did not match")
+        return 1
+    }
+
+    Console.printLine("all rounds echoed correctly")
+    return 0
+}

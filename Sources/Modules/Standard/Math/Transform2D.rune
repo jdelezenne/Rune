@@ -1,0 +1,71 @@
+/// A 2D affine transform stored as a decomposed position / rotation / scale.
+/// `rotation` is in radians. Converts to a Matrix3 via `toMatrix3()` for GPU
+/// upload or composition with other 2D matrices.
+@layout(kind: c)
+public struct Transform2D {
+    public var position: Vector2
+    /// Rotation about the origin, in radians (counter-clockwise).
+    public var rotation: Float32
+    public var scale: Vector2
+
+    /// The identity transform: no translation, no rotation, unit scale.
+    public static func identity() -> Transform2D {
+        return Transform2D(position: Vector2.zero(), rotation: 0.0, scale: Vector2.one())
+    }
+
+    public static func fromPosition(position: Vector2) -> Transform2D {
+        return Transform2D(position: position, rotation: 0.0, scale: Vector2.one())
+    }
+
+    public static func fromPositionRotation(position: Vector2, rotation: Float32) -> Transform2D {
+        return Transform2D(position: position, rotation: rotation, scale: Vector2.one())
+    }
+
+    /// Transforms a point from local space into world space.
+    public func transformPoint(point: Vector2) -> Vector2 {
+        let sx = point.x * scale.x
+        let sy = point.y * scale.y
+        let c = Math.cos(rotation)
+        let s = Math.sin(rotation)
+        return Vector2(
+            x: position.x + sx * c - sy * s,
+            y: position.y + sx * s + sy * c)
+    }
+
+    /// Transforms a direction (rotation only; ignores translation and scale).
+    public func transformDirection(direction: Vector2) -> Vector2 {
+        let c = Math.cos(rotation)
+        let s = Math.sin(rotation)
+        return Vector2(
+            x: direction.x * c - direction.y * s,
+            y: direction.x * s + direction.y * c)
+    }
+
+    /// The column-major 3x3 matrix form of this 2D transform.
+    public func toMatrix3() -> Matrix3 {
+        let c = Math.cos(rotation)
+        let s = Math.sin(rotation)
+        return Matrix3(m: [
+            c * scale.x, s * scale.x, 0.0,
+            0.0 - s * scale.y, c * scale.y, 0.0,
+            position.x, position.y, 1.0,
+        ])
+    }
+
+    /// Linear blend between two transforms at `t`.
+    public func lerp(to: Transform2D, t: Float32) -> Transform2D {
+        return Transform2D(
+            position: position.lerp(to: to.position, t: t),
+            rotation: rotation + (to.rotation - rotation) * t,
+            scale: scale.lerp(to: to.scale, t: t))
+    }
+
+    /// Composes two transforms: `self * other` applies `other` first, then
+    /// `self`, when transforming a point.
+    public static operator *(lhs: Transform2D, rhs: Transform2D) -> Transform2D {
+        return Transform2D(
+            position: lhs.transformPoint(point: rhs.position),
+            rotation: lhs.rotation + rhs.rotation,
+            scale: Vector2(x: lhs.scale.x * rhs.scale.x, y: lhs.scale.y * rhs.scale.y))
+    }
+}

@@ -1,0 +1,177 @@
+import Standard.*
+import SDL3
+
+struct PlayerColor {
+    var red: UInt8
+    var green: UInt8
+    var blue: UInt8
+    var tipRed: Float32
+    var tipGreen: Float32
+    var tipBlue: Float32
+    var wingRed: Float32
+    var wingGreen: Float32
+    var wingBlue: Float32
+}
+
+func playerColor(playerId: Int32) -> PlayerColor {
+    let colorIndex = playerId % 6
+    if colorIndex == 1 {
+        return PlayerColor(
+            red: 120,
+            green: 220,
+            blue: 255,
+            tipRed: 0.82,
+            tipGreen: 0.96,
+            tipBlue: 1.0,
+            wingRed: 0.36,
+            wingGreen: 0.76,
+            wingBlue: 0.95)
+    }
+    if colorIndex == 2 {
+        return PlayerColor(
+            red: 245,
+            green: 170,
+            blue: 115,
+            tipRed: 1.0,
+            tipGreen: 0.82,
+            tipBlue: 0.58,
+            wingRed: 0.88,
+            wingGreen: 0.48,
+            wingBlue: 0.28)
+    }
+    if colorIndex == 3 {
+        return PlayerColor(
+            red: 155,
+            green: 230,
+            blue: 150,
+            tipRed: 0.84,
+            tipGreen: 1.0,
+            tipBlue: 0.76,
+            wingRed: 0.42,
+            wingGreen: 0.82,
+            wingBlue: 0.38)
+    }
+    if colorIndex == 4 {
+        return PlayerColor(
+            red: 210,
+            green: 170,
+            blue: 245,
+            tipRed: 0.92,
+            tipGreen: 0.82,
+            tipBlue: 1.0,
+            wingRed: 0.66,
+            wingGreen: 0.48,
+            wingBlue: 0.90)
+    }
+    if colorIndex == 5 {
+        return PlayerColor(
+            red: 245,
+            green: 225,
+            blue: 135,
+            tipRed: 1.0,
+            tipGreen: 0.94,
+            tipBlue: 0.58,
+            wingRed: 0.86,
+            wingGreen: 0.74,
+            wingBlue: 0.30)
+    }
+    return PlayerColor(
+        red: 235,
+        green: 235,
+        blue: 225,
+        tipRed: 0.96,
+        tipGreen: 0.96,
+        tipBlue: 0.90,
+        wingRed: 0.74,
+        wingGreen: 0.74,
+        wingBlue: 0.68)
+}
+
+func drawNetworkBullets(renderer: &SDL3.Renderer?, world: *NetworkWorld) {
+    SDL3.setRenderDrawColor(renderer, 255, 240, 180, 255)
+    for bulletIndex in 0..world.bullets.count {
+        if world.bullets[bulletIndex].active {
+            SDL3.renderPoint(renderer, world.bullets[bulletIndex].x, world.bullets[bulletIndex].y)
+            SDL3.renderPoint(renderer, world.bullets[bulletIndex].x + 1.0, world.bullets[bulletIndex].y)
+        }
+    }
+}
+
+func drawNetworkHud(renderer: &SDL3.Renderer?, world: *NetworkWorld, localPlayerId: Int32) {
+    var panel = SDL3.FRect(x: 8.0, y: 8.0, w: 290.0, h: 72.0)
+    SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.blend)
+    SDL3.setRenderDrawColor(renderer, 16, 20, 32, 125)
+    SDL3.renderFillRect(renderer, &panel)
+
+    var score: Int32 = 0
+    var lives: Int32 = 0
+    for playerIndex in 0..world.players.count {
+        if world.players[playerIndex].id == localPlayerId {
+            score = world.players[playerIndex].score
+            lives = world.players[playerIndex].lives
+        }
+    }
+
+    drawNumber(renderer, score, 16.0, 14.0, HUD_PIXEL, 240, 230, 180)
+    drawNumber(renderer, lives, 16.0, 38.0, HUD_PIXEL, 120, 220, 255)
+    drawNumber(renderer, world.wave, 120.0, 38.0, HUD_PIXEL, 255, 180, 120)
+
+    if localPlayerId != 0 {
+        let color = playerColor(playerId: localPlayerId)
+        SDL3.setRenderDrawColor(renderer, color.red, color.green, color.blue, 255)
+        var swatch = SDL3.FRect(x: 238.0, y: 18.0, w: 38.0, h: 38.0)
+        SDL3.renderFillRect(renderer, &swatch)
+        SDL3.setRenderDrawColor(renderer, 6, 8, 14, 255)
+        SDL3.renderRect(renderer, &swatch)
+    }
+}
+
+func drawNetworkRoundResult(renderer: &SDL3.Renderer?, world: *NetworkWorld, localPlayerId: Int32) {
+    if world.roundWinnerId < 0 || world.roundResetTimer <= 0.0 {
+        return
+    }
+
+    SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.blend)
+    var panel = SDL3.FRect(x: 250.0, y: 238.0, w: 300.0, h: 124.0)
+    SDL3.setRenderDrawColor(renderer, 6, 8, 14, 185)
+    SDL3.renderFillRect(renderer, &panel)
+
+    if world.roundWinnerId == 0 {
+        SDL3.setRenderDrawColor(renderer, 230, 230, 220, 255)
+        SDL3.renderDebugText(renderer, 356.0, 278.0, "DRAW")
+    } else if world.roundWinnerId == localPlayerId {
+        SDL3.setRenderDrawColor(renderer, 155, 230, 150, 255)
+        SDL3.renderDebugText(renderer, 336.0, 278.0, "YOU WIN")
+    } else {
+        SDL3.setRenderDrawColor(renderer, 245, 170, 115, 255)
+        SDL3.renderDebugText(renderer, 330.0, 278.0, "YOU LOSE")
+    }
+
+    let remaining = Int32(ROUND_RESET_DELAY - world.roundResetTimer + 1.0)
+    if remaining > 0 {
+        SDL3.setRenderDrawColor(renderer, 180, 190, 210, 255)
+        SDL3.renderDebugText(renderer, 326.0, 318.0, "NEXT ROUND")
+        drawNumber(renderer, remaining, 450.0, 314.0, 2.0, 180, 190, 210)
+    }
+}
+
+func drawNetworkWorld(renderer: &SDL3.Renderer?, world: *NetworkWorld, localPlayerId: Int32) {
+    for asteroidIndex in 0..world.asteroids.count {
+        drawAsteroidGeometry(renderer, world.asteroids[asteroidIndex])
+    }
+    drawNetworkBullets(renderer: renderer, world: world)
+    for playerIndex in 0..world.players.count {
+        let color = playerColor(playerId: world.players[playerIndex].id)
+        drawTintedShipGeometry(
+            renderer: renderer,
+            ship: world.players[playerIndex].ship,
+            tipRed: color.tipRed,
+            tipGreen: color.tipGreen,
+            tipBlue: color.tipBlue,
+            wingRed: color.wingRed,
+            wingGreen: color.wingGreen,
+            wingBlue: color.wingBlue)
+    }
+    drawNetworkHud(renderer: renderer, world: world, localPlayerId: localPlayerId)
+    drawNetworkRoundResult(renderer: renderer, world: world, localPlayerId: localPlayerId)
+}

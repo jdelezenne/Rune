@@ -1,0 +1,57 @@
+struct Config {
+    var port: Int = 8080
+    var secure: Bool = true
+    var retryCount: Int = default
+    var missing: Int? = default
+}
+
+let globalPort: Int = default
+let globalConfig: Config = default
+
+func identity(value: Int = default) -> Int {
+    return value
+}
+
+func makeConfig() -> Config {
+    return default
+}
+
+func main() -> Int {
+    let number: Int = default
+    let flag: Bool = default
+    let missing: Int? = default
+    let config: Config = default
+    let returned = makeConfig()
+    let argument = identity(default)
+    let defaultArgument = identity()
+
+    if number != 0 {
+        return 1
+    }
+    if flag {
+        return 2
+    }
+    if missing.hasValue() {
+        return 3
+    }
+    if config.port != 8080 || !config.secure || config.retryCount != 0 || config.missing.hasValue() {
+        return 4
+    }
+    if returned.port != 8080 || !returned.secure || returned.retryCount != 0 || returned.missing.hasValue() {
+        return 5
+    }
+    if argument != 0 {
+        return 6
+    }
+    if defaultArgument != 0 {
+        return 7
+    }
+    if globalPort != 0 {
+        return 8
+    }
+    if globalConfig.port != 8080 || !globalConfig.secure || globalConfig.retryCount != 0 || globalConfig.missing.hasValue() {
+        return 9
+    }
+
+    return 0
+}

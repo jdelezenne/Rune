@@ -1,0 +1,17 @@
+public extension ShaderModule {
+    public static func fromHandle(handle: &ShaderModuleHandle?) -> ShaderModule {
+        return ShaderModule(handle: handle)
+    }
+
+    public rawHandle: &ShaderModuleHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func release() {
+        shaderModuleRelease(handle)
+    }
+}

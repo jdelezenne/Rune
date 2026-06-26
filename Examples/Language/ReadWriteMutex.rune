@@ -1,0 +1,43 @@
+import Standard.*
+
+struct SharedScore {
+    var lock: ReadWriteMutex
+    var value: Int
+
+    init(initial: Int) {
+        self.lock = ReadWriteMutex()
+        self.value = initial
+    }
+
+    mutating func add(amount: Int) {
+        self.lock.withWriteLock(body: {
+            self.value = self.value + amount
+        })
+    }
+
+    mutating func get() -> Int {
+        return self.lock.withReadLock(body: {
+            self.value
+        })
+    }
+}
+
+func main() -> Int {
+    var score = SharedScore(initial: 7)
+
+    score.add(amount: 35)
+
+    let first = score.get()
+    let second = score.get()
+    #printLn("Score = ${first}")
+    #printLn("Score again = ${second}")
+
+    if score.lock.nativeHandle != nil {
+        #printLn("ReadWriteMutex initialized")
+    }
+
+    if first != 42 || second != 42 {
+        return 1
+    }
+    return 0
+}

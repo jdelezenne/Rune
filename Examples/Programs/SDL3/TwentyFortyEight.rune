@@ -1,0 +1,435 @@
+// SDL3 2048: slide and merge numbered tiles on a 4x4 grid.
+//
+// Controls:
+//   Arrow keys / WASD  - slide all tiles in a direction
+//   R                  - restart after game over
+//   Escape / close     - quit
+
+import Standard.*
+import SDL3
+
+const GRID_SIZE: Int = 4
+const CELL_COUNT: Int = 16
+const CELL_SIZE: Float32 = 100.0
+const CELL_GAP: Float32 = 12.0
+const BOARD_X: Float32 = 32.0
+const BOARD_Y: Float32 = 110.0
+const WINDOW_W: Float32 = 500.0
+const WINDOW_H: Float32 = 580.0
+
+struct Rng {
+    var state: UInt32
+}
+
+func seedRng(rng: &Rng, seed: UInt32) {
+    rng.state = seed
+    if rng.state == 0 {
+        rng.state = 1
+    }
+}
+
+func randU32(rng: &Rng) -> UInt32 {
+    var x = rng.state
+    x = x ^ (x << 13)
+    x = x ^ (x >> 17)
+    x = x ^ (x << 5)
+    rng.state = x
+    return x
+}
+
+func randInt(rng: &Rng, n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    return Int(randU32(rng) % UInt32(n))
+}
+
+func slideLine(line: &[Int32, 4]) -> (moved: Bool, gained: Int32) {
+    var values: [Int32, 4] = []
+    var count = 0
+    for i in 0..4 {
+        if line[i] != 0 {
+            values[count] = line[i]
+            count = count + 1
+        }
+    }
+
+    var gained: Int32 = 0
+    var i = 0
+    while i < count - 1 {
+        if values[i] == values[i + 1] {
+            values[i] = values[i] * 2
+            gained = gained + values[i]
+            var j = i + 1
+            while j < count - 1 {
+                values[j] = values[j + 1]
+                j = j + 1
+            }
+            count = count - 1
+        }
+        i = i + 1
+    }
+
+    var result: [Int32, 4] = []
+    for i in 0..count {
+        result[i] = values[i]
+    }
+
+    var moved = false
+    for i in 0..4 {
+        if line[i] != result[i] {
+            moved = true
+        }
+        line[i] = result[i]
+    }
+
+    return (moved: moved, gained: gained)
+}
+
+func moveLeft(cells: &[Int32, 16]) -> (moved: Bool, gained: Int32) {
+    var anyMoved = false
+    var totalGained: Int32 = 0
+    for r in 0..4 {
+        var line: [Int32, 4] = []
+        for c in 0..4 {
+            line[c] = cells[r * 4 + c]
+        }
+        let (moved, gained) = slideLine(&line)
+        if moved {
+            anyMoved = true
+        }
+        totalGained = totalGained + gained
+        for c in 0..4 {
+            cells[r * 4 + c] = line[c]
+        }
+    }
+    return (moved: anyMoved, gained: totalGained)
+}
+
+func moveRight(cells: &[Int32, 16]) -> (moved: Bool, gained: Int32) {
+    var anyMoved = false
+    var totalGained: Int32 = 0
+    for r in 0..4 {
+        var line: [Int32, 4] = []
+        for c in 0..4 {
+            line[c] = cells[r * 4 + (3 - c)]
+        }
+        let (moved, gained) = slideLine(&line)
+        if moved {
+            anyMoved = true
+        }
+        totalGained = totalGained + gained
+        for c in 0..4 {
+            cells[r * 4 + (3 - c)] = line[c]
+        }
+    }
+    return (moved: anyMoved, gained: totalGained)
+}
+
+func moveUp(cells: &[Int32, 16]) -> (moved: Bool, gained: Int32) {
+    var anyMoved = false
+    var totalGained: Int32 = 0
+    for c in 0..4 {
+        var line: [Int32, 4] = []
+        for r in 0..4 {
+            line[r] = cells[r * 4 + c]
+        }
+        let (moved, gained) = slideLine(&line)
+        if moved {
+            anyMoved = true
+        }
+        totalGained = totalGained + gained
+        for r in 0..4 {
+            cells[r * 4 + c] = line[r]
+        }
+    }
+    return (moved: anyMoved, gained: totalGained)
+}
+
+func moveDown(cells: &[Int32, 16]) -> (moved: Bool, gained: Int32) {
+    var anyMoved = false
+    var totalGained: Int32 = 0
+    for c in 0..4 {
+        var line: [Int32, 4] = []
+        for r in 0..4 {
+            line[r] = cells[(3 - r) * 4 + c]
+        }
+        let (moved, gained) = slideLine(&line)
+        if moved {
+            anyMoved = true
+        }
+        totalGained = totalGained + gained
+        for r in 0..4 {
+            cells[(3 - r) * 4 + c] = line[r]
+        }
+    }
+    return (moved: anyMoved, gained: totalGained)
+}
+
+func spawnTile(cells: &[Int32, 16], rng: &Rng) -> Bool {
+    var emptyCount = 0
+    for i in 0..16 {
+        if cells[i] == 0 {
+            emptyCount = emptyCount + 1
+        }
+    }
+    if emptyCount == 0 {
+        return false
+    }
+
+    var target = randInt(rng, emptyCount)
+    for i in 0..16 {
+        if cells[i] == 0 {
+            if target == 0 {
+                cells[i] = randInt(rng, 10) == 0 ? 4 : 2
+                return true
+            }
+            target = target - 1
+        }
+    }
+    return false
+}
+
+func canMove(cells: [Int32, 16]) -> Bool {
+    for i in 0..16 {
+        if cells[i] == 0 {
+            return true
+        }
+    }
+    for r in 0..4 {
+        for c in 0..3 {
+            if cells[r * 4 + c] == cells[r * 4 + c + 1] {
+                return true
+            }
+        }
+    }
+    for c in 0..4 {
+        for r in 0..3 {
+            if cells[r * 4 + c] == cells[(r + 1) * 4 + c] {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+func colorForValue(value: Int32) -> (red: UInt8, green: UInt8, blue: UInt8, light: Bool) {
+    if value == 0 {
+        return (red: 60, green: 64, blue: 74, light: true)
+    } else if value == 2 {
+        return (red: 238, green: 228, blue: 218, light: false)
+    } else if value == 4 {
+        return (red: 237, green: 224, blue: 200, light: false)
+    } else if value == 8 {
+        return (red: 242, green: 177, blue: 121, light: true)
+    } else if value == 16 {
+        return (red: 245, green: 149, blue: 99, light: true)
+    } else if value == 32 {
+        return (red: 246, green: 124, blue: 95, light: true)
+    } else if value == 64 {
+        return (red: 246, green: 94, blue: 59, light: true)
+    } else if value == 128 {
+        return (red: 237, green: 207, blue: 114, light: true)
+    } else if value == 256 {
+        return (red: 237, green: 204, blue: 97, light: true)
+    } else if value == 512 {
+        return (red: 237, green: 200, blue: 80, light: true)
+    } else if value == 1024 {
+        return (red: 237, green: 197, blue: 63, light: true)
+    } else if value == 2048 {
+        return (red: 237, green: 194, blue: 46, light: true)
+    }
+    return (red: 60, green: 58, blue: 50, light: true)
+}
+
+func drawRect(renderer: &SDL3.Renderer?, x: Float32, y: Float32, w: Float32, h: Float32) {
+    var rect = SDL3.FRect(x: x, y: y, w: w, h: h)
+    SDL3.renderFillRect(renderer, &rect)
+}
+
+func drawBoard(renderer: &SDL3.Renderer?, cells: *[Int32, 16]) {
+    for r in 0..4 {
+        for c in 0..4 {
+            let value = cells[r * 4 + c]
+            let color = colorForValue(value)
+            let x = BOARD_X + Float32(c) * (CELL_SIZE + CELL_GAP)
+            let y = BOARD_Y + Float32(r) * (CELL_SIZE + CELL_GAP)
+
+            SDL3.setRenderDrawColor(renderer, color.red, color.green, color.blue, 255)
+            drawRect(renderer, x, y, CELL_SIZE, CELL_SIZE)
+
+            if value != 0 {
+                let label = CString("${value}")
+                let textWidth = Float32(label.asSlice().count) * 8.0
+                let textX = x + (CELL_SIZE - textWidth) / 2.0
+                let textY = y + CELL_SIZE / 2.0 - 4.0
+
+                if color.light {
+                    SDL3.setRenderDrawColor(renderer, 250, 248, 245, 255)
+                } else {
+                    SDL3.setRenderDrawColor(renderer, 90, 82, 72, 255)
+                }
+                SDL3.renderDebugText(renderer, textX, textY, label.asCStringSlice())
+            }
+        }
+    }
+}
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var event = SDL3.Event()
+var running = true
+var rng = Rng(state: 1)
+var cells: [Int32, 16] = []
+var score: Int32 = 0
+var best: Int32 = 0
+var gameOver = false
+var won = false
+
+func resetGame() {
+    for i in 0..16 {
+        cells[i] = 0
+    }
+    score = 0
+    gameOver = false
+    won = false
+    spawnTile(&cells, &rng)
+    spawnTile(&cells, &rng)
+}
+
+func applyMove(scancode: SDL3.Scancode) {
+    if gameOver {
+        return
+    }
+
+    var result = (moved: false, gained: Int32(0))
+    if scancode == SDL3.Scancode.left || scancode == SDL3.Scancode.a {
+        result = moveLeft(&cells)
+    } else if scancode == SDL3.Scancode.right || scancode == SDL3.Scancode.d {
+        result = moveRight(&cells)
+    } else if scancode == SDL3.Scancode.up || scancode == SDL3.Scancode.w {
+        result = moveUp(&cells)
+    } else if scancode == SDL3.Scancode.down || scancode == SDL3.Scancode.s {
+        result = moveDown(&cells)
+    } else {
+        return
+    }
+
+    if !result.moved {
+        return
+    }
+
+    score = score + result.gained
+    if score > best {
+        best = score
+    }
+
+    for i in 0..16 {
+        if cells[i] == 2048 {
+            won = true
+        }
+    }
+
+    spawnTile(&cells, &rng)
+
+    if !canMove(cells) {
+        gameOver = true
+    }
+}
+
+func handleEvent(evt: SDL3.Event) -> Bool {
+    if evt.type == SDL3.EventType.quit {
+        return false
+    }
+
+    if evt.type == SDL3.EventType.keyDown && evt.down && !evt.repeat {
+        if evt.scancode == SDL3.Scancode.escape {
+            return false
+        }
+        if evt.scancode == SDL3.Scancode.r {
+            resetGame()
+            return true
+        }
+        applyMove(evt.scancode)
+    }
+
+    return true
+}
+
+func mainLoop() {
+    while SDL3.pollEvent(&event) {
+        if !handleEvent(event) {
+            running = false
+        }
+    }
+
+    if !running {
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        Console.printLine("2048 finished.")
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    SDL3.setRenderDrawColor(renderer, 40, 44, 52, 255)
+    SDL3.renderClear(renderer)
+
+    let scoreText = CString("SCORE: ${score}   BEST: ${best}")
+    SDL3.setRenderDrawColor(renderer, 220, 220, 225, 255)
+    SDL3.renderDebugText(renderer, BOARD_X, 40.0, scoreText.asCStringSlice())
+    SDL3.renderDebugText(renderer, BOARD_X, 60.0, "ARROWS/WASD MOVE, R RESTART")
+
+    drawBoard(renderer, *cells)
+
+    if gameOver {
+        SDL3.setRenderDrawColor(renderer, 255, 150, 130, 255)
+        SDL3.renderDebugText(renderer, BOARD_X, WINDOW_H - 30.0, "GAME OVER - PRESS R TO RESTART")
+    } else if won {
+        SDL3.setRenderDrawColor(renderer, 160, 255, 170, 255)
+        SDL3.renderDebugText(renderer, BOARD_X, WINDOW_H - 30.0, "YOU MADE 2048! KEEP GOING OR PRESS R")
+    }
+
+    SDL3.renderPresent(renderer)
+    SDL3.delay(16)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_Init failed")
+        } else {
+            Console.printLine("SDL_Init failed: ${message!}")
+        }
+
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune SDL3: 2048", 500, 580, 0, &window, &renderer) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_CreateWindowAndRenderer failed")
+        } else {
+            Console.printLine("SDL_CreateWindowAndRenderer failed: ${message!}")
+        }
+        SDL3.quit()
+        return 1
+    }
+
+    seedRng(&rng, 20260709)
+    resetGame()
+
+    Console.printLine("2048: arrows/WASD slide, R restarts.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

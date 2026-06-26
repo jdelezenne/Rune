@@ -1,0 +1,829 @@
+@symbol("WGPUInstanceImpl")
+public distinct InstanceHandle
+
+@symbol("WGPUSurfaceImpl")
+public distinct SurfaceHandle
+
+@symbol("WGPUAdapterImpl")
+public distinct AdapterHandle
+
+@symbol("WGPUDeviceImpl")
+public distinct DeviceHandle
+
+@symbol("WGPUQueueImpl")
+public distinct QueueHandle
+
+@symbol("WGPUShaderModuleImpl")
+public distinct ShaderModuleHandle
+
+@symbol("WGPURenderPipelineImpl")
+public distinct RenderPipelineHandle
+
+@symbol("WGPUBindGroupLayoutImpl")
+public distinct BindGroupLayoutHandle
+
+@symbol("WGPUBindGroupImpl")
+public distinct BindGroupHandle
+
+@symbol("WGPUBufferImpl")
+public distinct BufferHandle
+
+@symbol("WGPUCommandEncoderImpl")
+public distinct CommandEncoderHandle
+
+@symbol("WGPURenderPassEncoderImpl")
+public distinct RenderPassEncoderHandle
+
+@symbol("WGPUCommandBufferImpl")
+public distinct CommandBufferHandle
+
+@symbol("WGPUTextureImpl")
+public distinct TextureHandle
+
+@symbol("WGPUTextureViewImpl")
+public distinct TextureViewHandle
+
+@symbol("WGPUSamplerImpl")
+public distinct SamplerHandle
+
+@symbol("WGPUPipelineLayoutImpl")
+public distinct PipelineLayoutHandle
+
+@symbol("WGPUQuerySetImpl")
+public distinct QuerySetHandle
+
+@symbol("WGPUComputePassEncoderImpl")
+public distinct ComputePassEncoderHandle
+
+@symbol("WGPUComputePipelineImpl")
+public distinct ComputePipelineHandle
+
+@symbol("WGPUExternalTextureImpl")
+public distinct ExternalTextureHandle
+
+@symbol("WGPURenderBundleImpl")
+public distinct RenderBundleHandle
+
+@symbol("WGPURenderBundleEncoderImpl")
+public distinct RenderBundleEncoderHandle
+
+public struct Instance {
+    internal var handle: &InstanceHandle?
+}
+
+public struct Surface {
+    internal var handle: &SurfaceHandle?
+}
+
+public struct Adapter {
+    internal var handle: &AdapterHandle?
+}
+
+public struct Device {
+    internal var handle: &DeviceHandle?
+}
+
+public struct Queue {
+    internal var handle: &QueueHandle?
+}
+
+public struct ShaderModule {
+    internal var handle: &ShaderModuleHandle?
+}
+
+public struct RenderPipeline {
+    internal var handle: &RenderPipelineHandle?
+}
+
+public struct BindGroupLayout {
+    internal var handle: &BindGroupLayoutHandle?
+}
+
+public struct BindGroup {
+    internal var handle: &BindGroupHandle?
+}
+
+public struct GPUBuffer {
+    internal var handle: &BufferHandle?
+}
+
+public struct CommandEncoder {
+    internal var handle: &CommandEncoderHandle?
+}
+
+public struct RenderPassEncoder {
+    internal var handle: &RenderPassEncoderHandle?
+}
+
+public struct CommandBuffer {
+    internal var handle: &CommandBufferHandle?
+}
+
+public struct Texture {
+    internal var handle: &TextureHandle?
+}
+
+public struct TextureView {
+    internal var handle: &TextureViewHandle?
+}
+
+public struct Sampler {
+    internal var handle: &SamplerHandle?
+}
+
+public struct PipelineLayout {
+    internal var handle: &PipelineLayoutHandle?
+}
+
+public struct QuerySet {
+    internal var handle: &QuerySetHandle?
+}
+
+public struct ComputePassEncoder {
+    internal var handle: &ComputePassEncoderHandle?
+}
+
+public struct ComputePipeline {
+    internal var handle: &ComputePipelineHandle?
+}
+
+public struct ExternalTexture {
+    internal var handle: &ExternalTextureHandle?
+}
+
+public struct RenderBundle {
+    internal var handle: &RenderBundleHandle?
+}
+
+public struct RenderBundleEncoder {
+    internal var handle: &RenderBundleEncoderHandle?
+}
+
+public enum CallbackMode: Int32 {
+    waitAnyOnly = 1
+    allowProcessEvents = 2
+    allowSpontaneous = 3
+}
+
+public enum RequestAdapterStatus: Int32 {
+    success = 1
+    callbackCancelled = 2
+    unavailable = 3
+    error = 4
+}
+
+public enum RequestDeviceStatus: Int32 {
+    success = 1
+    callbackCancelled = 2
+    error = 3
+}
+
+public enum Status: Int32 {
+    success = 1
+    error = 2
+}
+
+public enum PopErrorScopeStatus: Int32 {
+    success = 1
+    callbackCancelled = 2
+    error = 3
+}
+
+public enum ErrorFilter: Int32 {
+    validation = 1
+    outOfMemory = 2
+    internalError = 3
+}
+
+public enum ErrorType: Int32 {
+    noError = 1
+    validation = 2
+    outOfMemory = 3
+    internalError = 4
+    unknown = 5
+}
+
+public enum SType: Int32 {
+    shaderSourceSPIRV = 0x00000001
+    shaderSourceWGSL = 0x00000002
+    renderPassMaxDrawCount = 0x00000003
+    surfaceSourceMetalLayer = 0x00000004
+    surfaceSourceWindowsHWND = 0x00000005
+    surfaceSourceXlibWindow = 0x00000006
+    surfaceSourceWaylandSurface = 0x00000007
+    surfaceSourceAndroidNativeWindow = 0x00000008
+    surfaceSourceXCBWindow = 0x00000009
+    surfaceColorManagement = 0x0000000A
+    requestAdapterWebXROptions = 0x0000000B
+    textureComponentSwizzleDescriptor = 0x0000000C
+    externalTextureBindingLayout = 0x0000000D
+    externalTextureBindingEntry = 0x0000000E
+    compatibilityModeLimits = 0x0000000F
+    textureBindingViewDimension = 0x00000010
+    emscriptenSurfaceSourceCanvasHTMLSelector = 0x00040000
+    dawnCompilationMessageUtf16 = 0x0005003F
+}
+
+public enum TextureFormat: Int32 {
+    undefined = 0x00000000
+    r8Unorm = 0x00000001
+    r8Snorm = 0x00000002
+    r8Uint = 0x00000003
+    r8Sint = 0x00000004
+    r16Unorm = 0x00000005
+    r16Snorm = 0x00000006
+    r16Uint = 0x00000007
+    r16Sint = 0x00000008
+    r16Float = 0x00000009
+    rg8Unorm = 0x0000000A
+    rg8Snorm = 0x0000000B
+    rg8Uint = 0x0000000C
+    rg8Sint = 0x0000000D
+    r32Float = 0x0000000E
+    r32Uint = 0x0000000F
+    r32Sint = 0x00000010
+    rg16Unorm = 0x00000011
+    rg16Snorm = 0x00000012
+    rg16Uint = 0x00000013
+    rg16Sint = 0x00000014
+    rg16Float = 0x00000015
+    rgba8Unorm = 0x00000016
+    rgba8UnormSrgb = 0x00000017
+    rgba8Snorm = 0x00000018
+    rgba8Uint = 0x00000019
+    rgba8Sint = 0x0000001A
+    bgra8Unorm = 0x0000001B
+    bgra8UnormSrgb = 0x0000001C
+    rgb10A2Uint = 0x0000001D
+    rgb10A2Unorm = 0x0000001E
+    rg11B10Ufloat = 0x0000001F
+    rgb9E5Ufloat = 0x00000020
+    rg32Float = 0x00000021
+    rg32Uint = 0x00000022
+    rg32Sint = 0x00000023
+    rgba16Unorm = 0x00000024
+    rgba16Snorm = 0x00000025
+    rgba16Uint = 0x00000026
+    rgba16Sint = 0x00000027
+    rgba16Float = 0x00000028
+    rgba32Float = 0x00000029
+    rgba32Uint = 0x0000002A
+    rgba32Sint = 0x0000002B
+    stencil8 = 0x0000002C
+    depth16Unorm = 0x0000002D
+    depth24Plus = 0x0000002E
+    depth24PlusStencil8 = 0x0000002F
+    depth32Float = 0x00000030
+    depth32FloatStencil8 = 0x00000031
+    bc1RGBAUnorm = 0x00000032
+    bc1RGBAUnormSrgb = 0x00000033
+    bc2RGBAUnorm = 0x00000034
+    bc2RGBAUnormSrgb = 0x00000035
+    bc3RGBAUnorm = 0x00000036
+    bc3RGBAUnormSrgb = 0x00000037
+    bc4RUnorm = 0x00000038
+    bc4RSnorm = 0x00000039
+    bc5RGUnorm = 0x0000003A
+    bc5RGSnorm = 0x0000003B
+    bc6HRGBUfloat = 0x0000003C
+    bc6HRGBFloat = 0x0000003D
+    bc7RGBAUnorm = 0x0000003E
+    bc7RGBAUnormSrgb = 0x0000003F
+    etc2RGB8Unorm = 0x00000040
+    etc2RGB8UnormSrgb = 0x00000041
+    etc2RGB8A1Unorm = 0x00000042
+    etc2RGB8A1UnormSrgb = 0x00000043
+    etc2RGBA8Unorm = 0x00000044
+    etc2RGBA8UnormSrgb = 0x00000045
+    eacR11Unorm = 0x00000046
+    eacR11Snorm = 0x00000047
+    eacRG11Unorm = 0x00000048
+    eacRG11Snorm = 0x00000049
+    astc4x4Unorm = 0x0000004A
+    astc4x4UnormSrgb = 0x0000004B
+    astc5x4Unorm = 0x0000004C
+    astc5x4UnormSrgb = 0x0000004D
+    astc5x5Unorm = 0x0000004E
+    astc5x5UnormSrgb = 0x0000004F
+    astc6x5Unorm = 0x00000050
+    astc6x5UnormSrgb = 0x00000051
+    astc6x6Unorm = 0x00000052
+    astc6x6UnormSrgb = 0x00000053
+    astc8x5Unorm = 0x00000054
+    astc8x5UnormSrgb = 0x00000055
+    astc8x6Unorm = 0x00000056
+    astc8x6UnormSrgb = 0x00000057
+    astc8x8Unorm = 0x00000058
+    astc8x8UnormSrgb = 0x00000059
+    astc10x5Unorm = 0x0000005A
+    astc10x5UnormSrgb = 0x0000005B
+    astc10x6Unorm = 0x0000005C
+    astc10x6UnormSrgb = 0x0000005D
+    astc10x8Unorm = 0x0000005E
+    astc10x8UnormSrgb = 0x0000005F
+    astc10x10Unorm = 0x00000060
+    astc10x10UnormSrgb = 0x00000061
+    astc12x10Unorm = 0x00000062
+    astc12x10UnormSrgb = 0x00000063
+    astc12x12Unorm = 0x00000064
+    astc12x12UnormSrgb = 0x00000065
+}
+
+public enum TextureDimension: Int32 {
+    undefined = 0
+    d1 = 1
+    d2 = 2
+    d3 = 3
+}
+
+public enum TextureAspect: Int32 {
+    undefined = 0
+    all = 1
+    stencilOnly = 2
+    depthOnly = 3
+}
+
+public enum TextureViewDimension: Int32 {
+    undefined = 0
+    d1 = 1
+    d2 = 2
+    d2Array = 3
+    cube = 4
+    cubeArray = 5
+    d3 = 6
+}
+
+public enum AddressMode: Int32 {
+    undefined = 0
+    clampToEdge = 1
+    repeat = 2
+    mirrorRepeat = 3
+}
+
+public enum FilterMode: Int32 {
+    undefined = 0
+    nearest = 1
+    linear = 2
+}
+
+public enum MipmapFilterMode: Int32 {
+    undefined = 0
+    nearest = 1
+    linear = 2
+}
+
+public enum CompareFunction: Int32 {
+    undefined = 0
+    never = 1
+    less = 2
+    equal = 3
+    lessEqual = 4
+    greater = 5
+    notEqual = 6
+    greaterEqual = 7
+    always = 8
+}
+
+public enum OptionalBool: Int32 {
+    falseValue = 0
+    trueValue = 1
+    undefined = 2
+}
+
+public enum StencilOperation: Int32 {
+    undefined = 0
+    keep = 1
+    zero = 2
+    replace = 3
+    invert = 4
+    incrementClamp = 5
+    decrementClamp = 6
+    incrementWrap = 7
+    decrementWrap = 8
+}
+
+public enum BlendFactor: Int32 {
+    undefined = 0
+    zero = 1
+    one = 2
+    src = 3
+    oneMinusSrc = 4
+    srcAlpha = 5
+    oneMinusSrcAlpha = 6
+    dst = 7
+    oneMinusDst = 8
+    dstAlpha = 9
+    oneMinusDstAlpha = 10
+    srcAlphaSaturated = 11
+    constant = 12
+    oneMinusConstant = 13
+    src1 = 14
+    oneMinusSrc1 = 15
+    src1Alpha = 16
+    oneMinusSrc1Alpha = 17
+}
+
+public enum BlendOperation: Int32 {
+    undefined = 0
+    add = 1
+    subtract = 2
+    reverseSubtract = 3
+    min = 4
+    max = 5
+}
+
+public enum InstanceFeatureName: Int32 {
+    timedWaitAny = 1
+    shaderSourceSPIRV = 2
+    multipleDevicesPerAdapter = 3
+}
+
+public enum CompositeAlphaMode: Int32 {
+    auto = 0x00000000
+    opaque = 0x00000001
+    premultiplied = 0x00000002
+    unpremultiplied = 0x00000003
+    inherit = 0x00000004
+}
+
+public enum PresentMode: Int32 {
+    undefined = 0x00000000
+    fifo = 0x00000001
+    fifoRelaxed = 0x00000002
+    immediate = 0x00000003
+    mailbox = 0x00000004
+}
+
+public enum PrimitiveTopology: Int32 {
+    undefined = 0x00000000
+    pointList = 0x00000001
+    lineList = 0x00000002
+    lineStrip = 0x00000003
+    triangleList = 0x00000004
+    triangleStrip = 0x00000005
+}
+
+public enum IndexFormat: Int32 {
+    undefined = 0
+    uint16 = 1
+    uint32 = 2
+}
+
+public enum FrontFace: Int32 {
+    undefined = 0
+    ccw = 1
+    cw = 2
+}
+
+public enum CullMode: Int32 {
+    undefined = 0
+    none = 1
+    front = 2
+    back = 3
+}
+
+public enum VertexStepMode: Int32 {
+    undefined = 0
+    vertex = 1
+    instance = 2
+}
+
+public enum VertexFormat: Int32 {
+    uint8 = 0x00000001
+    uint8x2 = 0x00000002
+    uint8x4 = 0x00000003
+    sint8 = 0x00000004
+    sint8x2 = 0x00000005
+    sint8x4 = 0x00000006
+    unorm8 = 0x00000007
+    unorm8x2 = 0x00000008
+    unorm8x4 = 0x00000009
+    snorm8 = 0x0000000A
+    snorm8x2 = 0x0000000B
+    snorm8x4 = 0x0000000C
+    uint16 = 0x0000000D
+    uint16x2 = 0x0000000E
+    uint16x4 = 0x0000000F
+    sint16 = 0x00000010
+    sint16x2 = 0x00000011
+    sint16x4 = 0x00000012
+    unorm16 = 0x00000013
+    unorm16x2 = 0x00000014
+    unorm16x4 = 0x00000015
+    snorm16 = 0x00000016
+    snorm16x2 = 0x00000017
+    snorm16x4 = 0x00000018
+    float16 = 0x00000019
+    float16x2 = 0x0000001A
+    float16x4 = 0x0000001B
+    float32 = 0x0000001C
+    float32x2 = 0x0000001D
+    float32x3 = 0x0000001E
+    float32x4 = 0x0000001F
+    uint32 = 0x00000020
+    uint32x2 = 0x00000021
+    uint32x3 = 0x00000022
+    uint32x4 = 0x00000023
+    sint32 = 0x00000024
+    sint32x2 = 0x00000025
+    sint32x3 = 0x00000026
+    sint32x4 = 0x00000027
+    unorm10_10_10_2 = 0x00000028
+    unorm8x4BGRA = 0x00000029
+}
+
+public enum LoadOp: Int32 {
+    undefined = 0
+    load = 1
+    clear = 2
+}
+
+public enum StoreOp: Int32 {
+    undefined = 0
+    store = 1
+    discard = 2
+}
+
+public enum SurfaceGetCurrentTextureStatus: Int32 {
+    successOptimal = 1
+    successSuboptimal = 2
+    timeout = 3
+    outdated = 4
+    lost = 5
+    error = 6
+}
+
+public enum AdapterType: Int32 {
+    discreteGPU = 0x00000001
+    integratedGPU = 0x00000002
+    cpu = 0x00000003
+    unknown = 0x00000004
+}
+
+public enum BackendType: Int32 {
+    undefined = 0x00000000
+    nullBackend = 0x00000001
+    webGPU = 0x00000002
+    d3d11 = 0x00000003
+    d3d12 = 0x00000004
+    metal = 0x00000005
+    vulkan = 0x00000006
+    openGL = 0x00000007
+    openGLES = 0x00000008
+}
+
+public enum BufferBindingType: Int32 {
+    bindingNotUsed = 0x00000000
+    undefined = 0x00000001
+    uniform = 0x00000002
+    storage = 0x00000003
+    readOnlyStorage = 0x00000004
+}
+
+public enum BufferMapState: Int32 {
+    unmapped = 0x00000001
+    pending = 0x00000002
+    mapped = 0x00000003
+}
+
+public enum CompilationInfoRequestStatus: Int32 {
+    success = 0x00000001
+    callbackCancelled = 0x00000002
+}
+
+public enum CompilationMessageType: Int32 {
+    error = 0x00000001
+    warning = 0x00000002
+    info = 0x00000003
+}
+
+public enum ComponentSwizzle: Int32 {
+    undefined = 0x00000000
+    zero = 0x00000001
+    one = 0x00000002
+    r = 0x00000003
+    g = 0x00000004
+    b = 0x00000005
+    a = 0x00000006
+}
+
+public enum CreatePipelineAsyncStatus: Int32 {
+    success = 0x00000001
+    callbackCancelled = 0x00000002
+    validationError = 0x00000003
+    internalError = 0x00000004
+}
+
+public enum DeviceLostReason: Int32 {
+    unknown = 0x00000001
+    destroyed = 0x00000002
+    callbackCancelled = 0x00000003
+    failedCreation = 0x00000004
+}
+
+public enum FeatureLevel: Int32 {
+    undefined = 0x00000000
+    compatibility = 0x00000001
+    core = 0x00000002
+}
+
+public enum FeatureName: Int32 {
+    coreFeaturesAndLimits = 0x00000001
+    depthClipControl = 0x00000002
+    depth32FloatStencil8 = 0x00000003
+    textureCompressionBC = 0x00000004
+    textureCompressionBCSliced3D = 0x00000005
+    textureCompressionETC2 = 0x00000006
+    textureCompressionASTC = 0x00000007
+    textureCompressionASTCSliced3D = 0x00000008
+    timestampQuery = 0x00000009
+    indirectFirstInstance = 0x0000000A
+    shaderF16 = 0x0000000B
+    rg11B10UfloatRenderable = 0x0000000C
+    bgra8UnormStorage = 0x0000000D
+    float32Filterable = 0x0000000E
+    float32Blendable = 0x0000000F
+    clipDistances = 0x00000010
+    dualSourceBlending = 0x00000011
+    subgroups = 0x00000012
+    textureFormatsTier1 = 0x00000013
+    textureFormatsTier2 = 0x00000014
+    primitiveIndex = 0x00000015
+    textureComponentSwizzle = 0x00000016
+    unorm16TextureFormats = 0x0005000C
+    multiDrawIndirect = 0x00050031
+}
+
+public enum MapAsyncStatus: Int32 {
+    success = 0x00000001
+    callbackCancelled = 0x00000002
+    error = 0x00000003
+    aborted = 0x00000004
+}
+
+public enum PowerPreference: Int32 {
+    undefined = 0x00000000
+    lowPower = 0x00000001
+    highPerformance = 0x00000002
+}
+
+public enum PredefinedColorSpace: Int32 {
+    srgb = 0x00000001
+    displayP3 = 0x00000002
+}
+
+public enum QueryType: Int32 {
+    occlusion = 0x00000001
+    timestamp = 0x00000002
+}
+
+public enum QueueWorkDoneStatus: Int32 {
+    success = 0x00000001
+    callbackCancelled = 0x00000002
+    error = 0x00000003
+}
+
+public enum SamplerBindingType: Int32 {
+    bindingNotUsed = 0x00000000
+    undefined = 0x00000001
+    filtering = 0x00000002
+    nonFiltering = 0x00000003
+    comparison = 0x00000004
+}
+
+public enum StorageTextureAccess: Int32 {
+    bindingNotUsed = 0x00000000
+    undefined = 0x00000001
+    writeOnly = 0x00000002
+    readOnly = 0x00000003
+    readWrite = 0x00000004
+}
+
+public enum TextureSampleType: Int32 {
+    bindingNotUsed = 0x00000000
+    undefined = 0x00000001
+    floatSample = 0x00000002
+    unfilterableFloat = 0x00000003
+    depth = 0x00000004
+    sint = 0x00000005
+    uint = 0x00000006
+}
+
+public enum ToneMappingMode: Int32 {
+    standard = 0x00000001
+    extended = 0x00000002
+}
+
+public enum WaitStatus: Int32 {
+    success = 0x00000001
+    timedOut = 0x00000002
+    error = 0x00000003
+}
+
+public enum WGSLLanguageFeatureName: Int32 {
+    readonlyAndReadwriteStorageTextures = 0x00000001
+    packed4x8IntegerDotProduct = 0x00000002
+    unrestrictedPointerParameters = 0x00000003
+    pointerCompositeAccess = 0x00000004
+    uniformBufferStandardLayout = 0x00000005
+    subgroupId = 0x00000006
+    textureAndSamplerLet = 0x00000007
+    subgroupUniformity = 0x00000008
+    textureFormatsTier1 = 0x00000009
+    linearIndexing = 0x0000000A
+}
+
+// Existing constants used by examples — keep names and values.
+public const BUFFER_USAGE_COPY_DST: UInt64 = 0x00000008
+public const BUFFER_USAGE_INDEX: UInt64 = 0x00000010
+public const BUFFER_USAGE_VERTEX: UInt64 = 0x00000020
+public const BUFFER_USAGE_UNIFORM: UInt64 = 0x00000040
+public const COLOR_WRITE_MASK_ALL: UInt64 = 0x0000000F
+public const TEXTURE_USAGE_RENDER_ATTACHMENT: UInt64 = 0x00000010
+public const TEXTURE_USAGE_COPY_DST: UInt64 = 0x00000002
+public const TEXTURE_USAGE_TEXTURE_BINDING: UInt64 = 0x00000004
+public const WHOLE_SIZE: UInt64 = 0xFFFFFFFFFFFFFFFF
+public const DEPTH_SLICE_UNDEFINED: UInt32 = 0xFFFFFFFF
+public const MIP_LEVEL_COUNT_UNDEFINED: UInt32 = 0xFFFFFFFF
+public const ARRAY_LAYER_COUNT_UNDEFINED: UInt32 = 0xFFFFFFFF
+public const QUERY_SET_INDEX_UNDEFINED: UInt32 = 0xFFFFFFFF
+public const STRLEN: UInt = ~UInt(0)
+
+// Additional flag / sentinel constants from webgpu.h
+public const TRUE: UInt32 = 1
+public const FALSE: UInt32 = 0
+public const COPY_STRIDE_UNDEFINED: UInt32 = 0xFFFFFFFF
+public const LIMIT_U32_UNDEFINED: UInt32 = 0xFFFFFFFF
+public const LIMIT_U64_UNDEFINED: UInt64 = 0xFFFFFFFFFFFFFFFF
+public const WHOLE_MAP_SIZE: UInt = ~UInt(0)
+
+public const BUFFER_USAGE_NONE: UInt64 = 0x0000000000000000
+public const BUFFER_USAGE_MAP_READ: UInt64 = 0x0000000000000001
+public const BUFFER_USAGE_MAP_WRITE: UInt64 = 0x0000000000000002
+public const BUFFER_USAGE_COPY_SRC: UInt64 = 0x0000000000000004
+public const BUFFER_USAGE_STORAGE: UInt64 = 0x0000000000000080
+public const BUFFER_USAGE_INDIRECT: UInt64 = 0x0000000000000100
+public const BUFFER_USAGE_QUERY_RESOLVE: UInt64 = 0x0000000000000200
+
+public const COLOR_WRITE_MASK_NONE: UInt64 = 0x0000000000000000
+public const COLOR_WRITE_MASK_RED: UInt64 = 0x0000000000000001
+public const COLOR_WRITE_MASK_GREEN: UInt64 = 0x0000000000000002
+public const COLOR_WRITE_MASK_BLUE: UInt64 = 0x0000000000000004
+public const COLOR_WRITE_MASK_ALPHA: UInt64 = 0x0000000000000008
+
+public const MAP_MODE_NONE: UInt64 = 0x0000000000000000
+public const MAP_MODE_READ: UInt64 = 0x0000000000000001
+public const MAP_MODE_WRITE: UInt64 = 0x0000000000000002
+
+public const SHADER_STAGE_NONE: UInt64 = 0x0000000000000000
+public const SHADER_STAGE_VERTEX: UInt64 = 0x0000000000000001
+public const SHADER_STAGE_FRAGMENT: UInt64 = 0x0000000000000002
+public const SHADER_STAGE_COMPUTE: UInt64 = 0x0000000000000004
+
+public const TEXTURE_USAGE_NONE: UInt64 = 0x0000000000000000
+public const TEXTURE_USAGE_COPY_SRC: UInt64 = 0x0000000000000001
+public const TEXTURE_USAGE_STORAGE_BINDING: UInt64 = 0x0000000000000008
+public const TEXTURE_USAGE_TRANSIENT_ATTACHMENT: UInt64 = 0x0000000000000020
+
+@symbol
+public alias Proc = () -> Void
+
+@symbol
+public alias RequestAdapterCallback =
+    (RequestAdapterStatus, &AdapterHandle?, StringView, &Byte?, &Byte?) -> Void
+
+@symbol
+public alias RequestDeviceCallback =
+    (RequestDeviceStatus, &DeviceHandle?, StringView, &Byte?, &Byte?) -> Void
+
+@symbol
+public alias PopErrorScopeCallback =
+    (PopErrorScopeStatus, ErrorType, StringView, &Byte?, &Byte?) -> Void
+
+@symbol
+public alias BufferMapCallback =
+    (MapAsyncStatus, StringView, &Byte?, &Byte?) -> Void
+
+@symbol
+public alias CompilationInfoCallback =
+    (CompilationInfoRequestStatus, *CompilationInfo?, &Byte?, &Byte?) -> Void
+
+@symbol
+public alias CreateComputePipelineAsyncCallback =
+    (CreatePipelineAsyncStatus, &ComputePipelineHandle?, StringView, &Byte?, &Byte?) -> Void
+
+@symbol
+public alias CreateRenderPipelineAsyncCallback =
+    (CreatePipelineAsyncStatus, &RenderPipelineHandle?, StringView, &Byte?, &Byte?) -> Void
+
+@symbol
+public alias DeviceLostCallback =
+    (*(&DeviceHandle?), DeviceLostReason, StringView, &Byte?, &Byte?) -> Void
+
+@symbol
+public alias QueueWorkDoneCallback =
+    (QueueWorkDoneStatus, StringView, &Byte?, &Byte?) -> Void
+
+@symbol
+public alias UncapturedErrorCallback =
+    (*(&DeviceHandle?), ErrorType, StringView, &Byte?, &Byte?) -> Void

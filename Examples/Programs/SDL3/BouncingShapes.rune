@@ -1,0 +1,135 @@
+// Animated SDL3 graphics demo: bouncing colored shapes with a simple grid.
+
+import Standard.*
+import SDL3
+
+struct Bouncer {
+    var x: Float32
+    var y: Float32
+    var vx: Float32
+    var vy: Float32
+    var red: UInt8
+    var green: UInt8
+    var blue: UInt8
+}
+
+func updateBouncer(b: &Bouncer, width: Float32, height: Float32, size: Float32) {
+    b.x = b.x + b.vx
+    b.y = b.y + b.vy
+
+    if b.x < 0.0 || b.x + size > width {
+        b.vx = -b.vx
+        b.x = Math.clamp(b.x, 0.0, width - size)
+    }
+
+    if b.y < 0.0 || b.y + size > height {
+        b.vy = -b.vy
+        b.y = Math.clamp(b.y, 0.0, height - size)
+    }
+}
+
+func drawBouncer(renderer: &SDL3.Renderer?, b: Bouncer, size: Float32) {
+    SDL3.setRenderDrawColor(renderer, b.red, b.green, b.blue, 255)
+    var rect = SDL3.FRect(
+        x: b.x,
+        y: b.y,
+        w: size,
+        h: size)
+    SDL3.renderFillRect(renderer, &rect)
+    SDL3.setRenderDrawColor(renderer, 255, 255, 255, 180)
+    SDL3.renderRect(renderer, &rect)
+}
+
+func drawGrid(renderer: &SDL3.Renderer?, width: Float32, height: Float32) {
+    SDL3.setRenderDrawColor(renderer, 36, 44, 58, 255)
+
+    for x in 0.0..=width by 64.0 {
+        SDL3.renderLine(renderer, x, 0.0, x, height)
+    }
+
+    for y in 0.0..=height by 64.0 {
+        SDL3.renderLine(renderer, 0.0, y, width, y)
+    }
+}
+
+let windowW: Float32 = 640.0
+let windowH: Float32 = 480.0
+let shapeSize: Float32 = 52.0
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var event = SDL3.Event()
+var running = true
+
+var shapes: [Bouncer] = [
+    Bouncer(x: 80.0, y: 60.0, vx: 2.4, vy: 1.7, red: 220, green: 80, blue: 90),
+    Bouncer(x: 260.0, y: 120.0, vx: -2.0, vy: 2.2, red: 80, green: 180, blue: 220),
+    Bouncer(x: 420.0, y: 200.0, vx: 1.6, vy: -2.5, red: 240, green: 190, blue: 70),
+    Bouncer(x: 180.0, y: 300.0, vx: -2.8, vy: -1.4, red: 160, green: 90, blue: 220),
+]
+
+func mainLoop() {
+    while SDL3.pollEvent(&event) {
+        if event.type == SDL3.EventType.quit {
+            running = false
+        }
+    }
+
+    if !running {
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        Console.printLine("Bouncing shapes finished.")
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    SDL3.setRenderDrawColor(renderer, 18, 22, 30, 255)
+    SDL3.renderClear(renderer)
+    drawGrid(renderer, windowW, windowH)
+
+    for shapeIndex in 0..shapes.count {
+        updateBouncer(&shapes[shapeIndex], windowW, windowH, shapeSize)
+        drawBouncer(renderer, shapes[shapeIndex], shapeSize)
+    }
+
+    SDL3.renderPresent(renderer)
+    SDL3.delay(16)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_Init failed")
+        } else {
+            Console.printLine("SDL_Init failed: ${message!}")
+        }
+
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Bouncing Shapes", 640, 480, 0, &window, &renderer) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_CreateWindowAndRenderer failed")
+        } else {
+            Console.printLine("SDL_CreateWindowAndRenderer failed: ${message!}")
+        }
+        SDL3.quit()
+        return 1
+    }
+
+    Console.printLine("Bouncing shapes: close the window to exit.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

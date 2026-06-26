@@ -1,0 +1,33 @@
+struct StackAllocator<N extends UInt = 256> implements Allocator {
+    let storage: [Byte, N] = []
+    var offset: UInt = 0
+
+    public mutating func allocate(size: UInt, alignment: UInt) throws -> &Byte {
+        let start = Memory.alignUp(value: self.offset, alignment: alignment)
+        let end = start + size
+        if end > N {
+            throw
+        }
+        self.offset = end
+        return &self.storage[Int(start)]
+    }
+
+    public mutating func deallocate(address: *Byte) {
+    }
+}
+
+struct Box {
+    var value: Int
+}
+
+func main() -> Int {
+    var allocator = StackAllocator()
+    let box = make!(allocator) Box(value: 42)
+    let result = box.value
+    dispose(allocator) box
+    if result != 42 {
+        return 1
+    }
+
+    return 0
+}

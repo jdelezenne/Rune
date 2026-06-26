@@ -1,0 +1,44 @@
+/// Capsule: every point within `radius` of a line segment — a sphere swept
+/// along `segment`. The standard collider for characters and thick rays, and a
+/// tighter bounding volume than a sphere for elongated objects.
+@layout(kind: c)
+public struct Capsule {
+    public var segment: Segment
+    public var radius: Float32
+
+    /// Capsule spanning the segment from `a` to `b` with the given `radius`.
+    public static func fromPoints(a: Vector3, b: Vector3, radius: Float32) -> Capsule {
+        return Capsule(segment: Segment(start: a, end: b), radius: radius)
+    }
+
+    public func center() -> Vector3 { return segment.midpoint() }
+
+    /// Total length including the two hemispherical caps.
+    public func height() -> Float32 { return segment.length() + radius * 2.0 }
+
+    /// Whether `point` lies inside (or on the surface of) the capsule.
+    public func contains(point: Vector3) -> Bool {
+        return segment.distance(point: point) <= radius
+    }
+
+    /// The point on or inside the capsule closest to `point`.
+    public func closestPoint(point: Vector3) -> Vector3 {
+        let onAxis = segment.closestPoint(point: point)
+        let toPoint = point - onAxis
+        let dist = toPoint.length()
+        if dist <= radius {
+            return point
+        }
+        return onAxis + toPoint * (radius / dist)
+    }
+
+    /// Whether this capsule overlaps `sphere`.
+    public func intersects(sphere: Sphere) -> Bool {
+        return Intersection.sphereCapsule(sphere: sphere, capsule: self)
+    }
+
+    /// Whether this capsule overlaps `other`.
+    public func intersects(other: Capsule) -> Bool {
+        return Intersection.capsuleCapsule(a: self, b: other)
+    }
+}

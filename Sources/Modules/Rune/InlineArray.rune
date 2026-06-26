@@ -1,0 +1,104 @@
+/// Statically-sized, inline-allocated ordered collection.
+@builtin
+public struct InlineArray<T, N> {
+    /// Records element count and stride; element storage is embedded after the header.
+    @runtime("rune_runtime_inlinearray_create")
+    public init(count: Int, elementStride: Int)
+}
+
+/// Forward value iterator over an `InlineArray<T, N>`.
+@builtin
+public struct InlineArrayIterator<T, N> {}
+
+public extension InlineArrayIterator<T, N> implements Iterator {
+    public type Element = T
+
+    /// Advances and returns the next element, or `nil` when exhausted.
+    public mutating func next() -> T? {
+        let value = nextPointer()
+        if value == nil {
+            return nil
+        }
+
+        return value!^
+    }
+
+    @runtime("rune_contiguous_iterator_next")
+    private mutating func nextPointer() -> *T?
+}
+
+public extension InlineArray<T, N> implements Collection {
+    public type Element = T
+    public type Iter = InlineArrayIterator<T, N>
+
+    /// Returns an iterator over this array's elements.
+    @runtime("rune_runtime_inlinearray_iterator_create")
+    public func makeIterator() -> InlineArrayIterator<T, N>
+
+    /// Returns a slice view over all elements.
+    @runtime("rune_runtime_inlinearray_to_slice")
+    public func asSlice() -> Slice<T>
+
+    /// Returns the element at `index`.
+    @runtime("rune_inlinearray_element_ptr")
+    public operator [](index: Int) -> T
+
+    /// Number of elements in the array.
+    public count: Int {
+        @runtime("rune_inlinearray_count")
+        get
+    }
+
+    /// Mutable pointer to the array's underlying byte storage.
+    public bytes: &Byte {
+        @runtime("rune_inlinearray_bytes")
+        get
+    }
+
+    /// Total byte length of the array storage (`count * strideOf<T>()`).
+    public byteLength: Int {
+        @runtime("rune_inlinearray_byte_length")
+        get
+    }
+
+    /// Whether the array contains no elements.
+    public isEmpty: Bool {
+        @runtime("rune_inlinearray_is_empty")
+        get
+    }
+
+    /// First element, or `nil` if the array is empty.
+    public first: T? {
+        get {
+            let value = firstPointer()
+            if value == nil {
+                return nil
+            }
+
+            return value!^
+        }
+    }
+
+    @runtime("rune_inlinearray_first")
+    private func firstPointer() -> *T?
+
+    /// Last element, or `nil` if the array is empty.
+    public last: T? {
+        get {
+            let value = lastPointer()
+            if value == nil {
+                return nil
+            }
+
+            return value!^
+        }
+    }
+
+    @runtime("rune_inlinearray_last")
+    private func lastPointer() -> *T?
+
+    /// Returns whether the array contains the given element.
+    /// @param element Value to search for.
+    @runtime("rune_inlinearray_contains")
+    public func contains(element: T) -> Bool
+}

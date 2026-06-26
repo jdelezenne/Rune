@@ -1,0 +1,63 @@
+{
+  "version": "1.0.0",
+  "name": "LibC",
+  "kind": "library",
+  "unsafe": true,
+  "sources": [
+    "ctype.rune",
+    "errno.rune",
+    "math.rune",
+    "stdio.rune",
+    "stdlib.rune",
+    "string.rune",
+    "time.rune",
+    "Utilities.rune",
+    { "path": "platform/posix/types.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/darwin/dirent.rune", "platforms": ["darwin"] },
+    { "path": "platform/linux/dirent.rune", "platforms": ["linux"] },
+    { "path": "platform/darwin/socket.rune", "platforms": ["darwin"] },
+    { "path": "platform/darwin/stat.rune", "platforms": ["darwin"] },
+    { "path": "platform/linux/stat.rune", "platforms": ["linux", "wasm"] },
+    { "path": "platform/windows/stat.rune", "platforms": ["windows"] },
+    { "path": "platform/posix/dirent.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/dlfcn.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/fcntl.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/process.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/signal.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/socket.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/time.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/unistd.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/posix/wait.rune", "platforms": ["darwin", "linux"] },
+    { "path": "platform/windows/fcntl.rune", "platforms": ["windows"] },
+    { "path": "platform/windows/io.rune", "platforms": ["windows"] },
+    { "path": "platform/windows/signal.rune", "platforms": ["windows"] },
+    { "path": "platform/windows/unistd.rune", "platforms": ["windows"] }
+  ],
+  "dependencies": [
+    "../Rune/Rune.runemanifest"
+  ],
+  "includeHeaders": [
+    "ctype.h",
+    "errno.h",
+    "math.h",
+    "stdio.h",
+    "stdlib.h",
+    "string.h",
+    "time.h",
+    "fcntl.h",
+    "signal.h",
+    { "path": "dirent.h", "platforms": ["darwin", "linux"] },
+    { "path": "dlfcn.h", "platforms": ["darwin", "linux"] },
+    { "path": "unistd.h", "platforms": ["darwin", "linux"] },
+    { "path": "sys/socket.h", "platforms": ["darwin", "linux"] },
+    { "path": "sys/time.h", "platforms": ["darwin", "linux"] },
+    { "path": "sys/wait.h", "platforms": ["darwin", "linux"] },
+    { "path": "sys/stat.h", "platforms": ["darwin", "windows"] },
+    { "path": "io.h", "platforms": ["windows"] },
+    { "path": "direct.h", "platforms": ["windows"] }
+  ],
+  "linkLibraries": [
+    "c",
+    { "path": "m", "platforms": ["darwin", "linux"] }
+  ]
+}

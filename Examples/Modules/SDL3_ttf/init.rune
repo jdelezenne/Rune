@@ -1,0 +1,11 @@
+@symbol("TTF_Init")
+public func initialize() -> Bool
+
+@symbol("TTF_Quit")
+public func quit() -> Void
+
+@symbol("TTF_WasInit")
+public func wasInit() -> Int32
+
+@symbol("TTF_Version")
+public func version() -> Int32

@@ -1,0 +1,5 @@
+func entry() -> Int {
+    return 0
+}
+
+entry()

@@ -1,0 +1,841 @@
+import Standard.*
+import WebGPU
+
+const WIDTH: UInt32 = 960
+const HEIGHT: UInt32 = 540
+// queue.writeBuffer calls complete before the encoded render pass executes.
+// Give every draw a fixed region so later model uploads cannot alter earlier draws.
+const DRAW_UNIFORM_SIZE: UInt64 = 192
+const DRAW_UNIFORM_STRIDE: UInt64 = 256
+const MAX_DRAW_CALLS: Int = 2 + PAD_MAX + SCENERY_MAX + MAX_SHIPS + MAX_SHOTS
+
+let worldShaderSource: String = """
+struct Uniforms {
+    viewProj: mat4x4<f32>,
+    model: mat4x4<f32>,
+    colorMul: vec4<f32>,
+    fog: vec4<f32>, // rgb + density
+    lightDir: vec4<f32>,
+    cameraPos: vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+
+struct VertexInput {
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) color: vec3<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) worldPos: vec3<f32>,
+    @location(1) worldNormal: vec3<f32>,
+    @location(2) color: vec3<f32>,
+}
+
+@vertex
+fn vertexMain(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    let world = uniforms.model * vec4<f32>(input.position, 1.0);
+    output.worldPos = world.xyz;
+    output.position = uniforms.viewProj * world;
+    output.position.z = (output.position.z + output.position.w) * 0.5;
+    let n4 = uniforms.model * vec4<f32>(input.normal, 0.0);
+    output.worldNormal = normalize(n4.xyz);
+    output.color = input.color * uniforms.colorMul.xyz;
+    return output;
+}
+
+@fragment
+fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
+    let n = normalize(input.worldNormal);
+    let light = normalize(uniforms.lightDir.xyz);
+    let diffuse = max(dot(n, light), 0.0);
+    let ambient = 0.22;
+    var lit = input.color * (ambient + diffuse * 0.85);
+    let dist = length(input.worldPos - uniforms.cameraPos.xyz);
+    let fogFactor = clamp(1.0 - exp(-uniforms.fog.w * dist), 0.0, 1.0);
+    lit = mix(lit, uniforms.fog.xyz, fogFactor);
+    return vec4<f32>(lit, 1.0);
+}
+"""
+
+let skyShaderSource: String = """
+struct SkyUniforms {
+    zenith: vec4<f32>,
+    horizon: vec4<f32>,
+    glow: vec4<f32>,
+    celestial: vec4<f32>,
+    params: vec4<f32>, // time, style, aspect, celestial size
+}
+
+@group(0) @binding(0) var<uniform> sky: SkyUniforms;
+
+struct SkyOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+fn hash12(p: vec2<f32>) -> f32 {
+    return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
+}
+
+@vertex
+fn skyVertex(@builtin(vertex_index) index: u32) -> SkyOutput {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0));
+    var output: SkyOutput;
+    let position = positions[index];
+    output.position = vec4<f32>(position, 0.999, 1.0);
+    output.uv = position * 0.5 + vec2<f32>(0.5);
+    return output;
+}
+
+@fragment
+fn skyFragment(input: SkyOutput) -> @location(0) vec4<f32> {
+    let uv = input.uv;
+    let time = sky.params.x;
+    let style = sky.params.y;
+    let aspect = sky.params.z;
+
+    let gradient = smoothstep(0.18, 0.94, uv.y);
+    var color = mix(sky.horizon.rgb, sky.zenith.rgb, gradient);
+
+    // Broad atmospheric glow that joins the world's distance fog.
+    let horizonGlow = exp(-abs(uv.y - 0.34) * 8.0);
+    color = color + sky.glow.rgb * horizonGlow * 0.12;
+
+    // A restrained celestial disc and halo, placed differently per circuit.
+    let celestialCenter = vec2<f32>(0.78 - style * 0.18, 0.73 - style * 0.035);
+    let celestialDelta = (uv - celestialCenter) * vec2<f32>(aspect, 1.0);
+    let celestialDistance = length(celestialDelta);
+    let halo = exp(-celestialDistance * 18.0);
+    let disc = 1.0 - smoothstep(sky.params.w, sky.params.w + 0.012, celestialDistance);
+    color = color + sky.celestial.rgb * (halo * 0.16 + disc * 0.82);
+
+    // Sparse stable stars with a very slow twinkle.
+    let starCell = floor(uv * vec2<f32>(260.0, 145.0));
+    let starSeed = hash12(starCell + vec2<f32>(style * 23.0, style * 11.0));
+    let star = step(0.994, starSeed)
+        * smoothstep(0.47, 0.72, uv.y)
+        * (0.72 + 0.28 * sin(time * 0.65 + starSeed * 38.0));
+    color = color + sky.celestial.rgb * star * 0.7;
+
+    // Slow high-altitude haze bands.
+    let hazeHeight = 0.48
+        + sin(uv.x * 9.0 + time * 0.018 + style) * 0.013
+        + sin(uv.x * 21.0 - time * 0.011) * 0.006;
+    let haze = exp(-abs(uv.y - hazeHeight) * 70.0);
+    color = color + sky.glow.rgb * haze * 0.055;
+
+    // Two faceted mountain layers, heavily subdued by atmospheric perspective.
+    let farRidge = 0.285
+        + sin(uv.x * 8.0 + style * 1.7) * 0.026
+        + sin(uv.x * 19.0 + 0.8) * 0.014;
+    let farMountains = 1.0 - smoothstep(farRidge, farRidge + 0.006, uv.y);
+    color = mix(color, sky.horizon.rgb * 0.27, farMountains * 0.68);
+
+    let nearRidge = 0.245
+        + sin(uv.x * 13.0 + 2.1 + style) * 0.033
+        + sin(uv.x * 31.0 + style * 0.6) * 0.014;
+    let nearMountains = 1.0 - smoothstep(nearRidge, nearRidge + 0.005, uv.y);
+    color = mix(color, sky.zenith.rgb * 0.34, nearMountains * 0.86);
+
+    // Low-poly industrial skyline; strongest on Venom Reach.
+    let cityCell = floor(uv.x * 46.0);
+    let citySeed = hash12(vec2<f32>(cityCell, 17.0 + style));
+    let cityTop = 0.285 + 0.025 + citySeed * 0.085;
+    let cityBody = step(0.285, uv.y) * (1.0 - smoothstep(cityTop, cityTop + 0.003, uv.y));
+    let cityStrength = 0.24 + max(0.0, 1.0 - abs(style - 1.0)) * 0.52;
+    color = mix(color, sky.zenith.rgb * 0.24, cityBody * cityStrength);
+
+    let windowCell = floor(uv * vec2<f32>(184.0, 92.0));
+    let windowSeed = hash12(windowCell + vec2<f32>(style * 7.0, 41.0));
+    let windows = step(0.975, windowSeed) * cityBody * cityStrength;
+    color = color + sky.glow.rgb * windows * 0.34;
+
+    return vec4<f32>(color, 1.0);
+}
+"""
+
+// Depth textures stay module-global: SDL3 also exports an opaque distinct
+// Texture, and WebGPU texture wrappers are not stored inside Scene values.
+var depthTexture = WebGPU.Texture.fromHandle(handle: nil)
+var depthView = WebGPU.TextureView.fromHandle(handle: nil)
+
+struct Scene {
+    var skyPipeline: WebGPU.RenderPipeline
+    var skyBindGroup: WebGPU.BindGroup
+    var skyUniformBuffer: WebGPU.GPUBuffer
+    var pipeline: WebGPU.RenderPipeline
+    var drawBindGroups: [WebGPU.BindGroup, MAX_DRAW_CALLS]
+    var uniformBuffer: WebGPU.GPUBuffer
+    var roadVertexBuffer: WebGPU.GPUBuffer
+    var roadIndexBuffer: WebGPU.GPUBuffer
+    var wallVertexBuffer: WebGPU.GPUBuffer
+    var wallIndexBuffer: WebGPU.GPUBuffer
+    var shipVertexBuffers: [WebGPU.GPUBuffer, MAX_SHIPS]
+    var shotVertexBuffer: WebGPU.GPUBuffer
+    var padVertexBuffer: WebGPU.GPUBuffer
+    var towerVertexBuffer: WebGPU.GPUBuffer
+    var queue: WebGPU.Queue
+    var surfaceFormat: WebGPU.TextureFormat
+}
+
+func emptyStringView() -> WebGPU.StringView {
+    return WebGPU.StringView(data: nil, length: WebGPU.STRLEN)
+}
+
+func makeStringView(text: CStringSlice, length: UInt) -> WebGPU.StringView {
+    return WebGPU.StringView(data: (text.rawPointer() as *Int8), length: length)
+}
+
+func reportSkyValidation(
+    status: WebGPU.PopErrorScopeStatus,
+    errorType: WebGPU.ErrorType,
+    message: WebGPU.StringView,
+    userdata1: &Byte?,
+    userdata2: &Byte?)
+{
+    if status != WebGPU.PopErrorScopeStatus.success {
+        Console.printLine("Wipeout: sky validation scope failed with status ${Int32(status)}.")
+        return
+    }
+    if errorType == WebGPU.ErrorType.noError {
+        return
+    }
+    if message.data == nil {
+        Console.printLine("Wipeout: sky validation failed with type ${Int32(errorType)}.")
+        return
+    }
+    let messageData = message.data!
+    let text = String.fromBytes(
+        source: (messageData as *Byte),
+        length: message.length)
+    Console.printLine("Wipeout: sky validation failed: ${text}")
+}
+
+func invalidBuffer() -> WebGPU.GPUBuffer {
+    return WebGPU.GPUBuffer.fromHandle(handle: nil)
+}
+
+func invalidBindGroup() -> WebGPU.BindGroup {
+    return WebGPU.BindGroup.fromHandle(handle: nil)
+}
+
+func emptyDrawBindGroups() -> [WebGPU.BindGroup, MAX_DRAW_CALLS] {
+    var groups: [WebGPU.BindGroup, MAX_DRAW_CALLS] = []
+    for i in 0..MAX_DRAW_CALLS {
+        groups[i] = invalidBindGroup()
+    }
+    return groups
+}
+
+func createVertexBuffer(device: WebGPU.Device, queue: WebGPU.Queue, bytes: *Byte, size: UInt) -> WebGPU.GPUBuffer {
+    var descriptor = WebGPU.BufferDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        usage: WebGPU.BUFFER_USAGE_VERTEX | WebGPU.BUFFER_USAGE_COPY_DST,
+        size: (size as! UInt64), mappedAtCreation: 0)
+    let buffer = device.createBuffer(descriptor: &descriptor)
+    if buffer.isValid {
+        queue.writeBuffer(buffer: buffer, bufferOffset: 0, data: bytes, size: size)
+    }
+    return buffer
+}
+
+func createIndexBuffer(device: WebGPU.Device, queue: WebGPU.Queue, bytes: *Byte, size: UInt) -> WebGPU.GPUBuffer {
+    var descriptor = WebGPU.BufferDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        usage: WebGPU.BUFFER_USAGE_INDEX | WebGPU.BUFFER_USAGE_COPY_DST,
+        size: (size as! UInt64), mappedAtCreation: 0)
+    let buffer = device.createBuffer(descriptor: &descriptor)
+    if buffer.isValid {
+        queue.writeBuffer(buffer: buffer, bufferOffset: 0, data: bytes, size: size)
+    }
+    return buffer
+}
+
+func basisToModel(origin: Vector3, right: Vector3, up: Vector3, forward: Vector3, scale: Vector3) -> Matrix4 {
+    // Columns: right, up, forward, translation (column-major).
+    var m = Matrix4.identity()
+    m.m[0] = right.x * scale.x
+    m.m[1] = right.y * scale.x
+    m.m[2] = right.z * scale.x
+    m.m[4] = up.x * scale.y
+    m.m[5] = up.y * scale.y
+    m.m[6] = up.z * scale.y
+    m.m[8] = forward.x * scale.z
+    m.m[9] = forward.y * scale.z
+    m.m[10] = forward.z * scale.z
+    m.m[12] = origin.x
+    m.m[13] = origin.y
+    m.m[14] = origin.z
+    return m
+}
+
+func craftModel(race: Race, craft: Craft) -> Matrix4 {
+    let sample = sampleTrack(race.track, craft.distance)
+    let basis = craftBasis(race.track, craft)
+    let origin = craftWorld(race.track, craft)
+    return basisToModel(origin, basis.right, basis.up, basis.forward, Vector3.one())
+}
+
+func writeUniforms(
+    queue: WebGPU.Queue,
+    buffer: WebGPU.GPUBuffer,
+    viewProj: Matrix4,
+    model: Matrix4,
+    colorMul: Vector3,
+    fogColor: Vector3,
+    fogDensity: Float32,
+    lightDir: Vector3,
+    cameraPos: Vector3,
+    drawIndex: Int)
+{
+    // viewProj 16 + model 16 + color 4 + fog 4 + light 4 + camera 4 = 48 floats
+    var uniforms: [Float32, 48] = []
+    for i in 0..16 {
+        uniforms[i] = viewProj.m[i]
+        uniforms[16 + i] = model.m[i]
+    }
+    uniforms[32] = colorMul.x
+    uniforms[33] = colorMul.y
+    uniforms[34] = colorMul.z
+    uniforms[35] = 1.0
+    uniforms[36] = fogColor.x
+    uniforms[37] = fogColor.y
+    uniforms[38] = fogColor.z
+    uniforms[39] = fogDensity
+    uniforms[40] = lightDir.x
+    uniforms[41] = lightDir.y
+    uniforms[42] = lightDir.z
+    uniforms[43] = 0.0
+    uniforms[44] = cameraPos.x
+    uniforms[45] = cameraPos.y
+    uniforms[46] = cameraPos.z
+    uniforms[47] = 1.0
+    queue.writeBuffer(
+        buffer: buffer,
+        bufferOffset: (drawIndex as! UInt64) * DRAW_UNIFORM_STRIDE,
+        data: (uniforms.bytes as *Byte),
+        size: DRAW_UNIFORM_SIZE as! UInt)
+}
+
+func writeSkyUniforms(
+    queue: WebGPU.Queue,
+    buffer: WebGPU.GPUBuffer,
+    theme: TrackTheme,
+    time: Float32)
+{
+    // Five vec4 values: zenith, horizon, glow, celestial, and animation params.
+    var uniforms: [Float32, 20] = []
+    uniforms[0] = theme.skyZenith.x
+    uniforms[1] = theme.skyZenith.y
+    uniforms[2] = theme.skyZenith.z
+    uniforms[3] = 1.0
+    uniforms[4] = theme.skyHorizon.x
+    uniforms[5] = theme.skyHorizon.y
+    uniforms[6] = theme.skyHorizon.z
+    uniforms[7] = 1.0
+    uniforms[8] = theme.skyGlow.x
+    uniforms[9] = theme.skyGlow.y
+    uniforms[10] = theme.skyGlow.z
+    uniforms[11] = 1.0
+    uniforms[12] = theme.skyCelestial.x
+    uniforms[13] = theme.skyCelestial.y
+    uniforms[14] = theme.skyCelestial.z
+    uniforms[15] = 1.0
+    uniforms[16] = time
+    uniforms[17] = theme.skyStyle
+    uniforms[18] = Float32(WIDTH) / Float32(HEIGHT)
+    uniforms[19] = 0.052 + theme.skyStyle * 0.006
+    queue.writeBuffer(
+        buffer: buffer, bufferOffset: 0,
+        data: (uniforms.bytes as *Byte), size: 80)
+}
+
+func buildScene(device: WebGPU.Device, queue: WebGPU.Queue, surfaceFormat: WebGPU.TextureFormat, race: Race) -> Scene? {
+    var depthSize = WebGPU.Extent3D(width: WIDTH, height: HEIGHT, depthOrArrayLayers: 1)
+    var depthDescriptor = WebGPU.TextureDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        usage: WebGPU.TEXTURE_USAGE_RENDER_ATTACHMENT,
+        dimension: WebGPU.TextureDimension.d2, size: depthSize,
+        format: WebGPU.TextureFormat.depth32Float,
+        mipLevelCount: 1, sampleCount: 1, viewFormatCount: 0, viewFormats: nil)
+    depthTexture = device.createTexture(descriptor: &depthDescriptor)
+    depthView = depthTexture.createView()
+    if !depthTexture.isValid || !depthView.isValid {
+        Console.printLine("Wipeout: depth texture creation failed.")
+        return nil
+    }
+
+    var uniformDescriptor = WebGPU.BufferDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        usage: WebGPU.BUFFER_USAGE_UNIFORM | WebGPU.BUFFER_USAGE_COPY_DST,
+        size: DRAW_UNIFORM_STRIDE * (MAX_DRAW_CALLS as! UInt64),
+        mappedAtCreation: 0)
+    let uniformBuffer = device.createBuffer(descriptor: &uniformDescriptor)
+    if !uniformBuffer.isValid {
+        Console.printLine("Wipeout: uniform buffer creation failed.")
+        return nil
+    }
+    var skyUniformDescriptor = WebGPU.BufferDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        usage: WebGPU.BUFFER_USAGE_UNIFORM | WebGPU.BUFFER_USAGE_COPY_DST,
+        size: 80, mappedAtCreation: 0)
+    let skyUniformBuffer = device.createBuffer(descriptor: &skyUniformDescriptor)
+    if !skyUniformBuffer.isValid {
+        Console.printLine("Wipeout: sky uniform buffer creation failed.")
+        return nil
+    }
+
+    let shaderCString = CString(value: worldShaderSource)
+    var shaderWGSL = WebGPU.ShaderSourceWGSL(
+        chain: WebGPU.ChainedStruct(
+            next: nil, sType: WebGPU.SType.shaderSourceWGSL),
+        code: WebGPU.StringView(
+            data: (shaderCString.asCStringSlice().rawPointer() as *Int8),
+            length: (shaderCString.asSlice().length as! UInt)))
+    var shaderDescriptor = WebGPU.ShaderModuleDescriptor(
+        nextInChain: *shaderWGSL.chain, label: emptyStringView())
+    let shader = device.createShaderModule(descriptor: &shaderDescriptor)
+    if !shader.isValid {
+        Console.printLine("Wipeout: shader creation failed.")
+        return nil
+    }
+
+    var attributes: [WebGPU.VertexAttribute, 3] = [
+        WebGPU.VertexAttribute(
+            nextInChain: nil, format: WebGPU.VertexFormat.float32x3, offset: 0, shaderLocation: 0),
+        WebGPU.VertexAttribute(
+            nextInChain: nil, format: WebGPU.VertexFormat.float32x3, offset: 12, shaderLocation: 1),
+        WebGPU.VertexAttribute(
+            nextInChain: nil, format: WebGPU.VertexFormat.float32x3, offset: 24, shaderLocation: 2),
+    ]
+    var vertexLayout = WebGPU.VertexBufferLayout(
+        nextInChain: nil, stepMode: WebGPU.VertexStepMode.vertex, arrayStride: 36,
+        attributeCount: 3, attributes: (attributes.bytes as *WebGPU.VertexAttribute))
+    let vertexEntry: CStringSlice = "vertexMain"
+    let fragmentEntry: CStringSlice = "fragmentMain"
+    var vertexState = WebGPU.VertexState(
+        nextInChain: nil, module: shader.rawHandle,
+        entryPoint: makeStringView(text: vertexEntry, length: 10),
+        constantCount: 0, constants: nil, bufferCount: 1, buffers: *vertexLayout)
+    var colorTarget = WebGPU.ColorTargetState(
+        nextInChain: nil, format: surfaceFormat,
+        blend: nil, writeMask: WebGPU.COLOR_WRITE_MASK_ALL)
+    var fragmentState = WebGPU.FragmentState(
+        nextInChain: nil, module: shader.rawHandle,
+        entryPoint: makeStringView(text: fragmentEntry, length: 12),
+        constantCount: 0, constants: nil, targetCount: 1, targets: *colorTarget)
+    var depthStencil = WebGPU.DepthStencilState(
+        nextInChain: nil,
+        format: WebGPU.TextureFormat.depth32Float,
+        depthWriteEnabled: WebGPU.OptionalBool.trueValue,
+        depthCompare: WebGPU.CompareFunction.less,
+        stencilFront: WebGPU.StencilFaceState(),
+        stencilBack: WebGPU.StencilFaceState(),
+        stencilReadMask: 0xFFFFFFFF,
+        stencilWriteMask: 0xFFFFFFFF,
+        depthBias: 0,
+        depthBiasSlopeScale: 0.0,
+        depthBiasClamp: 0.0)
+    var pipelineDescriptor = WebGPU.RenderPipelineDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: nil,
+        vertex: vertexState,
+        // No back-face cull: procedural track walls and ship wedges are mixed winding.
+        primitive: WebGPU.PrimitiveState(
+            nextInChain: nil, topology: WebGPU.PrimitiveTopology.triangleList,
+            stripIndexFormat: WebGPU.IndexFormat.undefined,
+            frontFace: WebGPU.FrontFace.ccw, cullMode: WebGPU.CullMode.none, unclippedDepth: 0),
+        depthStencil: *depthStencil,
+        multisample: WebGPU.MultisampleState(
+            nextInChain: nil, count: 1, mask: 0xFFFFFFFF, alphaToCoverageEnabled: 0),
+        fragment: *fragmentState)
+    let pipeline = device.createRenderPipeline(descriptor: &pipelineDescriptor)
+    shader.release()
+    if !pipeline.isValid {
+        Console.printLine("Wipeout: pipeline creation failed.")
+        return nil
+    }
+
+    WebGPU.devicePushErrorScope(device.rawHandle, WebGPU.ErrorFilter.validation)
+    let skyShaderCString = CString(value: skyShaderSource)
+    var skyShaderWGSL = WebGPU.ShaderSourceWGSL(
+        chain: WebGPU.ChainedStruct(
+            next: nil, sType: WebGPU.SType.shaderSourceWGSL),
+        code: WebGPU.StringView(
+            data: (skyShaderCString.asCStringSlice().rawPointer() as *Int8),
+            length: (skyShaderCString.asSlice().length as! UInt)))
+    var skyShaderDescriptor = WebGPU.ShaderModuleDescriptor(
+        nextInChain: *skyShaderWGSL.chain, label: emptyStringView())
+    let skyShader = device.createShaderModule(descriptor: &skyShaderDescriptor)
+    if !skyShader.isValid {
+        Console.printLine("Wipeout: sky shader creation failed.")
+        return nil
+    }
+    let skyVertexEntry: CStringSlice = "skyVertex"
+    let skyFragmentEntry: CStringSlice = "skyFragment"
+    var skyVertexState = WebGPU.VertexState(
+        nextInChain: nil, module: skyShader.rawHandle,
+        entryPoint: makeStringView(text: skyVertexEntry, length: 9),
+        constantCount: 0, constants: nil, bufferCount: 0, buffers: nil)
+    var skyFragmentState = WebGPU.FragmentState(
+        nextInChain: nil, module: skyShader.rawHandle,
+        entryPoint: makeStringView(text: skyFragmentEntry, length: 11),
+        constantCount: 0, constants: nil, targetCount: 1, targets: *colorTarget)
+    // The sky shares the world's render pass, so its pipeline must declare the
+    // same depth attachment even though it neither reads nor writes depth.
+    var skyDepthStencil = WebGPU.DepthStencilState(
+        nextInChain: nil,
+        format: WebGPU.TextureFormat.depth32Float,
+        depthWriteEnabled: WebGPU.OptionalBool.falseValue,
+        depthCompare: WebGPU.CompareFunction.always,
+        stencilFront: WebGPU.StencilFaceState(),
+        stencilBack: WebGPU.StencilFaceState(),
+        stencilReadMask: 0xFFFFFFFF,
+        stencilWriteMask: 0xFFFFFFFF,
+        depthBias: 0,
+        depthBiasSlopeScale: 0.0,
+        depthBiasClamp: 0.0)
+    var skyPipelineDescriptor = WebGPU.RenderPipelineDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: nil,
+        vertex: skyVertexState,
+        primitive: WebGPU.PrimitiveState(
+            nextInChain: nil, topology: WebGPU.PrimitiveTopology.triangleList,
+            stripIndexFormat: WebGPU.IndexFormat.undefined,
+            frontFace: WebGPU.FrontFace.ccw, cullMode: WebGPU.CullMode.none, unclippedDepth: 0),
+        depthStencil: *skyDepthStencil,
+        multisample: WebGPU.MultisampleState(
+            nextInChain: nil, count: 1, mask: 0xFFFFFFFF, alphaToCoverageEnabled: 0),
+        fragment: *skyFragmentState)
+    let skyPipeline = device.createRenderPipeline(descriptor: &skyPipelineDescriptor)
+    skyShader.release()
+    if !skyPipeline.isValid {
+        Console.printLine("Wipeout: sky pipeline creation failed.")
+        return nil
+    }
+
+    let layout = pipeline.getBindGroupLayout(groupIndex: 0)
+    var drawBindGroups = emptyDrawBindGroups()
+    var entry = WebGPU.BindGroupEntry(
+        nextInChain: nil, binding: 0, buffer: uniformBuffer.rawHandle,
+        offset: 0, size: DRAW_UNIFORM_SIZE, sampler: nil, textureView: nil)
+    var bindGroupDescriptor = WebGPU.BindGroupDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: layout.rawHandle,
+        entryCount: 1, entries: *entry)
+    for i in 0..MAX_DRAW_CALLS {
+        entry.offset = (i as! UInt64) * DRAW_UNIFORM_STRIDE
+        drawBindGroups[i] = device.createBindGroup(descriptor: &bindGroupDescriptor)
+        if !drawBindGroups[i].isValid {
+            layout.release()
+            Console.printLine("Wipeout: draw bind group creation failed.")
+            return nil
+        }
+    }
+    layout.release()
+
+    let skyLayout = skyPipeline.getBindGroupLayout(groupIndex: 0)
+    var skyEntry = WebGPU.BindGroupEntry(
+        nextInChain: nil, binding: 0, buffer: skyUniformBuffer.rawHandle,
+        offset: 0, size: 80, sampler: nil, textureView: nil)
+    var skyBindGroupDescriptor = WebGPU.BindGroupDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: skyLayout.rawHandle,
+        entryCount: 1, entries: *skyEntry)
+    let skyBindGroup = device.createBindGroup(descriptor: &skyBindGroupDescriptor)
+    skyLayout.release()
+    if !skyBindGroup.isValid {
+        Console.printLine("Wipeout: sky bind group creation failed.")
+        return nil
+    }
+    let _ = WebGPU.devicePopErrorScope(
+        device.rawHandle,
+        WebGPU.PopErrorScopeCallbackInfo(
+            nextInChain: nil,
+            mode: WebGPU.CallbackMode.allowSpontaneous,
+            callback: reportSkyValidation,
+            userdata1: nil,
+            userdata2: nil))
+
+    var roadVertices = race.track.roadVertices
+    var roadIndices = race.track.roadIndices
+    var wallVertices = race.track.wallVertices
+    var wallIndices = race.track.wallIndices
+    let roadVertexBuffer = createVertexBuffer(
+        device, queue, (roadVertices.bytes as *Byte), roadVertices.byteLength as! UInt)
+    let roadIndexBuffer = createIndexBuffer(
+        device, queue, (roadIndices.bytes as *Byte), roadIndices.byteLength as! UInt)
+    let wallVertexBuffer = createVertexBuffer(
+        device, queue, (wallVertices.bytes as *Byte), wallVertices.byteLength as! UInt)
+    let wallIndexBuffer = createIndexBuffer(
+        device, queue, (wallIndices.bytes as *Byte), wallIndices.byteLength as! UInt)
+
+    var shipBuffers: [WebGPU.GPUBuffer, MAX_SHIPS] = [
+        invalidBuffer(), invalidBuffer(), invalidBuffer(), invalidBuffer()]
+    for i in 0..MAX_SHIPS {
+        var mesh = buildShipMesh(shipHullColor(i), shipAccentColor(i), shipEngineColor(i))
+        shipBuffers[i] = createVertexBuffer(
+            device, queue, (mesh.bytes as *Byte), mesh.byteLength as! UInt)
+    }
+    var shotMesh = buildShotMesh()
+    var padMesh = buildPadMesh()
+    var towerMesh = buildTowerMesh()
+    let shotVertexBuffer = createVertexBuffer(
+        device, queue, (shotMesh.bytes as *Byte), shotMesh.byteLength as! UInt)
+    let padVertexBuffer = createVertexBuffer(
+        device, queue, (padMesh.bytes as *Byte), padMesh.byteLength as! UInt)
+    let towerVertexBuffer = createVertexBuffer(
+        device, queue, (towerMesh.bytes as *Byte), towerMesh.byteLength as! UInt)
+
+    if !roadVertexBuffer.isValid || !roadIndexBuffer.isValid || !wallVertexBuffer.isValid ||
+        !wallIndexBuffer.isValid || !shotVertexBuffer.isValid || !padVertexBuffer.isValid ||
+        !towerVertexBuffer.isValid {
+        Console.printLine("Wipeout: mesh buffer creation failed.")
+        return nil
+    }
+    for i in 0..MAX_SHIPS {
+        if !shipBuffers[i].isValid {
+            Console.printLine("Wipeout: ship buffer creation failed.")
+            return nil
+        }
+    }
+
+    return Scene(
+        skyPipeline: skyPipeline,
+        skyBindGroup: skyBindGroup,
+        skyUniformBuffer: skyUniformBuffer,
+        pipeline: pipeline,
+        drawBindGroups: drawBindGroups,
+        uniformBuffer: uniformBuffer,
+        roadVertexBuffer: roadVertexBuffer,
+        roadIndexBuffer: roadIndexBuffer,
+        wallVertexBuffer: wallVertexBuffer,
+        wallIndexBuffer: wallIndexBuffer,
+        shipVertexBuffers: shipBuffers,
+        shotVertexBuffer: shotVertexBuffer,
+        padVertexBuffer: padVertexBuffer,
+        towerVertexBuffer: towerVertexBuffer,
+        queue: queue,
+        surfaceFormat: surfaceFormat)
+}
+
+func rebuildTrackBuffers(scene: &Scene, device: WebGPU.Device, race: Race) {
+    var roadVertices = race.track.roadVertices
+    var roadIndices = race.track.roadIndices
+    var wallVertices = race.track.wallVertices
+    var wallIndices = race.track.wallIndices
+    scene.queue.writeBuffer(
+        buffer: scene.roadVertexBuffer, bufferOffset: 0,
+        data: (roadVertices.bytes as *Byte), size: roadVertices.byteLength as! UInt)
+    scene.queue.writeBuffer(
+        buffer: scene.roadIndexBuffer, bufferOffset: 0,
+        data: (roadIndices.bytes as *Byte), size: roadIndices.byteLength as! UInt)
+    scene.queue.writeBuffer(
+        buffer: scene.wallVertexBuffer, bufferOffset: 0,
+        data: (wallVertices.bytes as *Byte), size: wallVertices.byteLength as! UInt)
+    scene.queue.writeBuffer(
+        buffer: scene.wallIndexBuffer, bufferOffset: 0,
+        data: (wallIndices.bytes as *Byte), size: wallIndices.byteLength as! UInt)
+}
+
+func drawIndexedMesh(
+    pass: WebGPU.RenderPassEncoder,
+    scene: Scene,
+    viewProj: Matrix4,
+    model: Matrix4,
+    colorMul: Vector3,
+    fogColor: Vector3,
+    fogDensity: Float32,
+    lightDir: Vector3,
+    cameraPos: Vector3,
+    drawIndex: &Int,
+    vertexBuffer: WebGPU.GPUBuffer,
+    indexBuffer: WebGPU.GPUBuffer,
+    indexCount: UInt32)
+{
+    let slot = drawIndex^
+    writeUniforms(
+        scene.queue, scene.uniformBuffer, viewProj, model, colorMul,
+        fogColor, fogDensity, lightDir, cameraPos, slot)
+    pass.setBindGroup(groupIndex: 0, group: scene.drawBindGroups[slot])
+    drawIndex^ = slot + 1
+    pass.setVertexBuffer(slot: 0, buffer: vertexBuffer)
+    pass.setIndexBuffer(buffer: indexBuffer, format: WebGPU.IndexFormat.uint32)
+    pass.drawIndexed(indexCount: indexCount)
+}
+
+func drawVertexMesh(
+    pass: WebGPU.RenderPassEncoder,
+    scene: Scene,
+    viewProj: Matrix4,
+    model: Matrix4,
+    colorMul: Vector3,
+    fogColor: Vector3,
+    fogDensity: Float32,
+    lightDir: Vector3,
+    cameraPos: Vector3,
+    drawIndex: &Int,
+    vertexBuffer: WebGPU.GPUBuffer,
+    vertexCount: UInt32)
+{
+    let slot = drawIndex^
+    writeUniforms(
+        scene.queue, scene.uniformBuffer, viewProj, model, colorMul,
+        fogColor, fogDensity, lightDir, cameraPos, slot)
+    pass.setBindGroup(groupIndex: 0, group: scene.drawBindGroups[slot])
+    drawIndex^ = slot + 1
+    pass.setVertexBuffer(slot: 0, buffer: vertexBuffer)
+    pass.draw(vertexCount: vertexCount)
+}
+
+func drawWorld(
+    scene: Scene,
+    surface: WebGPU.Surface,
+    device: WebGPU.Device,
+    race: Race) -> Bool
+{
+    var surfaceTexture = WebGPU.SurfaceTexture(
+        nextInChain: nil, texture: nil,
+        status: WebGPU.SurfaceGetCurrentTextureStatus.error)
+    surface.getCurrentTexture(surfaceTexture: &surfaceTexture)
+    if surfaceTexture.status != WebGPU.SurfaceGetCurrentTextureStatus.successOptimal and
+        surfaceTexture.status != WebGPU.SurfaceGetCurrentTextureStatus.successSuboptimal {
+        return false
+    }
+
+    let surfaceTextureObject = WebGPU.Texture.fromHandle(handle: surfaceTexture.texture)
+    let targetView = surfaceTextureObject.createView()
+    let encoder = device.createCommandEncoder()
+    if !targetView.isValid || !encoder.isValid {
+        targetView.release()
+        surfaceTextureObject.release()
+        return false
+    }
+
+    let theme = race.track.theme
+    let cam = cameraEyeTarget(race)
+    let projection = Matrix4.perspective(
+        fovYDegrees: 62.0,
+        aspect: Float32(WIDTH) / Float32(HEIGHT),
+        near: 0.2,
+        far: 420.0)
+    let view = Matrix4.lookAt(eye: cam.eye, target: cam.target, up: Vector3.up())
+    let viewProj = projection * view
+    let lightDir = Vector3(x: -0.35, y: 0.82, z: -0.35).normalized()
+    let fogColor = Vector3(x: theme.clearR, y: theme.clearG, z: theme.clearB)
+    let fogDensity = theme.fog
+    writeSkyUniforms(scene.queue, scene.skyUniformBuffer, theme, race.raceTime)
+
+    var colorAttachment = WebGPU.RenderPassColorAttachment(
+        nextInChain: nil, view: targetView.rawHandle,
+        depthSlice: WebGPU.DEPTH_SLICE_UNDEFINED, resolveTarget: nil,
+        loadOp: WebGPU.LoadOp.clear, storeOp: WebGPU.StoreOp.store,
+        clearValue: WebGPU.Color(r: Float64(theme.clearR), g: Float64(theme.clearG), b: Float64(theme.clearB), a: 1.0))
+    var depthAttachment = WebGPU.RenderPassDepthStencilAttachment(
+        nextInChain: nil,
+        view: depthView.rawHandle,
+        depthLoadOp: WebGPU.LoadOp.clear,
+        depthStoreOp: WebGPU.StoreOp.store,
+        depthClearValue: 1.0,
+        depthReadOnly: 0,
+        stencilLoadOp: WebGPU.LoadOp.undefined,
+        stencilStoreOp: WebGPU.StoreOp.undefined,
+        stencilClearValue: 0,
+        stencilReadOnly: 1)
+    var passDescriptor = WebGPU.RenderPassDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        colorAttachmentCount: 1, colorAttachments: *colorAttachment,
+        depthStencilAttachment: *depthAttachment,
+        occlusionQuerySet: nil, timestampWrites: nil)
+    let pass = encoder.beginRenderPass(descriptor: &passDescriptor)
+    pass.setPipeline(pipeline: scene.skyPipeline)
+    pass.setBindGroup(groupIndex: 0, group: scene.skyBindGroup)
+    pass.draw(vertexCount: 3)
+    pass.setPipeline(pipeline: scene.pipeline)
+    var drawIndex = 0
+
+    // Road
+    drawIndexedMesh(
+        pass, scene, viewProj, Matrix4.identity(), Vector3.one(),
+        fogColor, fogDensity, lightDir, cam.eye, &drawIndex,
+        scene.roadVertexBuffer, scene.roadIndexBuffer, UInt32(ROAD_INDEX_COUNT))
+    // Walls
+    drawIndexedMesh(
+        pass, scene, viewProj, Matrix4.identity(), Vector3.one(),
+        fogColor, fogDensity, lightDir, cam.eye, &drawIndex,
+        scene.wallVertexBuffer, scene.wallIndexBuffer, UInt32(WALL_INDEX_COUNT))
+
+    // Weapon pads
+    for i in 0..race.track.padCount {
+        let pad = race.track.pads[i]
+        if !pad.active {
+            continue
+        }
+        let sample = sampleTrack(race.track, pad.distance)
+        let origin = sample.position + sample.right * pad.lateral + sample.up * 0.05
+        let model = basisToModel(origin, sample.right, sample.up, sample.forward, Vector3.one())
+        let pulse = 0.75 + 0.25 * Math.sin(race.raceTime * 6.0 + Float32(i))
+        drawVertexMesh(
+            pass, scene, viewProj, model, Vector3(x: pulse, y: pulse, z: pulse),
+            fogColor, fogDensity, lightDir, cam.eye, &drawIndex,
+            scene.padVertexBuffer, UInt32(PAD_VERTEX_COUNT))
+    }
+
+    // Scenery towers
+    for i in 0..race.track.sceneryCount {
+        let marker = race.track.scenery[i]
+        let sample = sampleTrack(race.track, marker.distance)
+        let origin = sample.position + sample.right * marker.lateral
+        let scale = Vector3(x: marker.scale, y: marker.height, z: marker.scale)
+        let model = basisToModel(origin, sample.right, sample.up, sample.forward, scale)
+        drawVertexMesh(
+            pass, scene, viewProj, model, Vector3.one(),
+            fogColor, fogDensity, lightDir, cam.eye, &drawIndex,
+            scene.towerVertexBuffer, UInt32(TOWER_VERTEX_COUNT))
+    }
+
+    // Ships
+    for i in 0..MAX_SHIPS {
+        if !race.crafts[i].alive {
+            continue
+        }
+        let model = craftModel(race, race.crafts[i])
+        var mul = Vector3.one()
+        if race.crafts[i].invuln > 0.0 && (Int(race.raceTime * 12.0) % 2) == 0 {
+            mul = Vector3(x: 0.4, y: 0.4, z: 0.4)
+        }
+        drawVertexMesh(
+            pass, scene, viewProj, model, mul,
+            fogColor, fogDensity, lightDir, cam.eye, &drawIndex,
+            scene.shipVertexBuffers[i], UInt32(SHIP_VERTEX_COUNT))
+    }
+
+    // Shots
+    for i in 0..MAX_SHOTS {
+        if !race.shots[i].active {
+            continue
+        }
+        let sample = sampleTrack(race.track, race.shots[i].distance)
+        let origin = sample.position + sample.right * race.shots[i].lateral + sample.up * race.shots[i].height
+        let model = basisToModel(
+            origin, sample.right, sample.up, sample.forward,
+            Vector3(x: 0.7, y: 0.7, z: 1.4))
+        drawVertexMesh(
+            pass, scene, viewProj, model, Vector3.one(),
+            fogColor, fogDensity, lightDir, cam.eye, &drawIndex,
+            scene.shotVertexBuffer, UInt32(SHOT_VERTEX_COUNT))
+    }
+
+    pass.end()
+    let commandBuffer = encoder.finish()
+    scene.queue.submit(command: commandBuffer)
+    commandBuffer.release()
+    pass.release()
+    encoder.release()
+    targetView.release()
+    surfaceTextureObject.release()
+    return true
+}

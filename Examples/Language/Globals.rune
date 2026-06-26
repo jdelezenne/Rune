@@ -1,0 +1,15 @@
+const base: Int = 10
+let offset: Int = base + 5
+var counter: Int = base * 2
+
+func total() -> Int {
+    return counter + offset
+}
+
+func main() -> Int {
+    if offset <= base || total() != 35 {
+        return 1
+    }
+
+    return 0
+}

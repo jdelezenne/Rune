@@ -1,0 +1,128 @@
+public static Storage {
+    public enum FileKind: Int32 {
+        file = 0
+        directory = 1
+        symlink = 2
+        other = 3
+    }
+
+    @layout(kind: c)
+    public struct FileMetadata {
+        public var kind: FileKind
+        public var size: UInt64
+        public var readonly: Bool
+        public var created: SystemTime
+        public var modified: SystemTime
+        public var accessed: SystemTime
+    }
+
+    @layout(kind: c)
+    public struct DirectoryEntry {
+        public var path: Path
+        public var kind: FileKind
+    }
+
+    @builtin
+    public struct DirectoryIterator {
+        public static func openAt(path: Path) throws(StorageError) -> DirectoryIterator {
+            var error: String = ""
+            let iterator = DirectoryIterator(path: path, error: &error)
+            if !error.isEmpty {
+                throw StorageError(kind: .io, message: error, path: path)
+            }
+
+            return iterator
+        }
+
+        @runtime("rune_directory_open")
+        private init(path: Path, error: &String)
+
+        @runtime("rune_directory_close")
+        final()
+    }
+
+    public extension DirectoryIterator {
+        @runtime("rune_directory_read")
+        public mutating func next(entry: &DirectoryEntry) -> Bool
+    }
+
+    public static FileSystem {
+        @runtime("rune_filesystem_exists")
+        public func exists(path: Path) -> Bool
+
+        @runtime("rune_filesystem_is_file")
+        public func isFile(path: Path) -> Bool
+
+        @runtime("rune_filesystem_is_directory")
+        public func isDirectory(path: Path) -> Bool
+
+        public func getMetadata(path: Path) throws(StorageError) -> FileMetadata {
+            var metadata = FileMetadata(
+                kind: .other,
+                size: 0,
+                readonly: false,
+                created: SystemTime(unixNanoseconds: 0),
+                modified: SystemTime(unixNanoseconds: 0),
+                accessed: SystemTime(unixNanoseconds: 0))
+            var error: String = ""
+            if !getMetadataInternal(path: path, metadata: &metadata, error: &error) {
+                throw StorageError(kind: .io, message: error, path: path)
+            }
+
+            return metadata
+        }
+
+        @runtime("rune_filesystem_metadata")
+        private func getMetadataInternal(path: Path, metadata: &FileMetadata, error: &String) -> Bool
+
+        public func createDirectory(path: Path) throws(StorageError) {
+            var error: String = ""
+            if !createDirectoryInternal(path: path, error: &error) {
+                throw StorageError(kind: .io, message: error, path: path)
+            }
+        }
+
+        @runtime("rune_filesystem_create_directory")
+        private func createDirectoryInternal(path: Path, error: &String) -> Bool
+
+        public func removeFile(path: Path) throws(StorageError) {
+            var error: String = ""
+            if !removeFileInternal(path: path, error: &error) {
+                throw StorageError(kind: .io, message: error, path: path)
+            }
+        }
+
+        @runtime("rune_filesystem_remove_file")
+        private func removeFileInternal(path: Path, error: &String) -> Bool
+
+        public func removeDirectory(path: Path) throws(StorageError) {
+            var error: String = ""
+            if !removeDirectoryInternal(path: path, error: &error) {
+                throw StorageError(kind: .io, message: error, path: path)
+            }
+        }
+
+        @runtime("rune_filesystem_remove_directory")
+        private func removeDirectoryInternal(path: Path, error: &String) -> Bool
+
+        public func rename(from: Path, to: Path) throws(StorageError) {
+            var error: String = ""
+            if !renameInternal(from: from, to: to, error: &error) {
+                throw StorageError(kind: .io, message: error, path: from)
+            }
+        }
+
+        @runtime("rune_filesystem_rename")
+        private func renameInternal(from: Path, to: Path, error: &String) -> Bool
+
+        public func copyFile(from: Path, to: Path) throws(StorageError) {
+            var error: String = ""
+            if !copyFileInternal(from: from, to: to, error: &error) {
+                throw StorageError(kind: .io, message: error, path: from)
+            }
+        }
+
+        @runtime("rune_filesystem_copy_file")
+        private func copyFileInternal(from: Path, to: Path, error: &String) -> Bool
+    }
+}

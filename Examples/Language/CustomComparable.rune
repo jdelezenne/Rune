@@ -1,0 +1,61 @@
+struct Version implements Comparable {
+    var major: Int
+    var minor: Int
+    var patch: Int
+
+    public static operator ==(lhs: Version, rhs: Version) -> Bool {
+        return lhs.major == rhs.major && lhs.minor == rhs.minor && lhs.patch == rhs.patch
+    }
+
+    public static operator <=>(lhs: Version, rhs: Version) -> Ordering {
+        if lhs.major != rhs.major {
+            return lhs.major <=> rhs.major
+        }
+
+        if lhs.minor != rhs.minor {
+            return lhs.minor <=> rhs.minor
+        }
+
+        return lhs.patch <=> rhs.patch
+    }
+}
+
+func main() -> Int {
+    let stable = Version(major: 2, minor: 0, patch: 0)
+    let prerelease = Version(major: 2, minor: 0, patch: -1)
+    let old = Version(major: 1, minor: 9, patch: 4)
+
+    if !(old < prerelease) {
+        return 1
+    }
+
+    if stable == prerelease {
+        return 2
+    }
+
+    let versions: SortedSet<Version> = [stable, prerelease, old, stable]
+    if versions.count != 3 {
+        return 3
+    }
+
+    if !versions.contains(element: Version(major: 2, minor: 0, patch: -1)) {
+        return 4
+    }
+
+    let scores: SortedMap<Version, Int> = [
+        stable: 200,
+        prerelease: 199,
+        old: 194
+    ]
+
+    if scores.count != 3 {
+        return 5
+    }
+
+    let score = scores.tryGet(key: Version(major: 2, minor: 0, patch: 0))
+    if score == nil || score! != 200 {
+        return 6
+    }
+
+    return 0
+}

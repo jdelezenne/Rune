@@ -1,0 +1,11 @@
+const base: Int = 21
+const doubled: Int = base * 2
+const isEven: Bool = doubled % 2 == 0
+
+func main() -> Int {
+    if not isEven || doubled != 42 {
+        return 1
+    }
+
+    return 0
+}

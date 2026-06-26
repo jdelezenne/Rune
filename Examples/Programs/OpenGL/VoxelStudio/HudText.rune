@@ -1,0 +1,438 @@
+// Screen-space HUD text via SDL3_ttf, same texture-per-label approach as
+// Examples/Programs/OpenGL/VoxelPlanet/HudText.rune: render to a CPU
+// surface, upload as a GL texture, draw as a textured quad with its own
+// small orthographic-projection shader. Dynamic labels are regenerated only
+// when their text actually changes, not every frame.
+
+import Standard.*
+import SDL3
+import SDL3_ttf
+import OpenGL
+
+const HUD_FONT_RESOURCE: String = "DejaVuSansMono.ttf"
+const HUD_FONT_SIZE: Float32 = 20.0
+const HUD_TOOL_FONT_SIZE: Float32 = 12.0
+const HUD_TOP_HEIGHT: Float32 = 54.0
+const HUD_TOOLBAR_WIDTH: Float32 = 88.0
+const HUD_RIGHT_PANEL_WIDTH: Float32 = 216.0
+const HUD_TOOL_BUTTON_X: Float32 = 18.0
+const HUD_TOOL_BUTTON_Y: Float32 = HUD_TOP_HEIGHT + 18.0
+const HUD_TOOL_BUTTON_SIZE: Float32 = 52.0
+const HUD_TOOL_BUTTON_STEP: Float32 = 62.0
+const HUD_PALETTE_COLUMNS: Int = 4
+const HUD_PALETTE_ROWS: Int = 3
+const HUD_PALETTE_SWATCH_SIZE: Float32 = 34.0
+const HUD_PALETTE_SWATCH_STEP: Float32 = 44.0
+const HUD_PALETTE_X_INSET: Float32 = 20.0
+const HUD_PALETTE_Y: Float32 = HUD_TOP_HEIGHT + 52.0
+const HUD_ACTIVE_COLOR_Y: Float32 = HUD_TOP_HEIGHT + 230.0
+const HUD_GRID_CONTROLS_Y: Float32 = HUD_TOP_HEIGHT + 390.0
+
+@layout(kind: c)
+struct TextVertex {
+    var x: Float32
+    var y: Float32
+}
+
+struct TextShaderProgram {
+    var program: OpenGL.GLuint
+    var positionAttrib: OpenGL.GLuint
+    var rectLocation: OpenGL.GLint
+    var projectionLocation: OpenGL.GLint
+    var textureLocation: OpenGL.GLint
+}
+
+struct SolidShaderProgram {
+    var program: OpenGL.GLuint
+    var positionAttrib: OpenGL.GLuint
+    var rectLocation: OpenGL.GLint
+    var projectionLocation: OpenGL.GLint
+    var colorLocation: OpenGL.GLint
+}
+
+struct HudLabel {
+    var texture: OpenGL.GLuint
+    var width: Float32
+    var height: Float32
+}
+
+let textVertexShaderSource: String = """
+#ifdef GL_ES
+precision highp float;
+#endif
+attribute vec2 position;
+uniform vec4 rect;
+uniform mat4 projection;
+varying vec2 texCoord;
+void main() {
+    vec2 screenPos = vec2(rect.x + position.x * rect.z, rect.y + position.y * rect.w);
+    gl_Position = projection * vec4(screenPos, 0.0, 1.0);
+    texCoord = vec2(position.x, position.y);
+}
+"""
+
+let textFragmentShaderSource: String = """
+#ifdef GL_ES
+precision mediump float;
+#endif
+varying vec2 texCoord;
+uniform sampler2D fontTexture;
+void main() {
+    gl_FragColor = texture2D(fontTexture, texCoord);
+}
+"""
+
+let solidFragmentShaderSource: String = """
+#ifdef GL_ES
+precision mediump float;
+#endif
+uniform vec4 color;
+void main() {
+    gl_FragColor = color;
+}
+"""
+
+func buildTextShaderProgram() -> TextShaderProgram {
+    let vertexShader = compileShaderStage(OpenGL.VERTEX_SHADER, textVertexShaderSource)
+    let fragmentShader = compileShaderStage(OpenGL.FRAGMENT_SHADER, textFragmentShaderSource)
+    let program = linkProgram(vertexShader, fragmentShader)
+
+    let positionAttrib = (OpenGL.getAttribLocation(program, "position") as! UInt32)
+    return TextShaderProgram(
+        program: program,
+        positionAttrib: positionAttrib,
+        rectLocation: OpenGL.getUniformLocation(program, "rect"),
+        projectionLocation: OpenGL.getUniformLocation(program, "projection"),
+        textureLocation: OpenGL.getUniformLocation(program, "fontTexture"))
+}
+
+func buildSolidShaderProgram() -> SolidShaderProgram {
+    let vertexShader = compileShaderStage(OpenGL.VERTEX_SHADER, textVertexShaderSource)
+    let fragmentShader = compileShaderStage(OpenGL.FRAGMENT_SHADER, solidFragmentShaderSource)
+    let program = linkProgram(vertexShader, fragmentShader)
+
+    return SolidShaderProgram(
+        program: program,
+        positionAttrib: (OpenGL.getAttribLocation(program, "position") as! UInt32),
+        rectLocation: OpenGL.getUniformLocation(program, "rect"),
+        projectionLocation: OpenGL.getUniformLocation(program, "projection"),
+        colorLocation: OpenGL.getUniformLocation(program, "color"))
+}
+
+func buildTextQuadBuffer() -> OpenGL.GLuint {
+    var vertices: [TextVertex, 6] = []
+    vertices[0] = TextVertex(x: 0.0, y: 0.0)
+    vertices[1] = TextVertex(x: 1.0, y: 0.0)
+    vertices[2] = TextVertex(x: 1.0, y: 1.0)
+    vertices[3] = TextVertex(x: 0.0, y: 0.0)
+    vertices[4] = TextVertex(x: 1.0, y: 1.0)
+    vertices[5] = TextVertex(x: 0.0, y: 1.0)
+
+    var buffer: OpenGL.GLuint = 0
+    OpenGL.genBuffers(1, &buffer)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, buffer)
+    var data = vertices
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, 6 * 8, (data.bytes as *Byte), OpenGL.STATIC_DRAW)
+    return buffer
+}
+
+func destroyHudLabel(label: HudLabel) {
+    if label.texture == 0 {
+        return
+    }
+    var textureId: OpenGL.GLuint = label.texture
+    OpenGL.deleteTextures(1, &textureId)
+}
+
+func renderHudLabel(font: &SDL3_ttf.Font?, text: CStringSlice, color: SDL3.Color) -> HudLabel {
+    let rendered = SDL3_ttf.renderTextBlended(font, text, 0, color)
+    if rendered == nil {
+        Console.printLine("TTF_RenderText_Blended failed: ${SDL3.getError()!}")
+        return HudLabel(texture: 0, width: 0.0, height: 0.0)
+    }
+
+    let converted = SDL3.convertSurface(rendered, SDL3.PixelFormat.abgr8888)
+    SDL3.destroySurface(rendered)
+    if converted == nil {
+        Console.printLine("convertSurface failed: ${SDL3.getError()!}")
+        return HudLabel(texture: 0, width: 0.0, height: 0.0)
+    }
+
+    var textureId: OpenGL.GLuint = 0
+    OpenGL.genTextures(1, &textureId)
+    OpenGL.bindTexture(OpenGL.TEXTURE_2D, textureId)
+    OpenGL.pixelStorei(OpenGL.UNPACK_ALIGNMENT, 1)
+    OpenGL.texImage2D(
+        OpenGL.TEXTURE_2D,
+        0,
+        (OpenGL.RGBA as! OpenGL.GLint),
+        converted!.w,
+        converted!.h,
+        0,
+        OpenGL.RGBA,
+        OpenGL.UNSIGNED_BYTE,
+        converted!.pixels!)
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_MIN_FILTER, (OpenGL.LINEAR as! OpenGL.GLint))
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_MAG_FILTER, (OpenGL.LINEAR as! OpenGL.GLint))
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_WRAP_S, (OpenGL.CLAMP_TO_EDGE as! OpenGL.GLint))
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_WRAP_T, (OpenGL.CLAMP_TO_EDGE as! OpenGL.GLint))
+
+    let label = HudLabel(texture: textureId, width: Float32(converted!.w), height: Float32(converted!.h))
+    SDL3.destroySurface(converted)
+    return label
+}
+
+func drawHudLabel(textShader: TextShaderProgram, quadBuffer: OpenGL.GLuint, label: HudLabel, x: Float32, y: Float32, projection: Matrix4) {
+    if label.texture == 0 {
+        return
+    }
+
+    OpenGL.useProgram(textShader.program)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, quadBuffer)
+    OpenGL.enableVertexAttribArray(textShader.positionAttrib)
+    OpenGL.vertexAttribPointer(textShader.positionAttrib, 2, OpenGL.FLOAT, 0, 8, (0 as *Byte))
+
+    OpenGL.bindTexture(OpenGL.TEXTURE_2D, label.texture)
+    OpenGL.uniform1i(textShader.textureLocation, 0)
+    OpenGL.uniform4f(textShader.rectLocation, x, y, label.width, label.height)
+
+    var projectionCopy = projection
+    OpenGL.uniformMatrix4fv(textShader.projectionLocation, 1, 0, (projectionCopy.m.bytes as *OpenGL.GLfloat))
+
+    OpenGL.drawArrays(OpenGL.TRIANGLES, 0, 6)
+    OpenGL.disableVertexAttribArray(textShader.positionAttrib)
+}
+
+func drawHudRect(solidShader: SolidShaderProgram, quadBuffer: OpenGL.GLuint, x: Float32, y: Float32, width: Float32, height: Float32, red: Float32, green: Float32, blue: Float32, alpha: Float32, projection: Matrix4) {
+    OpenGL.useProgram(solidShader.program)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, quadBuffer)
+    OpenGL.enableVertexAttribArray(solidShader.positionAttrib)
+    OpenGL.vertexAttribPointer(solidShader.positionAttrib, 2, OpenGL.FLOAT, 0, 8, (0 as *Byte))
+    OpenGL.uniform4f(solidShader.rectLocation, x, y, width, height)
+    OpenGL.uniform4f(solidShader.colorLocation, red, green, blue, alpha)
+
+    var projectionCopy = projection
+    OpenGL.uniformMatrix4fv(solidShader.projectionLocation, 1, 0, (projectionCopy.m.bytes as *OpenGL.GLfloat))
+    OpenGL.drawArrays(OpenGL.TRIANGLES, 0, 6)
+    OpenGL.disableVertexAttribArray(solidShader.positionAttrib)
+}
+
+func drawHudOutline(solidShader: SolidShaderProgram, quadBuffer: OpenGL.GLuint, x: Float32, y: Float32, width: Float32, height: Float32, red: Float32, green: Float32, blue: Float32, projection: Matrix4) {
+    let lineWidth: Float32 = 2.0
+    drawHudRect(solidShader, quadBuffer, x, y, width, lineWidth, red, green, blue, 1.0, projection)
+    drawHudRect(solidShader, quadBuffer, x, y + height - lineWidth, width, lineWidth, red, green, blue, 1.0, projection)
+    drawHudRect(solidShader, quadBuffer, x, y, lineWidth, height, red, green, blue, 1.0, projection)
+    drawHudRect(solidShader, quadBuffer, x + width - lineWidth, y, lineWidth, height, red, green, blue, 1.0, projection)
+}
+
+struct Hud {
+    var font: &SDL3_ttf.Font?
+    var toolFont: &SDL3_ttf.Font?
+    var textShader: TextShaderProgram
+    var solidShader: SolidShaderProgram
+    var quadBuffer: OpenGL.GLuint
+    var titleLabel: HudLabel
+    var toolLabel: HudLabel
+    var gridHeightLabel: HudLabel
+    var helpLabel: HudLabel
+    var paletteTitleLabel: HudLabel
+    var activeColorTitleLabel: HudLabel
+    var gridTitleLabel: HudLabel
+    var gridMinusLabel: HudLabel
+    var gridPlusLabel: HudLabel
+    var gridResetLabel: HudLabel
+    var toolbarLabels: [HudLabel, 5]
+}
+
+func buildHud() -> Hud {
+    let fontPath = Application.resourcesDirectory / HUD_FONT_RESOURCE
+    let fontPathString = fontPath.toString()
+    let fontPathCString = CString(value: fontPathString)
+    let font = SDL3_ttf.openFont(fontPathCString.asCStringSlice(), HUD_FONT_SIZE)
+    if font == nil {
+        Console.printLine("TTF_OpenFont failed for ${fontPathString}: ${SDL3.getError()!}")
+    }
+    let toolFont = SDL3_ttf.openFont(fontPathCString.asCStringSlice(), HUD_TOOL_FONT_SIZE)
+
+    var hud = Hud(
+        font: font,
+        toolFont: toolFont,
+        textShader: buildTextShaderProgram(),
+        solidShader: buildSolidShaderProgram(),
+        quadBuffer: buildTextQuadBuffer(),
+        titleLabel: HudLabel(texture: 0, width: 0.0, height: 0.0),
+        toolLabel: HudLabel(texture: 0, width: 0.0, height: 0.0),
+        gridHeightLabel: HudLabel(texture: 0, width: 0.0, height: 0.0),
+        helpLabel: HudLabel(texture: 0, width: 0.0, height: 0.0),
+        paletteTitleLabel: HudLabel(texture: 0, width: 0.0, height: 0.0),
+        activeColorTitleLabel: HudLabel(texture: 0, width: 0.0, height: 0.0),
+        gridTitleLabel: HudLabel(texture: 0, width: 0.0, height: 0.0),
+        gridMinusLabel: HudLabel(texture: 0, width: 0.0, height: 0.0),
+        gridPlusLabel: HudLabel(texture: 0, width: 0.0, height: 0.0),
+        gridResetLabel: HudLabel(texture: 0, width: 0.0, height: 0.0),
+        toolbarLabels: [])
+
+    let titleMessage = CString(value: "VOXEL STUDIO")
+    hud.titleLabel = renderHudLabel(hud.font, titleMessage.asCStringSlice(), hudWhite())
+    let helpMessage = CString(value: "LMB: tool  RMB: orbit  MMB/Shift+RMB: pan  wheel: zoom  arrows: pan  Esc: quit")
+    hud.helpLabel = renderHudLabel(hud.toolFont, helpMessage.asCStringSlice(), hudWhite())
+    let paletteTitle = CString(value: "PALETTE")
+    let activeColorTitle = CString(value: "ACTIVE COLOR")
+    let gridTitle = CString(value: "GRID HEIGHT")
+    let gridMinus = CString(value: "-")
+    let gridPlus = CString(value: "+")
+    let gridReset = CString(value: "Reset")
+    hud.paletteTitleLabel = renderHudLabel(hud.font, paletteTitle.asCStringSlice(), hudWhite())
+    hud.activeColorTitleLabel = renderHudLabel(hud.toolFont, activeColorTitle.asCStringSlice(), hudWhite())
+    hud.gridTitleLabel = renderHudLabel(hud.toolFont, gridTitle.asCStringSlice(), hudWhite())
+    hud.gridMinusLabel = renderHudLabel(hud.font, gridMinus.asCStringSlice(), hudWhite())
+    hud.gridPlusLabel = renderHudLabel(hud.font, gridPlus.asCStringSlice(), hudWhite())
+    hud.gridResetLabel = renderHudLabel(hud.toolFont, gridReset.asCStringSlice(), hudWhite())
+    for toolIndex in 0..TOOLBAR_TOOLS.count {
+        let name = CString(value: toolName(TOOLBAR_TOOLS[toolIndex]))
+        hud.toolbarLabels[toolIndex] = renderHudLabel(hud.toolFont, name.asCStringSlice(), hudWhite())
+    }
+    return hud
+}
+
+func toolbarToolAt(x: Float32, y: Float32) -> Tool? {
+    if x < HUD_TOOL_BUTTON_X || x >= HUD_TOOL_BUTTON_X + HUD_TOOL_BUTTON_SIZE || y < HUD_TOOL_BUTTON_Y {
+        return nil
+    }
+    let toolIndex = Int((y - HUD_TOOL_BUTTON_Y) / HUD_TOOL_BUTTON_STEP)
+    if toolIndex < 0 || toolIndex >= TOOLBAR_TOOLS.count {
+        return nil
+    }
+    let buttonY = HUD_TOOL_BUTTON_Y + Float32(toolIndex) * HUD_TOOL_BUTTON_STEP
+    if y >= buttonY + HUD_TOOL_BUTTON_SIZE {
+        return nil
+    }
+    return TOOLBAR_TOOLS[toolIndex]
+}
+
+func pointIsOverHud(x: Float32, y: Float32) -> Bool {
+    return x < HUD_TOOLBAR_WIDTH || x >= Float32(WINDOW_WIDTH) - HUD_RIGHT_PANEL_WIDTH || y < HUD_TOP_HEIGHT
+}
+
+func paletteColorAt(x: Float32, y: Float32) -> Int? {
+    let panelX = Float32(WINDOW_WIDTH) - HUD_RIGHT_PANEL_WIDTH
+    let localX = x - panelX - HUD_PALETTE_X_INSET
+    let localY = y - HUD_PALETTE_Y
+    if localX < 0.0 || localY < 0.0 {
+        return nil
+    }
+    let column = Int(localX / HUD_PALETTE_SWATCH_STEP)
+    let row = Int(localY / HUD_PALETTE_SWATCH_STEP)
+    if column < 0 || column >= HUD_PALETTE_COLUMNS || row < 0 || row >= HUD_PALETTE_ROWS {
+        return nil
+    }
+    if localX - Float32(column) * HUD_PALETTE_SWATCH_STEP >= HUD_PALETTE_SWATCH_SIZE ||
+        localY - Float32(row) * HUD_PALETTE_SWATCH_STEP >= HUD_PALETTE_SWATCH_SIZE {
+        return nil
+    }
+    let colorIndex = row * HUD_PALETTE_COLUMNS + column
+    if colorIndex >= PALETTE_COUNT {
+        return nil
+    }
+    return colorIndex
+}
+
+// Returns -1 for lower, +1 for raise, and 0 for reset.
+func gridHeightControlAt(x: Float32, y: Float32) -> Int32? {
+    let panelX = Float32(WINDOW_WIDTH) - HUD_RIGHT_PANEL_WIDTH
+    if y < HUD_GRID_CONTROLS_Y || y >= HUD_GRID_CONTROLS_Y + 44.0 {
+        return nil
+    }
+    if x >= panelX + 20.0 && x < panelX + 64.0 {
+        return -1
+    }
+    if x >= panelX + 80.0 && x < panelX + 124.0 {
+        return 1
+    }
+    if x >= panelX + 140.0 && x < panelX + 196.0 {
+        return 0
+    }
+    return nil
+}
+
+func hudWhite() -> SDL3.Color {
+    return SDL3.Color(r: 235, g: 240, b: 245, a: 255)
+}
+
+func refreshToolLabel(hud: &Hud, tool: Tool) {
+    destroyHudLabel(hud.toolLabel)
+    let message = CString(value: "Tool: ${toolName(tool)}")
+    hud.toolLabel = renderHudLabel(hud.font, message.asCStringSlice(), hudWhite())
+}
+
+func refreshGridHeightLabel(hud: &Hud, height: Int32) {
+    destroyHudLabel(hud.gridHeightLabel)
+    let message = CString(value: "Grid Y: ${height}")
+    hud.gridHeightLabel = renderHudLabel(hud.font, message.asCStringSlice(), hudWhite())
+}
+
+func drawHud(hud: *Hud, screenWidth: Int32, screenHeight: Int32, activeTool: Tool, activeColorIndex: Int) {
+    let projection = Matrix4.orthographic(
+        left: 0.0,
+        right: Float32(screenWidth),
+        bottom: Float32(screenHeight),
+        top: 0.0,
+        near: -1.0,
+        far: 1.0)
+
+    OpenGL.disable(OpenGL.DEPTH_TEST)
+    OpenGL.enable(OpenGL.BLEND)
+    OpenGL.blendFunc(OpenGL.SRC_ALPHA, OpenGL.ONE_MINUS_SRC_ALPHA)
+
+    // Match Pixel Studio's application bar and clickable left tool rail.
+    drawHudRect(hud.solidShader, hud.quadBuffer, 0.0, 0.0, Float32(screenWidth), HUD_TOP_HEIGHT, 0.14, 0.16, 0.21, 0.98, projection)
+    drawHudRect(hud.solidShader, hud.quadBuffer, 0.0, HUD_TOP_HEIGHT, HUD_TOOLBAR_WIDTH, Float32(screenHeight) - HUD_TOP_HEIGHT, 0.125, 0.14, 0.185, 0.98, projection)
+    let panelX = Float32(screenWidth) - HUD_RIGHT_PANEL_WIDTH
+    drawHudRect(hud.solidShader, hud.quadBuffer, panelX, HUD_TOP_HEIGHT, HUD_RIGHT_PANEL_WIDTH, Float32(screenHeight) - HUD_TOP_HEIGHT, 0.125, 0.14, 0.185, 0.98, projection)
+    drawHudLabel(hud.textShader, hud.quadBuffer, hud.titleLabel, 16.0, 15.0, projection)
+    drawHudLabel(hud.textShader, hud.quadBuffer, hud.toolLabel, 190.0, 15.0, projection)
+    drawHudLabel(hud.textShader, hud.quadBuffer, hud.gridHeightLabel, 390.0, 15.0, projection)
+
+    for toolIndex in 0..TOOLBAR_TOOLS.count {
+        let tool = TOOLBAR_TOOLS[toolIndex]
+        let x = HUD_TOOL_BUTTON_X
+        let y = HUD_TOOL_BUTTON_Y + Float32(toolIndex) * HUD_TOOL_BUTTON_STEP
+        if tool == activeTool {
+            drawHudRect(hud.solidShader, hud.quadBuffer, x, y, HUD_TOOL_BUTTON_SIZE, HUD_TOOL_BUTTON_SIZE, 0.235, 0.28, 0.375, 1.0, projection)
+            drawHudOutline(hud.solidShader, hud.quadBuffer, x, y, HUD_TOOL_BUTTON_SIZE, HUD_TOOL_BUTTON_SIZE, 0.43, 0.66, 1.0, projection)
+        } else {
+            drawHudRect(hud.solidShader, hud.quadBuffer, x, y, HUD_TOOL_BUTTON_SIZE, HUD_TOOL_BUTTON_SIZE, 0.16, 0.18, 0.23, 1.0, projection)
+        }
+        let label = hud.toolbarLabels[toolIndex]
+        drawHudLabel(hud.textShader, hud.quadBuffer, label, x + (HUD_TOOL_BUTTON_SIZE - label.width) * 0.5, y + (HUD_TOOL_BUTTON_SIZE - label.height) * 0.5, projection)
+    }
+
+    drawHudLabel(hud.textShader, hud.quadBuffer, hud.paletteTitleLabel, panelX + 20.0, HUD_TOP_HEIGHT + 18.0, projection)
+    for colorIndex in 0..PALETTE_COUNT {
+        let column = colorIndex % HUD_PALETTE_COLUMNS
+        let row = colorIndex / HUD_PALETTE_COLUMNS
+        let x = panelX + HUD_PALETTE_X_INSET + Float32(column) * HUD_PALETTE_SWATCH_STEP
+        let y = HUD_PALETTE_Y + Float32(row) * HUD_PALETTE_SWATCH_STEP
+        let color = PALETTE[colorIndex]
+        drawHudRect(hud.solidShader, hud.quadBuffer, x, y, HUD_PALETTE_SWATCH_SIZE, HUD_PALETTE_SWATCH_SIZE, color.x, color.y, color.z, 1.0, projection)
+        if colorIndex == activeColorIndex {
+            drawHudOutline(hud.solidShader, hud.quadBuffer, x - 3.0, y - 3.0, 40.0, 40.0, 1.0, 1.0, 1.0, projection)
+        }
+    }
+    drawHudLabel(hud.textShader, hud.quadBuffer, hud.activeColorTitleLabel, panelX + 20.0, HUD_TOP_HEIGHT + 202.0, projection)
+    let activeColor = PALETTE[activeColorIndex]
+    drawHudRect(hud.solidShader, hud.quadBuffer, panelX + 20.0, HUD_ACTIVE_COLOR_Y, 166.0, 72.0, activeColor.x, activeColor.y, activeColor.z, 1.0, projection)
+    drawHudOutline(hud.solidShader, hud.quadBuffer, panelX + 20.0, HUD_ACTIVE_COLOR_Y, 166.0, 72.0, 0.35, 0.38, 0.46, projection)
+
+    drawHudLabel(hud.textShader, hud.quadBuffer, hud.gridTitleLabel, panelX + 20.0, HUD_TOP_HEIGHT + 356.0, projection)
+    drawHudRect(hud.solidShader, hud.quadBuffer, panelX + 20.0, HUD_GRID_CONTROLS_Y, 44.0, 44.0, 0.16, 0.18, 0.23, 1.0, projection)
+    drawHudRect(hud.solidShader, hud.quadBuffer, panelX + 80.0, HUD_GRID_CONTROLS_Y, 44.0, 44.0, 0.16, 0.18, 0.23, 1.0, projection)
+    drawHudRect(hud.solidShader, hud.quadBuffer, panelX + 140.0, HUD_GRID_CONTROLS_Y, 56.0, 44.0, 0.16, 0.18, 0.23, 1.0, projection)
+    drawHudLabel(hud.textShader, hud.quadBuffer, hud.gridMinusLabel, panelX + 20.0 + (44.0 - hud.gridMinusLabel.width) * 0.5, HUD_GRID_CONTROLS_Y + (44.0 - hud.gridMinusLabel.height) * 0.5, projection)
+    drawHudLabel(hud.textShader, hud.quadBuffer, hud.gridPlusLabel, panelX + 80.0 + (44.0 - hud.gridPlusLabel.width) * 0.5, HUD_GRID_CONTROLS_Y + (44.0 - hud.gridPlusLabel.height) * 0.5, projection)
+    drawHudLabel(hud.textShader, hud.quadBuffer, hud.gridResetLabel, panelX + 140.0 + (56.0 - hud.gridResetLabel.width) * 0.5, HUD_GRID_CONTROLS_Y + (44.0 - hud.gridResetLabel.height) * 0.5, projection)
+    drawHudLabel(hud.textShader, hud.quadBuffer, hud.helpLabel, 16.0, Float32(screenHeight) - 30.0, projection)
+
+    OpenGL.enable(OpenGL.DEPTH_TEST)
+    OpenGL.disable(OpenGL.BLEND)
+}

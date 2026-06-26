@@ -1,0 +1,149 @@
+// Road Fighter - a vertical-scrolling checkpoint racer in the classic NES
+// mould: race four courses against a draining fuel tank, threading through
+// traffic at up to 400 km/h. Brushing a car throws you into a slide you can
+// counter-steer out of; trucks and the guard rails wreck you outright.
+// Touch the flashing multicoloured car for extra fuel, cross the finish
+// line before the tank runs dry, and bank a fuel bonus (plus a perfect-run
+// bonus if you never crashed).
+//
+// Controls:
+//   Left / A , Right / D   - steer
+//   Up / X                 - accelerator (high gear, tops out at 400 km/h)
+//   Z / Left Shift         - low gear (pulls away faster, tops out at 192)
+//   Down                   - brake
+//   P                      - pause / resume
+//   R                      - restart after game over
+//   Escape / close         - quit
+
+import Standard.*
+import SDL3
+
+struct Held {
+    var left: Bool
+    var right: Bool
+    var accelHi: Bool
+    var accelLo: Bool
+    var brake: Bool
+}
+
+var held = Held(left: false, right: false, accelHi: false, accelLo: false, brake: false)
+
+func setHeld(scancode: SDL3.Scancode, pressed: Bool, edge: &InputEdge) {
+    if scancode == SDL3.Scancode.left || scancode == SDL3.Scancode.a {
+        held.left = pressed
+    } else if scancode == SDL3.Scancode.right || scancode == SDL3.Scancode.d {
+        held.right = pressed
+    } else if scancode == SDL3.Scancode.up || scancode == SDL3.Scancode.x {
+        held.accelHi = pressed
+    } else if scancode == SDL3.Scancode.z || scancode == SDL3.Scancode.lshift {
+        held.accelLo = pressed
+    } else if scancode == SDL3.Scancode.down {
+        held.brake = pressed
+    } else if pressed && scancode == SDL3.Scancode.p {
+        edge.pause = true
+    } else if pressed && scancode == SDL3.Scancode.r {
+        edge.restart = true
+    }
+}
+
+func handleEvent(event: SDL3.Event, edge: &InputEdge) -> Bool {
+    if event.type == SDL3.EventType.quit {
+        return false
+    }
+
+    if event.type == SDL3.EventType.keyDown && event.down {
+        setHeld(event.scancode, true, edge)
+        if event.scancode == SDL3.Scancode.escape {
+            return false
+        }
+    }
+
+    if event.type == SDL3.EventType.keyUp {
+        setHeld(event.scancode, false, edge)
+    }
+
+    return true
+}
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var game = makeGame()
+var running = true
+var perfFreq: UInt64 = 1
+var lastCounter: UInt64 = 0
+
+func shutdown() {
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    Console.printLine("Road Fighter finished.")
+}
+
+func mainLoop() {
+    var edge = makeInputEdge()
+
+    var event = SDL3.Event()
+    while SDL3.pollEvent(&event) {
+        if !handleEvent(event, &edge) {
+            running = false
+        }
+    }
+
+    edge.moveLeft = held.left
+    edge.moveRight = held.right
+    edge.accelHi = held.accelHi
+    edge.accelLo = held.accelLo
+    edge.brake = held.brake
+
+    let counter = SDL3.getPerformanceCounter()
+    var deltaTime = Float32(counter - lastCounter) / Float32(perfFreq)
+    lastCounter = counter
+    if deltaTime > 0.05 {
+        deltaTime = 0.05
+    }
+
+    if !running {
+        shutdown()
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    game.update(edge, deltaTime)
+    drawGame(renderer, *game)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune SDL3 - Road Fighter", WIDTH, HEIGHT, 0, &window, &renderer) {
+        Console.printLine("SDL_CreateWindowAndRenderer failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.setRenderVSync(renderer, 1) {
+        Console.printLine("SDL_SetRenderVSync failed: ${SDL3.getError()!}")
+    }
+
+    game = makeGame()
+    running = true
+    perfFreq = SDL3.getPerformanceFrequency()
+    lastCounter = SDL3.getPerformanceCounter()
+
+    Console.printLine("Road Fighter - Left/Right or A/D steer, Up/X accel, Z low gear, Down brake, P pause, R restart.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+
+    return 0
+}

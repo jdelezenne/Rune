@@ -1,0 +1,51 @@
+/// Opaque platform condition variable handle.
+public distinct ConditionVariableHandle
+
+/// Parking/wakeup primitive paired with shared state protected by a mutex.
+@builtin
+public struct ConditionVariable {
+    /// Handle suitable for passing to native FFI callbacks.
+    public nativeHandle: *ConditionVariableHandle? {
+        @runtime("rune_runtime_condition_variable_native_handle")
+        get
+    }
+
+    /// Creates a new condition variable.
+    @runtime("rune_runtime_condition_variable_create")
+    public init()
+
+    /// Releases the condition variable when the value is destroyed.
+    @runtime("rune_runtime_condition_variable_destroy")
+    final()
+
+    /// Waits for a notification, atomically releasing and reacquiring `mutexGuard`'s mutex.
+    public mutating func wait(mutexGuard: &MutexGuard) {
+        mutexGuard.wait(condition: &self)
+    }
+
+    /// Waits while `condition` returns true.
+    public mutating func waitWhile(mutexGuard: &MutexGuard, condition: () -> Bool) {
+        while condition() {
+            self.wait(mutexGuard: mutexGuard)
+        }
+    }
+
+    /// Waits until `condition` returns true.
+    public mutating func waitUntil(mutexGuard: &MutexGuard, condition: () -> Bool) {
+        while !condition() {
+            self.wait(mutexGuard: mutexGuard)
+        }
+    }
+
+    /// Wakes one waiting thread.
+    @runtime("rune_runtime_condition_variable_notify_one")
+    public mutating func notifyOne()
+
+    /// Wakes all waiting threads.
+    @runtime("rune_runtime_condition_variable_notify_all")
+    public mutating func notifyAll()
+
+    /// Releases platform resources and clears the handle.
+    @runtime("rune_runtime_condition_variable_destroy")
+    public mutating func release()
+}

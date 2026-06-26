@@ -1,0 +1,208 @@
+import Standard.*
+import SDL3
+import SDL3_ttf
+import OpenGL
+
+const HUD_FONT_RESOURCE: String = "DejaVuSansMono.ttf"
+const HUD_FONT_SIZE: Float32 = 20.0
+const HUD_BANNER_FONT_SIZE: Float32 = 34.0
+
+@layout(kind: c)
+struct HudVertex {
+    var x: Float32
+    var y: Float32
+}
+
+struct HudProgram {
+    var handle: OpenGL.GLuint
+    var position: OpenGL.GLuint
+    var rect: OpenGL.GLint
+    var projection: OpenGL.GLint
+    var texture: OpenGL.GLint
+}
+
+struct HudLabel {
+    var texture: OpenGL.GLuint
+    var width: Float32
+    var height: Float32
+}
+
+struct Hud {
+    var font: &SDL3_ttf.Font?
+    var bannerFont: &SDL3_ttf.Font?
+    var program: HudProgram
+    var vertexArray: OpenGL.GLuint
+    var quad: OpenGL.GLuint
+    var status: HudLabel
+    var controls: HudLabel
+    var gameOver: HudLabel
+}
+
+let hudVertexShader: String = """
+#ifdef GL_ES
+precision highp float;
+#endif
+in vec2 position;
+uniform vec4 rect;
+uniform mat4 projection;
+out vec2 texCoord;
+void main() {
+    vec2 point = vec2(rect.x + position.x * rect.z, rect.y + position.y * rect.w);
+    gl_Position = projection * vec4(point, 0.0, 1.0);
+    texCoord = position;
+}
+"""
+
+let hudFragmentShader: String = """
+#ifdef GL_ES
+precision mediump float;
+#endif
+in vec2 texCoord;
+uniform sampler2D fontTexture;
+out vec4 fragmentColor;
+void main() {
+    fragmentColor = texture(fontTexture, texCoord);
+}
+"""
+
+func buildHudProgram() -> HudProgram {
+    let vertex = compileStage(OpenGL.VERTEX_SHADER, hudVertexShader)
+    let fragment = compileStage(OpenGL.FRAGMENT_SHADER, hudFragmentShader)
+    let handle = OpenGL.createProgram()
+    OpenGL.attachShader(handle, vertex)
+    OpenGL.attachShader(handle, fragment)
+    OpenGL.linkProgram(handle)
+    var status: Int32 = 0
+    OpenGL.getProgramiv(handle, OpenGL.LINK_STATUS, &status)
+    if status == 0 { Console.printLine("Asteroid Strike HUD shader linking failed") }
+    return HudProgram(
+        handle: handle,
+        position: OpenGL.getAttribLocation(handle, "position") as! UInt32,
+        rect: OpenGL.getUniformLocation(handle, "rect"),
+        projection: OpenGL.getUniformLocation(handle, "projection"),
+        texture: OpenGL.getUniformLocation(handle, "fontTexture"))
+}
+
+func buildHudQuad() -> OpenGL.GLuint {
+    var vertices: [HudVertex, 6] = [
+        HudVertex(x: 0.0, y: 0.0), HudVertex(x: 1.0, y: 0.0), HudVertex(x: 1.0, y: 1.0),
+        HudVertex(x: 0.0, y: 0.0), HudVertex(x: 1.0, y: 1.0), HudVertex(x: 0.0, y: 1.0),
+    ]
+    var buffer: OpenGL.GLuint = 0
+    OpenGL.genBuffers(1, &buffer)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, buffer)
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, 6 * 8, vertices.bytes as *Byte, OpenGL.STATIC_DRAW)
+    return buffer
+}
+
+func emptyHudLabel() -> HudLabel {
+    return HudLabel(texture: 0, width: 0.0, height: 0.0)
+}
+
+func destroyHudLabel(label: HudLabel) {
+    if label.texture == 0 { return }
+    var texture = label.texture
+    OpenGL.deleteTextures(1, &texture)
+}
+
+func makeHudLabel(font: &SDL3_ttf.Font?, message: CStringSlice, color: SDL3.Color) -> HudLabel {
+    let surface = SDL3_ttf.renderTextBlended(font, message, 0, color)
+    if surface == nil {
+        Console.printLine("TTF_RenderText_Blended failed: ${SDL3.getError()!}")
+        return emptyHudLabel()
+    }
+    let converted = SDL3.convertSurface(surface, SDL3.PixelFormat.abgr8888)
+    SDL3.destroySurface(surface)
+    if converted == nil {
+        Console.printLine("HUD surface conversion failed: ${SDL3.getError()!}")
+        return emptyHudLabel()
+    }
+    var texture: OpenGL.GLuint = 0
+    OpenGL.genTextures(1, &texture)
+    OpenGL.bindTexture(OpenGL.TEXTURE_2D, texture)
+    OpenGL.pixelStorei(OpenGL.UNPACK_ALIGNMENT, 1)
+    OpenGL.texImage2D(OpenGL.TEXTURE_2D, 0, OpenGL.RGBA as! OpenGL.GLint,
+        converted!.w, converted!.h, 0, OpenGL.RGBA, OpenGL.UNSIGNED_BYTE, converted!.pixels!)
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_MIN_FILTER, OpenGL.LINEAR as! OpenGL.GLint)
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_MAG_FILTER, OpenGL.LINEAR as! OpenGL.GLint)
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_WRAP_S, OpenGL.CLAMP_TO_EDGE as! OpenGL.GLint)
+    OpenGL.texParameteri(OpenGL.TEXTURE_2D, OpenGL.TEXTURE_WRAP_T, OpenGL.CLAMP_TO_EDGE as! OpenGL.GLint)
+    let label = HudLabel(texture: texture, width: Float32(converted!.w), height: Float32(converted!.h))
+    SDL3.destroySurface(converted)
+    return label
+}
+
+func hudColor() -> SDL3.Color {
+    return SDL3.Color(r: 175, g: 235, b: 255, a: 255)
+}
+
+func buildHud() -> Hud {
+    let fontPath = (Application.resourcesDirectory / HUD_FONT_RESOURCE).toString()
+    let fontPathCString = CString(value: fontPath)
+    let font = SDL3_ttf.openFont(fontPathCString.asCStringSlice(), HUD_FONT_SIZE)
+    let bannerFont = SDL3_ttf.openFont(fontPathCString.asCStringSlice(), HUD_BANNER_FONT_SIZE)
+    if font == nil || bannerFont == nil {
+        Console.printLine("TTF_OpenFont failed for ${fontPath}: ${SDL3.getError()!}")
+    }
+    let controlsText = CString(value: "ARROWS STEER   A/D BANK   W/S THRUST/BRAKE   MOUSE/SPACE FIRE")
+    let gameOverText = CString(value: "GAME OVER - PRESS R TO RESTART")
+    var vertexArray: OpenGL.GLuint = 0
+    OpenGL.genVertexArrays(1, &vertexArray)
+    OpenGL.bindVertexArray(vertexArray)
+    return Hud(
+        font: font, bannerFont: bannerFont,
+        program: buildHudProgram(), vertexArray: vertexArray, quad: buildHudQuad(), status: emptyHudLabel(),
+        controls: makeHudLabel(font, controlsText.asCStringSlice(), SDL3.Color(r: 120, g: 150, b: 175, a: 255)),
+        gameOver: makeHudLabel(bannerFont, gameOverText.asCStringSlice(), SDL3.Color(r: 255, g: 170, b: 75, a: 255)))
+}
+
+func refreshStatusLabel(hud: &Hud, game: *Game) {
+    destroyHudLabel(hud.status)
+    let speed = Int32(game.ship.velocity.length())
+    let text = CString(value: "SCORE ${game.score}   LIVES ${game.lives}   WAVE ${game.wave}   SPEED ${speed}")
+    hud.status = makeHudLabel(hud.font, text.asCStringSlice(), hudColor())
+}
+
+func drawHudLabel(hud: *Hud, label: HudLabel, x: Float32, y: Float32, projection: Matrix4) {
+    if label.texture == 0 { return }
+    OpenGL.bindVertexArray(hud.vertexArray)
+    OpenGL.useProgram(hud.program.handle)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, hud.quad)
+    OpenGL.enableVertexAttribArray(hud.program.position)
+    OpenGL.vertexAttribPointer(hud.program.position, 2, OpenGL.FLOAT, OpenGL.FALSE, 8, 0 as *Byte)
+    OpenGL.bindTexture(OpenGL.TEXTURE_2D, label.texture)
+    OpenGL.uniform1i(hud.program.texture, 0)
+    OpenGL.uniform4f(hud.program.rect, x, y, label.width, label.height)
+    var projectionCopy = projection
+    OpenGL.uniformMatrix4fv(hud.program.projection, 1, OpenGL.FALSE, projectionCopy.m.bytes as *OpenGL.GLfloat)
+    OpenGL.drawArrays(OpenGL.TRIANGLES, 0, 6)
+}
+
+func drawHud(hud: *Hud, width: Int32, height: Int32, showGameOver: Bool) {
+    let projection = Matrix4.orthographic(left: 0.0, right: Float32(width),
+        bottom: Float32(height), top: 0.0, near: -1.0, far: 1.0)
+    OpenGL.disable(OpenGL.DEPTH_TEST)
+    OpenGL.enable(OpenGL.BLEND)
+    OpenGL.blendFunc(OpenGL.SRC_ALPHA, OpenGL.ONE_MINUS_SRC_ALPHA)
+    drawHudLabel(hud, hud.status, 18.0, 14.0, projection)
+    drawHudLabel(hud, hud.controls, 18.0, Float32(height) - hud.controls.height - 14.0, projection)
+    if showGameOver {
+        drawHudLabel(hud, hud.gameOver,
+            (Float32(width) - hud.gameOver.width) * 0.5,
+            (Float32(height) - hud.gameOver.height) * 0.5, projection)
+    }
+    OpenGL.disable(OpenGL.BLEND)
+    OpenGL.enable(OpenGL.DEPTH_TEST)
+}
+
+func destroyHud(hud: &Hud) {
+    destroyHudLabel(hud.status)
+    destroyHudLabel(hud.controls)
+    destroyHudLabel(hud.gameOver)
+    var quad = hud.quad
+    OpenGL.deleteBuffers(1, &quad)
+    OpenGL.deleteVertexArrays(1, &hud.vertexArray)
+    OpenGL.deleteProgram(hud.program.handle)
+    SDL3_ttf.closeFont(hud.font)
+    SDL3_ttf.closeFont(hud.bannerFont)
+}

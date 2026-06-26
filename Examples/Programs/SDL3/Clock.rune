@@ -1,0 +1,199 @@
+// Animated SDL3 graphics demo: an analog clock face, in the spirit of
+// the classic X11 "xclock" utility. Shows the current UTC time (there is
+// no OS local-time lookup exposed to Rune yet).
+//
+// Controls:
+//   Close - quit
+
+import Standard.*
+import SDL3
+
+let windowW: Float32 = 360.0
+let windowH: Float32 = 400.0
+let centerX: Float32 = 180.0
+let centerY: Float32 = 176.0
+let faceRadius: Float32 = 150.0
+
+const TAU_F: Float32 = 6.2831855
+const CIRCLE_MAX_SEGMENTS: Int32 = 192
+const CIRCLE_MAX_VERTICES: Int32 = CIRCLE_MAX_SEGMENTS * 3
+
+func makeColorVertex(x: Float32, y: Float32, red: Float32, green: Float32, blue: Float32, alpha: Float32) -> SDL3.Vertex {
+    return SDL3.Vertex(
+        position: SDL3.FPoint(x: x, y: y),
+        color: SDL3.FColor(r: red / 255.0, g: green / 255.0, b: blue / 255.0, a: alpha),
+        texCoord: SDL3.FPoint(x: 0.0, y: 0.0))
+}
+
+// Segment count scaled to radius so a big disk stays smooth (sub-pixel facets)
+// without wasting vertices on tiny ones.
+func circleSegments(radius: Float32) -> Int32 {
+    var segments = Int32(radius)
+    if segments < 16 {
+        segments = 16
+    }
+    if segments > CIRCLE_MAX_SEGMENTS {
+        segments = CIRCLE_MAX_SEGMENTS
+    }
+    return segments
+}
+
+// A solid disk drawn as one triangle fan via renderGeometry. Unlike stacking
+// horizontal renderLine scanlines, a fan has no inter-row seams (nothing shows
+// through) and a clean curved edge.
+func drawFilledCircle(renderer: &SDL3.Renderer?, cx: Float32, cy: Float32, radius: Float32, red: Float32, green: Float32, blue: Float32, alpha: Float32) {
+    let segments = circleSegments(radius)
+    var vertices: [SDL3.Vertex, CIRCLE_MAX_VERTICES] = []
+    var vertexCount: Int32 = 0
+    for i in 0..segments {
+        let angle0 = Float32(i) / Float32(segments) * TAU_F
+        let angle1 = Float32(i + 1) / Float32(segments) * TAU_F
+        vertices[Int(vertexCount)] = makeColorVertex(cx, cy, red, green, blue, alpha)
+        vertices[Int(vertexCount + 1)] = makeColorVertex(cx + Math.cos(angle0) * radius, cy + Math.sin(angle0) * radius, red, green, blue, alpha)
+        vertices[Int(vertexCount + 2)] = makeColorVertex(cx + Math.cos(angle1) * radius, cy + Math.sin(angle1) * radius, red, green, blue, alpha)
+        vertexCount = vertexCount + 3
+    }
+
+    SDL3.renderGeometry(renderer, nil, ((vertices.bytes) as &SDL3.Vertex), vertexCount, nil, 0)
+}
+
+func angleForFraction(fraction: Float32) -> Float32 {
+    return fraction * Float32(Math.TAU) - Float32(Math.PI) / 2.0
+}
+
+func drawTicks(renderer: &SDL3.Renderer?) {
+    var i = 0
+    while i < 12 {
+        let angle = angleForFraction(Float32(i) / 12.0)
+        let outer = faceRadius - 8.0
+        let inner = faceRadius - 24.0
+        let x1 = centerX + Math.cos(angle) * inner
+        let y1 = centerY + Math.sin(angle) * inner
+        let x2 = centerX + Math.cos(angle) * outer
+        let y2 = centerY + Math.sin(angle) * outer
+        SDL3.renderLine(renderer, x1, y1, x2, y2)
+        i = i + 1
+    }
+}
+
+func drawHand(renderer: &SDL3.Renderer?, angle: Float32, length: Float32, thickness: Float32) {
+    let perpX = -Math.sin(angle)
+    let perpY = Math.cos(angle)
+    let tipX = centerX + Math.cos(angle) * length
+    let tipY = centerY + Math.sin(angle) * length
+
+    var offset: Float32 = -thickness
+    while offset <= thickness {
+        SDL3.renderLine(
+            renderer,
+            centerX + perpX * offset,
+            centerY + perpY * offset,
+            tipX + perpX * offset,
+            tipY + perpY * offset)
+        offset = offset + 1.0
+    }
+}
+
+func pad2(value: Int) -> String {
+    if value < 10 {
+        return "0${value}"
+    }
+    return "${value}"
+}
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var event = SDL3.Event()
+var running = true
+
+func mainLoop() {
+    while SDL3.pollEvent(&event) {
+        if event.type == SDL3.EventType.quit {
+            running = false
+        }
+    }
+
+    if !running {
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        Console.printLine("Clock finished.")
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    let now = SystemTime.now()
+    let daySeconds = Math.fmod(now.secondsSinceUnixEpoch, 86400.0)
+    let hourF = Math.fmod(daySeconds / 3600.0, 12.0)
+    let minuteF = Math.fmod(daySeconds / 60.0, 60.0)
+    let secondF = Math.fmod(daySeconds, 60.0)
+
+    let hour24 = Int(Math.fmod(daySeconds / 3600.0, 24.0))
+    let minute = Int(minuteF)
+    let second = Int(secondF)
+
+    SDL3.setRenderDrawColor(renderer, 24, 26, 32, 255)
+    SDL3.renderClear(renderer)
+
+    // Dark rim as a disk behind the face, so the outline is a clean ring.
+    drawFilledCircle(renderer, centerX, centerY, faceRadius, 30.0, 30.0, 34.0, 1.0)
+    drawFilledCircle(renderer, centerX, centerY, faceRadius - 3.0, 245.0, 243.0, 235.0, 1.0)
+    SDL3.setRenderDrawColor(renderer, 30, 30, 34, 255)
+    drawTicks(renderer)
+
+    let hourAngle = angleForFraction(Float32(hourF) / 12.0)
+    let minuteAngle = angleForFraction(Float32(minuteF) / 60.0)
+    let secondAngle = angleForFraction(Float32(secondF) / 60.0)
+
+    SDL3.setRenderDrawColor(renderer, 30, 30, 34, 255)
+    drawHand(renderer, hourAngle, faceRadius * 0.5, 2.0)
+    drawHand(renderer, minuteAngle, faceRadius * 0.72, 1.0)
+    SDL3.setRenderDrawColor(renderer, 200, 60, 50, 255)
+    drawHand(renderer, secondAngle, faceRadius * 0.85, 0.0)
+
+    drawFilledCircle(renderer, centerX, centerY, 4.0, 30.0, 30.0, 34.0, 1.0)
+
+    let readout = CString("${pad2(hour24)}:${pad2(minute)}:${pad2(second)} UTC")
+    SDL3.setRenderDrawColor(renderer, 220, 220, 225, 255)
+    SDL3.renderDebugText(renderer, centerX - 30.0, windowH - 30.0, readout.asCStringSlice())
+
+    SDL3.renderPresent(renderer)
+    SDL3.delay(16)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_Init failed")
+        } else {
+            Console.printLine("SDL_Init failed: ${message!}")
+        }
+
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Clock", 360, 400, 0, &window, &renderer) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_CreateWindowAndRenderer failed")
+        } else {
+            Console.printLine("SDL_CreateWindowAndRenderer failed: ${message!}")
+        }
+        SDL3.quit()
+        return 1
+    }
+
+    Console.printLine("Clock: close the window to exit.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

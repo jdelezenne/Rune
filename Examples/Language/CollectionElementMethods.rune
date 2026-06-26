@@ -1,0 +1,47 @@
+// Calling methods and accessing fields directly on a collection element.
+//
+// `arr[i].method()` reads the element in place. Previously the enclosing scope's
+// cleanup (e.g. destroying the array) could be emitted before the return
+// expression that indexed it; the element access must keep the container alive
+// until the expression has been evaluated.
+
+struct Point {
+    var x: Int
+    var y: Int
+    func sum() -> Int {
+        return x + y
+    }
+}
+
+func first(points: Array<Point>) -> Int {
+    // Method call directly on a subscript result.
+    return points[0].sum()
+}
+
+func main() -> Int {
+    var points: Array<Point> = [Point(x: 1, y: 2), Point(x: 10, y: 20)]
+
+    // Field read directly on a subscript result.
+    if points[0].x != 1 {
+        return 1
+    }
+
+    // Method call directly on a subscript result.
+    if points[1].sum() != 30 {
+        return 2
+    }
+
+    // Field write through a subscript, then read back.
+    points[0].x = 100
+    if points[0].x != 100 {
+        return 3
+    }
+
+    // Subscript access inside a larger (binary) return expression, passed
+    // through a call that consumes the array.
+    if first(points) != 102 {   // 100 + 2
+        return 4
+    }
+
+    return 0
+}

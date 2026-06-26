@@ -1,0 +1,174 @@
+import Standard.*
+
+const WIDTH: Int32 = 800
+const HEIGHT: Int32 = 600
+
+const MAX_ASTEROIDS: Int = 48
+const MAX_BULLETS: Int = 12
+const MAX_PARTICLES: Int = 160
+const MAX_VERTICES: Int = 36
+const STAR_COUNT: Int = 120
+
+const SHIP_ROT_SPEED: Float32 = 4.2
+const SHIP_THRUST: Float32 = 340.0
+const SHIP_DRAG: Float32 = 0.992
+const SHIP_MAX_SPEED: Float32 = 460.0
+const BULLET_SPEED: Float32 = 560.0
+const BULLET_LIFE: Float32 = 1.1
+const FIRE_COOLDOWN: Float32 = 0.18
+const HYPERSPACE_COOLDOWN: Float32 = 2.5
+const INVULN_TIME: Float32 = 2.0
+const TRAILS_ENABLED: Bool = false
+const TRAIL_FADE_ALPHA: UInt8 = 22
+
+const DIGIT_COLS: Int = 5
+const DIGIT_ROWS: Int = 7
+const HUD_PIXEL: Float32 = 3.0
+const HUD_GAP: Float32 = 2.0
+
+const AUDIO_RATE: Int32 = 11025
+const AUDIO_FADE: Int = 180
+const AUDIO_AMP: Float32 = 9000.0
+const TAU_F: Float32 = 6.2831855
+struct Rng {
+    var state: UInt32
+}
+
+struct Star {
+    var x: Float32
+    var y: Float32
+    var speed: Float32
+    var brightness: UInt8
+}
+
+struct Ship {
+    var x: Float32
+    var y: Float32
+    var vx: Float32
+    var vy: Float32
+    var angle: Float32
+    var alive: Bool
+    var invuln: Float32
+    var fireTimer: Float32
+    var hyperspaceTimer: Float32
+    var thrusting: Bool
+}
+
+struct Bullet {
+    var x: Float32
+    var y: Float32
+    var vx: Float32
+    var vy: Float32
+    var life: Float32
+    var active: Bool
+}
+
+struct Asteroid {
+    var x: Float32
+    var y: Float32
+    var vx: Float32
+    var vy: Float32
+    var angle: Float32
+    var spin: Float32
+    var tier: Int32
+    var alive: Bool
+    var vertexCount: Int32
+    var radii: [Float32, 12]
+}
+
+struct Particle {
+    var x: Float32
+    var y: Float32
+    var vx: Float32
+    var vy: Float32
+    var life: Float32
+    var maxLife: Float32
+    var size: Float32
+    var red: UInt8
+    var green: UInt8
+    var blue: UInt8
+    var active: Bool
+}
+
+struct InputState {
+    var rotateLeft: Bool
+    var rotateRight: Bool
+    var thrust: Bool
+    var fire: Bool
+    var hyperspace: Bool
+    var pause: Bool
+    var quit: Bool
+}
+
+struct AudioPlayback {
+    var started: Bool
+}
+
+struct Game {
+    var ship: Ship
+    var bullets: [Bullet]
+    var asteroids: [Asteroid]
+    var particles: [Particle]
+    var stars: [Star]
+    var score: Int32
+    var lives: Int32
+    var wave: Int32
+    var pendingWave: Bool
+    var paused: Bool
+    var gameOver: Bool
+    var rng: Rng
+    var trailPrimed: Bool
+}
+
+
+func seedRng(rng: &Rng, seed: UInt32) {
+    if seed == 0 {
+        rng.state = 0xC0FFEE01
+    } else {
+        rng.state = seed
+    }
+}
+
+func randUnit(rng: &Rng) -> Float32 {
+    rng.state = rng.state * 1664525 + 1013904223
+    return Float32(rng.state) / 4294967295.0
+}
+
+func randRange(rng: &Rng, low: Float32, high: Float32) -> Float32 {
+    return low + randUnit(rng) * (high - low)
+}
+
+func randInt(rng: &Rng, upperExclusive: Int32) -> Int32 {
+    if upperExclusive <= 0 {
+        return 0
+    }
+
+    return Int32(randUnit(rng) * Float32(upperExclusive))
+}
+
+func wrapCoord(value: Float32, limit: Float32) -> Float32 {
+    var v = value
+    while v < 0.0 {
+        v = v + limit
+    }
+    while v >= limit {
+        v = v - limit
+    }
+
+    return v
+}
+
+func wrapShip(ship: &Ship) {
+    ship.x = wrapCoord(ship.x, Float32(WIDTH))
+    ship.y = wrapCoord(ship.y, Float32(HEIGHT))
+}
+
+func wrapBullet(bullet: &Bullet) {
+    bullet.x = wrapCoord(bullet.x, Float32(WIDTH))
+    bullet.y = wrapCoord(bullet.y, Float32(HEIGHT))
+}
+
+func wrapAsteroid(asteroid: &Asteroid) {
+    asteroid.x = wrapCoord(asteroid.x, Float32(WIDTH))
+    asteroid.y = wrapCoord(asteroid.y, Float32(HEIGHT))
+}

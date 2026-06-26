@@ -1,0 +1,95 @@
+/// View frustum: the six clipping planes (left, right, bottom, top, near, far)
+/// of a camera, with inward-facing normals so a point is inside the frustum
+/// when it lies on the positive side of every plane. Built from a
+/// clip-from-world matrix (projection * view) and used to cull spheres and
+/// boxes against the camera's visible volume.
+public struct Frustum {
+    public var left: Plane
+    public var right: Plane
+    public var bottom: Plane
+    public var top: Plane
+    public var near: Plane
+    public var far: Plane
+
+    /// Extracts the six frustum planes from a clip-from-world matrix
+    /// (`projection * view`) using the Gribb-Hartmann method. Assumes an
+    /// OpenGL-style clip volume with z in [-1, 1] (as produced by
+    /// Matrix4.perspective).
+    public static func fromMatrix(clipFromWorld: Matrix4) -> Frustum {
+        let m0 = clipFromWorld.m[0]
+        let m1 = clipFromWorld.m[1]
+        let m2 = clipFromWorld.m[2]
+        let m3 = clipFromWorld.m[3]
+        let m4 = clipFromWorld.m[4]
+        let m5 = clipFromWorld.m[5]
+        let m6 = clipFromWorld.m[6]
+        let m7 = clipFromWorld.m[7]
+        let m8 = clipFromWorld.m[8]
+        let m9 = clipFromWorld.m[9]
+        let m10 = clipFromWorld.m[10]
+        let m11 = clipFromWorld.m[11]
+        let m12 = clipFromWorld.m[12]
+        let m13 = clipFromWorld.m[13]
+        let m14 = clipFromWorld.m[14]
+        let m15 = clipFromWorld.m[15]
+
+        return Frustum(
+            left:   Frustum.planeFrom(a: m3 + m0, b: m7 + m4, c: m11 + m8, d: m15 + m12),
+            right:  Frustum.planeFrom(a: m3 - m0, b: m7 - m4, c: m11 - m8, d: m15 - m12),
+            bottom: Frustum.planeFrom(a: m3 + m1, b: m7 + m5, c: m11 + m9, d: m15 + m13),
+            top:    Frustum.planeFrom(a: m3 - m1, b: m7 - m5, c: m11 - m9, d: m15 - m13),
+            near:   Frustum.planeFrom(a: m3 + m2, b: m7 + m6, c: m11 + m10, d: m15 + m14),
+            far:    Frustum.planeFrom(a: m3 - m2, b: m7 - m6, c: m11 - m10, d: m15 - m14))
+    }
+
+    /// Whether `point` lies inside the frustum.
+    public func contains(point: Vector3) -> Bool {
+        if left.signedDistance(point: point) < 0.0 { return false }
+        if right.signedDistance(point: point) < 0.0 { return false }
+        if bottom.signedDistance(point: point) < 0.0 { return false }
+        if top.signedDistance(point: point) < 0.0 { return false }
+        if near.signedDistance(point: point) < 0.0 { return false }
+        if far.signedDistance(point: point) < 0.0 { return false }
+        return true
+    }
+
+    /// Whether `sphere` is at least partially inside the frustum.
+    public func intersects(sphere: Sphere) -> Bool {
+        let c = sphere.center
+        let negR = 0.0 - sphere.radius
+        if left.signedDistance(point: c) < negR { return false }
+        if right.signedDistance(point: c) < negR { return false }
+        if bottom.signedDistance(point: c) < negR { return false }
+        if top.signedDistance(point: c) < negR { return false }
+        if near.signedDistance(point: c) < negR { return false }
+        if far.signedDistance(point: c) < negR { return false }
+        return true
+    }
+
+    /// Whether `box` is at least partially inside the frustum. Conservative: may
+    /// report a box just outside a corner as intersecting.
+    public func intersects(box: Box) -> Bool {
+        if Frustum.boxOutsidePlane(plane: left, box: box) { return false }
+        if Frustum.boxOutsidePlane(plane: right, box: box) { return false }
+        if Frustum.boxOutsidePlane(plane: bottom, box: box) { return false }
+        if Frustum.boxOutsidePlane(plane: top, box: box) { return false }
+        if Frustum.boxOutsidePlane(plane: near, box: box) { return false }
+        if Frustum.boxOutsidePlane(plane: far, box: box) { return false }
+        return true
+    }
+
+    /// Builds a normalized plane from raw `ax + by + cz + d = 0` coefficients,
+    /// where the inside half-space is where the expression is >= 0.
+    static func planeFrom(a: Float32, b: Float32, c: Float32, d: Float32) -> Plane {
+        return Plane(normal: Vector3(x: a, y: b, z: c), distance: 0.0 - d).normalized()
+    }
+
+    /// Whether `box` is entirely on the negative side of `plane` (using the
+    /// positive-vertex test).
+    static func boxOutsidePlane(plane: Plane, box: Box) -> Bool {
+        let px = if plane.normal.x >= 0.0 { box.max.x } else { box.min.x }
+        let py = if plane.normal.y >= 0.0 { box.max.y } else { box.min.y }
+        let pz = if plane.normal.z >= 0.0 { box.max.z } else { box.min.z }
+        return plane.signedDistance(point: Vector3(x: px, y: py, z: pz)) < 0.0
+    }
+}

@@ -1,0 +1,139 @@
+/// Builtin String type.
+/// String represents a UTF-8 encoded sequence of Unicode scalar values.
+@builtin
+public struct String {}
+
+@builtin
+public struct StringIterator {}
+
+public extension StringIterator implements Iterator {
+    public type Element = Char
+
+    public mutating func next() -> Char? {
+        var value: Char = ' '
+        if nextInternal(value: &value) {
+            return value
+        }
+
+        return nil
+    }
+
+    @runtime("rune_string_iterator_next")
+    private mutating func nextInternal(value: &Char) -> Bool
+}
+
+public extension String implements Equatable {
+    /// Returns whether two strings are byte-equal.
+    @runtime("rune_string_equal")
+    public static operator ==(lhs: String, rhs: String) -> Bool
+}
+
+public extension String implements Hashable {
+    /// Returns a stable 64-bit hash value for this string.
+    @runtime("rune_string_hash")
+    public func hash() -> Int64
+}
+
+public extension String implements Collection, Comparable {
+    public type Element = Char
+    public type Iter = StringIterator
+
+    /// Replaces this string's contents with a copy of `source`.
+    @runtime("rune_string_copy")
+    public mutating func copyFrom(source: String)
+
+    /// Returns an iterator over this string's characters.
+    @runtime("rune_runtime_string_iterator_create")
+    public func makeIterator() -> StringIterator
+
+    /// Returns the character at Unicode scalar index `index`.
+    @runtime("rune_string_char_at")
+    public operator [](index: Int) -> Char
+
+    /// Number of UTF-8 bytes. O(1).
+    public length: Int {
+        @runtime("rune_string_byte_length")
+        get
+    }
+
+    /// Number of Unicode scalar values. O(n).
+    public count: Int {
+        @runtime("rune_string_count")
+        get
+    }
+
+    /// Whether the string contains no characters.
+    public isEmpty: Bool {
+        @runtime("rune_string_is_empty")
+        get
+    }
+
+    /// Concatenates two strings.
+    @runtime("rune_runtime_string_add")
+    public static operator +(lhs: String, rhs: String) -> String
+
+    /// Concatenates a string with a string slice. Zero extra allocation on the slice side.
+    @runtime("rune_runtime_string_add_slice")
+    public static operator +(lhs: String, rhs: StringSlice) -> String
+
+    /// Returns a copy of the string with all characters uppercased.
+    @runtime("rune_runtime_string_upper")
+    public func uppercased() -> String
+
+    /// Returns a copy of the string with all characters lowercased.
+    @runtime("rune_runtime_string_lower")
+    public func lowercased() -> String
+
+    /// Returns whether the string contains `substring`.
+    @runtime("rune_string_contains")
+    public func contains(substring: String) -> Bool
+
+    /// Splits the string by occurrences of `separator`.
+    @runtime("rune_runtime_string_split")
+    public func split(separator: String) -> Array<String>
+
+    /// Returns the substring from `start` up to, but not including, `end`.
+    @runtime("rune_runtime_string_substring")
+    public func substring(start: Int, end: Int) -> String
+
+    /// Returns a string slice covering `start..<end`.
+    @runtime("rune_runtime_stringslice_from_string_bounds")
+    public func sliceRange(start: Int, end: Int) -> StringSlice
+
+    @runtime("rune_runtime_stringslice_from_string")
+    private func sliceRange(range: Range<Int>) -> StringSlice
+
+    /// Compares this string lexicographically to `other`.
+    @runtime("rune_string_compare")
+    public static operator <=>(lhs: String, rhs: String) -> Ordering
+
+    /// Character at Unicode scalar index (not byte index).
+    @runtime("rune_string_char_at")
+    public func character(at: Int) -> Char
+
+    /// Returns a copy with `character` inserted at `at`.
+    @runtime("rune_runtime_string_insert_character_at")
+    public func insert(character: Char, at: Int) -> String
+
+    /// Returns a copy with the character at `at` removed.
+    @runtime("rune_runtime_string_remove_character_at")
+    public func remove(at: Int) -> String
+
+    /// Returns a copy with the character at `at` replaced by `with`.
+    @runtime("rune_runtime_string_replace_character_at")
+    public func replace(at: Int, with: Char) -> String
+
+    /// Copies up to `maxLength` UTF-8 bytes of this string into `destination`.
+    /// @return The number of bytes copied (less than `maxLength` if the string is shorter).
+    @runtime("rune_runtime_string_copy_bytes")
+    public func copyBytes(destination: &Byte?, maxLength: UInt) -> UInt
+
+    /// Creates a string by copying `length` raw UTF-8 bytes from `source`.
+    @runtime("rune_runtime_string_from_bytes")
+    public static func fromBytes(source: *Byte?, length: UInt) -> String
+}
+
+public extension String implements StringLiteralConvertible {
+    @intrinsic
+    public init(stringLiteral: StringLiteral)
+}

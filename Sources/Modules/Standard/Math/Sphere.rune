@@ -1,0 +1,52 @@
+/// Bounding sphere defined by a `center` and `radius`. Used for bounding
+/// volumes, broad-phase collision, and frustum culling.
+@layout(kind: c)
+public struct Sphere {
+    public var center: Vector3
+    public var radius: Float32
+
+    /// Whether `point` lies inside (or on) the sphere.
+    public func contains(point: Vector3) -> Bool {
+        return center.distanceSquared(to: point) <= radius * radius
+    }
+
+    /// Whether this sphere overlaps `other`.
+    public func intersects(other: Sphere) -> Bool {
+        return Intersection.sphereSphere(a: self, b: other)
+    }
+
+    /// Whether this sphere overlaps `box`.
+    public func intersects(box: Box) -> Bool {
+        return Intersection.sphereBox(sphere: self, box: box)
+    }
+
+    /// Whether this sphere overlaps `box`.
+    public func intersects(orientedBox: OrientedBox) -> Bool {
+        return Intersection.sphereOrientedBox(sphere: self, box: orientedBox)
+    }
+
+    /// Whether this sphere overlaps `capsule`.
+    public func intersects(capsule: Capsule) -> Bool {
+        return Intersection.sphereCapsule(sphere: self, capsule: capsule)
+    }
+
+    /// Signed distance from `point` to the sphere surface (negative inside).
+    public func signedDistance(point: Vector3) -> Float32 {
+        return center.distance(to: point) - radius
+    }
+
+    /// Grows the sphere (keeping its center) just enough to contain `point`.
+    public func expandedToContain(point: Vector3) -> Sphere {
+        let d = center.distance(to: point)
+        if d <= radius {
+            return self
+        }
+        return Sphere(center: center, radius: d)
+    }
+}
+
+public extension Sphere implements Equatable {
+    public static operator ==(lhs: Sphere, rhs: Sphere) -> Bool {
+        return lhs.center == rhs.center && lhs.radius == rhs.radius
+    }
+}

@@ -1,0 +1,69 @@
+public extension Device {
+    public static func fromHandle(handle: &DeviceHandle?) -> Device {
+        return Device(handle: handle)
+    }
+
+    public rawHandle: &DeviceHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func getQueue() -> Queue {
+        return Queue(handle: deviceGetQueue(handle))
+    }
+
+    public func createBuffer(descriptor: *BufferDescriptor) -> GPUBuffer {
+        return GPUBuffer(handle: deviceCreateBuffer(handle, descriptor))
+    }
+
+    public func createTexture(descriptor: *TextureDescriptor) -> Texture {
+        return Texture(handle: deviceCreateTexture(handle, descriptor))
+    }
+
+    public func createSampler(descriptor: *SamplerDescriptor? = nil) -> Sampler {
+        return Sampler(handle: deviceCreateSampler(handle, descriptor))
+    }
+
+    public func createShaderModule(descriptor: *ShaderModuleDescriptor) -> ShaderModule {
+        return ShaderModule(handle: deviceCreateShaderModule(handle, descriptor))
+    }
+
+    public func createRenderPipeline(descriptor: *RenderPipelineDescriptor) -> RenderPipeline {
+        return RenderPipeline(handle: deviceCreateRenderPipeline(handle, descriptor))
+    }
+
+    public func createBindGroup(descriptor: *BindGroupDescriptor) -> BindGroup {
+        return BindGroup(handle: deviceCreateBindGroup(handle, descriptor))
+    }
+
+    public func createCommandEncoder(descriptor: *CommandEncoderDescriptor? = nil) -> CommandEncoder {
+        return CommandEncoder(handle: deviceCreateCommandEncoder(handle, descriptor))
+    }
+
+    public func createComputePipeline(descriptor: *ComputePipelineDescriptor) -> ComputePipeline {
+        return ComputePipeline(handle: deviceCreateComputePipeline(handle, descriptor))
+    }
+
+    public func createBindGroupLayout(descriptor: *BindGroupLayoutDescriptor) -> BindGroupLayout {
+        return BindGroupLayout(handle: deviceCreateBindGroupLayout(handle, descriptor))
+    }
+
+    public func createPipelineLayout(descriptor: *PipelineLayoutDescriptor) -> PipelineLayout {
+        return PipelineLayout(handle: deviceCreatePipelineLayout(handle, descriptor))
+    }
+
+    public func createQuerySet(descriptor: *QuerySetDescriptor) -> QuerySet {
+        return QuerySet(handle: deviceCreateQuerySet(handle, descriptor))
+    }
+
+    public func createRenderBundleEncoder(descriptor: *RenderBundleEncoderDescriptor) -> RenderBundleEncoder {
+        return RenderBundleEncoder(handle: deviceCreateRenderBundleEncoder(handle, descriptor))
+    }
+
+    public func release() {
+        deviceRelease(handle)
+    }
+}

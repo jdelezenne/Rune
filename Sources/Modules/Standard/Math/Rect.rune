@@ -1,0 +1,80 @@
+/// Axis-aligned 2D rectangle defined by its minimum corner (`x`, `y`) and its
+/// `width`/`height`. Used for UI layout, viewports, sprite bounds, and 2D
+/// broad-phase queries.
+@layout(kind: c)
+public struct Rect {
+    public var x: Float32 = 0.0
+    public var y: Float32 = 0.0
+    public var width: Float32 = 0.0
+    public var height: Float32 = 0.0
+
+    public static func zero() -> Rect {
+        return Rect(x: 0.0, y: 0.0, width: 0.0, height: 0.0)
+    }
+
+    /// Builds a rect from its minimum and maximum corners.
+    public static func fromMinMax(minX: Float32, minY: Float32, maxX: Float32, maxY: Float32) -> Rect {
+        return Rect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    /// Builds a rect centered at `center` with the given `size`.
+    public static func fromCenter(center: Vector2, size: Vector2) -> Rect {
+        return Rect(
+            x: center.x - size.x * 0.5,
+            y: center.y - size.y * 0.5,
+            width: size.x,
+            height: size.y)
+    }
+
+    public func minCorner() -> Vector2 { return Vector2(x: x, y: y) }
+    public func maxCorner() -> Vector2 { return Vector2(x: x + width, y: y + height) }
+    public func center() -> Vector2 { return Vector2(x: x + width * 0.5, y: y + height * 0.5) }
+    public func size() -> Vector2 { return Vector2(x: width, y: height) }
+    public func area() -> Float32 { return width * height }
+
+    /// Whether `point` lies within the rect (inclusive of the min edges,
+    /// exclusive of the max edges).
+    public func contains(point: Vector2) -> Bool {
+        return point.x >= x && point.x < x + width
+            && point.y >= y && point.y < y + height
+    }
+
+    /// Whether this rect overlaps `other`.
+    public func intersects(other: Rect) -> Bool {
+        return Intersection.rectRect(a: self, b: other)
+    }
+
+    /// The overlapping region of the two rects, or a zero-size rect when they
+    /// do not overlap.
+    public func intersection(other: Rect) -> Rect {
+        let minX = Math.max(x, other.x)
+        let minY = Math.max(y, other.y)
+        let maxX = Math.min(x + width, other.x + other.width)
+        let maxY = Math.min(y + height, other.y + other.height)
+        if maxX <= minX || maxY <= minY {
+            return Rect.zero()
+        }
+        return Rect.fromMinMax(minX: minX, minY: minY, maxX: maxX, maxY: maxY)
+    }
+
+    /// The smallest rect containing both rects.
+    public func merged(other: Rect) -> Rect {
+        let minX = Math.min(x, other.x)
+        let minY = Math.min(y, other.y)
+        let maxX = Math.max(x + width, other.x + other.width)
+        let maxY = Math.max(y + height, other.y + other.height)
+        return Rect.fromMinMax(minX: minX, minY: minY, maxX: maxX, maxY: maxY)
+    }
+}
+
+public extension Rect implements Equatable {
+    public static operator ==(lhs: Rect, rhs: Rect) -> Bool {
+        return lhs.x == rhs.x && lhs.y == rhs.y && lhs.width == rhs.width && lhs.height == rhs.height
+    }
+}
+
+public extension Rect implements CustomStringConvertible {
+    public func toString() -> String {
+        return "Rect(x: ${self.x}, y: ${self.y}, width: ${self.width}, height: ${self.height})"
+    }
+}

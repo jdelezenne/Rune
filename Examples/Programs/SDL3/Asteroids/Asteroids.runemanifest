@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "name": "Asteroids",
+  "kind": "executable",
+  "sources": [
+    "../AsteroidsShared/Model.rune",
+    "../AsteroidsShared/Input.rune",
+    "../AsteroidsShared/Audio.rune",
+    "../AsteroidsShared/World.rune",
+    "../AsteroidsShared/Render.rune",
+    "../AsteroidsShared/Main.rune"
+  ],
+  "dependencies": [
+    "../../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../../Modules/SDL3/SDL3.runemanifest"
+  ]
+}

@@ -1,0 +1,33 @@
+public extension Instance {
+    public static func create(descriptor: *InstanceDescriptor? = nil) -> Instance {
+        return Instance(handle: createInstance(descriptor))
+    }
+
+    public static func fromHandle(handle: &InstanceHandle?) -> Instance {
+        return Instance(handle: handle)
+    }
+
+    public rawHandle: &InstanceHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func createSurface(descriptor: *SurfaceDescriptor?) -> Surface {
+        return Surface(handle: instanceCreateSurface(handle, descriptor))
+    }
+
+    public func requestAdapter(
+        callback: RequestAdapterCallback,
+        userdata1: &Byte? = nil,
+        userdata2: &Byte? = nil)
+    {
+        instanceRequestAdapter(handle, callback, userdata1, userdata2)
+    }
+
+    public func release() {
+        instanceRelease(handle)
+    }
+}

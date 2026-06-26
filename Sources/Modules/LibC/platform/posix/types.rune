@@ -1,0 +1,6 @@
+@layout(kind: c)
+@symbol("struct timespec")
+public struct timespec {
+    public var tv_sec: Int64 = 0
+    public var tv_nsec: Int64 = 0
+}

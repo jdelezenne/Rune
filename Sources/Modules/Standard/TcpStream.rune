@@ -1,0 +1,154 @@
+/// A connected TCP byte stream.
+///
+/// TCP is ordered and stream-oriented: one write may be observed by the peer as
+/// multiple reads, and one read may contain bytes from multiple writes.
+public struct TcpStream {
+    var _socket: Socket
+
+    /// Opens a TCP connection to `address`.
+    public static func connect(address: SocketAddress) throws(String) -> TcpStream {
+        var socket = Socket()
+        var error = ""
+        if !socket.connect(host: address.host, port: address.port, error: &error) {
+            throw error
+        }
+
+        return TcpStream(socket: socket)
+    }
+
+    /// Opens a TCP connection to `host`:`port`.
+    public static func connect(host: String, port: UInt16) throws(String) -> TcpStream {
+        var socket = Socket()
+        var error = ""
+        if !socket.connect(host: host, port: port, error: &error) {
+            throw error
+        }
+
+        return TcpStream(socket: socket)
+    }
+
+    /// Takes ownership of an already-connected socket.
+    public init(socket: Socket) {
+        _socket = socket
+    }
+
+    /// Whether the stream currently owns an open socket handle.
+    public isOpen: Bool {
+        return _socket.isOpen
+    }
+
+    /// Native platform socket handle, or -1 when closed.
+    public nativeHandle: *SocketHandle? {
+        return _socket.nativeHandle
+    }
+
+    /// Remote peer address formatted by the runtime.
+    public peerAddress: String {
+        return _socket.remoteAddress
+    }
+
+    /// Local endpoint address formatted by the runtime.
+    public localAddress: String {
+        return _socket.localAddress
+    }
+
+    /// Attempts one stream write.
+    /// @return Number of bytes written.
+    public mutating func write(data: *Byte, length: UInt) throws(String) -> Int64 {
+        var error = ""
+        let written = _socket.send(data: data, length: length, error: &error)
+        if written < 0 {
+            throw error
+        }
+
+        return written
+    }
+
+    /// Writes until all `length` bytes have been accepted by the OS.
+    /// @return The total bytes written.
+    public mutating func writeAll(data: *Byte, length: UInt) throws(String) -> Int64 {
+        if length == 0 {
+            return 0
+        }
+
+        var total: UInt = 0
+        while total < length {
+            let chunk = (Int(data) + Int(total)) as *Byte
+            var error = ""
+            let written = _socket.send(data: chunk, length: length - total, error: &error)
+            if written < 0 {
+                throw error
+            }
+            if written == 0 {
+                throw "TcpStream.writeAll made no progress"
+            }
+
+            total = total + UInt(written)
+        }
+
+        return Int64(total)
+    }
+
+    /// Attempts one stream read.
+    /// @return Number of bytes read, or 0 at end of stream.
+    public mutating func read(buffer: &Byte, length: UInt) throws(String) -> Int64 {
+        var error = ""
+        let received = _socket.receive(buffer: buffer, length: length, error: &error)
+        if received < 0 {
+            throw error
+        }
+
+        return received
+    }
+
+    /// Attempts one stream read without blocking.
+    /// @return Bytes read, 0 at end of stream, or nil when no bytes are ready yet.
+    public mutating func readAvailable(buffer: &Byte, length: UInt) throws(String) -> Int64? {
+        var received: UInt64 = 0
+        var wouldBlock = false
+        var error = ""
+        if !_socket.receiveAvailable(
+            buffer: buffer,
+            length: length,
+            received: &received,
+            wouldBlock: &wouldBlock,
+            error: &error) {
+            throw error
+        }
+        if wouldBlock {
+            return nil
+        }
+
+        return Int64(received)
+    }
+
+    /// Shuts down both halves of the TCP connection without closing the descriptor.
+    public mutating func shutdown() -> Bool {
+        return _socket.shutdown()
+    }
+
+    /// Closes the stream.
+    public mutating func close() {
+        _socket.close()
+    }
+
+    /// Sets whether this stream performs blocking or non-blocking I/O.
+    public mutating func setNonblocking(enabled: Bool) -> Bool {
+        return _socket.setNonblocking(enabled: enabled)
+    }
+
+    /// Sets `TCP_NODELAY`, disabling Nagle's algorithm.
+    public mutating func setNoDelay(enabled: Bool) -> Bool {
+        return _socket.setNoDelay(enabled: enabled)
+    }
+
+    /// Sets the maximum time a blocking `read` call will wait for data.
+    public mutating func setReceiveTimeout(milliseconds: UInt32) -> Bool {
+        return _socket.setReceiveTimeout(milliseconds: milliseconds)
+    }
+
+    /// Sets the maximum time a blocking `write` call will wait for buffer space.
+    public mutating func setSendTimeout(milliseconds: UInt32) -> Bool {
+        return _socket.setSendTimeout(milliseconds: milliseconds)
+    }
+}

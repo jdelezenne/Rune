@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "name": "Rect",
+  "kind": "executable",
+  "sources": ["Rect.rune"],
+  "dependencies": [
+    "../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../Modules/SDL3/SDL3.runemanifest"
+  ]
+}

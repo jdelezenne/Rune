@@ -1,0 +1,171 @@
+/// A small 2D physics simulation for rigid bodies (circles and boxes):
+/// integrates linear and angular motion, applies rolling/spin damping, and
+/// resolves body-body and body-wall contacts with the impulse solver in
+/// Collision2D. Circular "pockets" deactivate any body whose center falls
+/// inside them. Walls are Segment2D and pockets are Circle (from the Standard
+/// math module) — the world owns no duplicate geometry types.
+import Standard.*
+
+const WALL_RESTITUTION: Float32 = 1.0   ///< min() with the body's restitution wins
+const WALL_FRICTION: Float32 = 0.4
+
+public enum CollisionEventKind: Int32 {
+    ballBall = 0
+    ballWall = 1
+    pocket = 2
+}
+
+// Reported once per contact resolved this step, so a caller can trigger
+// sound/feedback scaled by impactSpeed without the World2D having to know
+// anything about audio itself. bodyB is unused (-1) for ballWall/pocket.
+public struct CollisionEvent2D {
+    public var kind: CollisionEventKind
+    public var bodyA: Int
+    public var bodyB: Int
+    public var impactSpeed: Float32
+}
+
+public struct World2D {
+    public var bodies: Array<RigidBody2D>
+    public var walls: Array<Segment2D>
+    public var pockets: Array<Circle>
+    public var friction: Float32 = 0.0          ///< linear deceleration (units/s)
+    public var angularDamping: Float32 = 0.0    ///< fractional spin loss per second
+    public var restingSpeed: Float32 = 0.0
+    public var events: Array<CollisionEvent2D>
+
+    public init() {
+        bodies = Array<RigidBody2D>()
+        walls = Array<Segment2D>()
+        pockets = Array<Circle>()
+        events = Array<CollisionEvent2D>()
+    }
+
+    public mutating func addBody(body: RigidBody2D) -> Int {
+        bodies.append(element: body)
+        return bodies.count - 1
+    }
+
+    public mutating func addWall(wall: Segment2D) {
+        walls.append(element: wall)
+    }
+
+    public mutating func addPocket(pocket: Circle) {
+        pockets.append(element: pocket)
+    }
+
+    public func anyMoving() -> Bool {
+        for i in 0..bodies.count {
+            if bodies[i].isMoving(threshold: restingSpeed) {
+                return true
+            }
+        }
+        return false
+    }
+
+    mutating func integrate(dt: Float32) {
+        for i in 0..bodies.count {
+            if !bodies[i].active {
+                continue
+            }
+
+            bodies[i].position = bodies[i].position + bodies[i].velocity * dt
+            bodies[i].rotation = bodies[i].rotation + bodies[i].angularVelocity * dt
+
+            // Spin damping, with a small dead zone so bodies come fully to rest.
+            let damp = Math.max(0.0, 1.0 - angularDamping * dt)
+            bodies[i].angularVelocity = bodies[i].angularVelocity * damp
+            if Math.abs(bodies[i].angularVelocity) < restingSpeed * 0.05 {
+                bodies[i].angularVelocity = 0.0
+            }
+
+            let speed = bodies[i].speed()
+            if speed <= restingSpeed {
+                bodies[i].velocity = Vector2.zero()
+                continue
+            }
+
+            let decelerated = speed - friction * dt
+            if decelerated <= restingSpeed {
+                bodies[i].velocity = Vector2.zero()
+            } else {
+                bodies[i].velocity = bodies[i].velocity * (decelerated / speed)
+            }
+        }
+    }
+
+    mutating func resolvePockets() {
+        for i in 0..bodies.count {
+            if !bodies[i].active {
+                continue
+            }
+
+            for p in 0..pockets.count {
+                if pockets[p].contains(point: bodies[i].position) {
+                    bodies[i].active = false
+                    bodies[i].velocity = Vector2.zero()
+                    bodies[i].angularVelocity = 0.0
+                    events.append(element: CollisionEvent2D(kind: CollisionEventKind.pocket, bodyA: i, bodyB: -1, impactSpeed: 0.0))
+                    break
+                }
+            }
+        }
+    }
+
+    mutating func resolveWalls() {
+        for i in 0..bodies.count {
+            if !bodies[i].active {
+                continue
+            }
+
+            for w in 0..walls.count {
+                var hit: Collision2D? = nil
+                if bodies[i].shape == BodyShape2D.circle {
+                    hit = circleWallCollision(body: bodies[i], wall: walls[w])
+                } else {
+                    hit = boxWallCollision(body: bodies[i], wall: walls[w])
+                }
+
+                if let collision = hit {
+                    let impactSpeed = 0.0 - bodies[i].velocity.dot(other: collision.normal)
+                    resolveStaticContact(body: &bodies[i], contact: collision, wallRestitution: WALL_RESTITUTION, wallFriction: WALL_FRICTION)
+                    if impactSpeed > 0.0 {
+                        events.append(element: CollisionEvent2D(kind: CollisionEventKind.ballWall, bodyA: i, bodyB: -1, impactSpeed: impactSpeed))
+                    }
+                }
+            }
+        }
+    }
+
+    mutating func resolveBodies() {
+        for i in 0..bodies.count {
+            if !bodies[i].active {
+                continue
+            }
+
+            for j in (i + 1)..bodies.count {
+                if !bodies[j].active {
+                    continue
+                }
+
+                if let collision = collide(a: bodies[i], b: bodies[j]) {
+                    let relativeVelocity = bodies[j].velocity - bodies[i].velocity
+                    let impactSpeed = 0.0 - relativeVelocity.dot(other: collision.normal)
+                    resolveContact(a: &bodies[i], b: &bodies[j], contact: collision)
+                    if impactSpeed > 0.0 {
+                        events.append(element: CollisionEvent2D(kind: CollisionEventKind.ballBall, bodyA: i, bodyB: j, impactSpeed: impactSpeed))
+                    }
+                }
+            }
+        }
+    }
+
+    public mutating func step(dt: Float32) {
+        events = Array<CollisionEvent2D>()
+        integrate(dt: dt)
+        resolvePockets()
+        resolveWalls()
+        resolveBodies()
+        resolveWalls()
+    }
+}

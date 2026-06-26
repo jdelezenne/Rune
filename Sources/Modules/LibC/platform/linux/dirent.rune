@@ -1,0 +1,8 @@
+@layout(kind: c)
+public struct dirent {
+    public var d_ino: UInt64
+    public var d_off: Int64
+    public var d_reclen: UInt16
+    public var d_type: UInt8
+    public var d_name: [UInt8, 256]
+}

@@ -1,0 +1,96 @@
+/// Dynamically-sized first-in-first-out collection.
+public struct Queue<T> {
+    var _buffer: Buffer<T>
+    var _count: Int = 0
+
+    /// Creates an empty queue.
+    public init() {
+        _buffer = Buffer<T>()
+    }
+}
+
+public extension Queue<T> implements Collection {
+    public type Element = T
+    public type Iter = ArrayIterator<T>
+
+    /// Returns a forward iterator over the stored values.
+    public func makeIterator() -> ArrayIterator<T> {
+        return _buffer.makeIterator(count: _count)
+    }
+
+    /// Number of stored values.
+    public count: Int {
+        get { return _count }
+    }
+
+    /// `true` when the queue contains no values.
+    public isEmpty: Bool {
+        get { return _count == 0 }
+    }
+
+    /// Returns the value at `index` in queue order.
+    public operator [](index: Int) -> T {
+        return _buffer.getAt(index: index)
+    }
+
+    /// Number of elements that can be stored without reallocating.
+    public capacity: Int {
+        get { return _buffer.capacity }
+    }
+
+    /// Ensures the queue can hold at least `capacity` elements.
+    public mutating func ensureCapacity(capacity: Int) {
+        if capacity <= _buffer.capacity {
+            return
+        }
+
+        _buffer.reserve(count: capacity)
+    }
+
+    /// Adds `element` to the back of the queue.
+    public mutating func enqueue(element: T) {
+        if _count == _buffer.capacity {
+            let newCapacity = _count == 0 ? 4 : _count * 2
+            self.ensureCapacity(capacity: newCapacity)
+        }
+
+        _buffer.setAt(index: _count, element: element)
+        _count = _count + 1
+    }
+
+    /// Removes and returns the front value.
+    public mutating func dequeue() -> T {
+        let element = _buffer.getAt(index: 0)
+        if _count > 1 {
+            _buffer.moveElements(dstIndex: 0, srcIndex: 1, count: _count - 1)
+        }
+
+        _count = _count - 1
+
+        return element
+    }
+
+    /// Returns the front value without removing it.
+    public func peek() -> T {
+        return _buffer.getAt(index: 0)
+    }
+
+    /// Removes all elements, retaining allocated storage.
+    public mutating func clear() {
+        _count = 0
+    }
+}
+
+public extension Queue<T> implements ArrayLiteralConvertible {
+    public init(elements: T...) {
+        _buffer = Buffer<T>()
+        _buffer.reserve(count: elements.count)
+        _count = elements.count
+
+        var index = 0
+        for element in elements {
+            _buffer.setAt(index: index, element: element)
+            index = index + 1
+        }
+    }
+}

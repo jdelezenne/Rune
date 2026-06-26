@@ -1,0 +1,261 @@
+import Standard.*
+import SDL3
+
+struct Game {
+    var level: Level
+    var levelIndex: Int
+    var ship: Ship
+    var bullets: [Bullet, MAX_BULLETS]
+    var enemyShots: [EnemyShot, MAX_ENEMY_SHOTS]
+    var particles: [Particle, MAX_PARTICLES]
+    var camera: Camera
+    var delivered: Int
+    var lives: Int
+    var won: Bool
+    var pulse: Float32
+}
+
+func makeGame() -> Game {
+    let level = loadLevel(index: 0)
+    return Game(
+        level: level,
+        levelIndex: 0,
+        ship: makeShip(position: level.start),
+        bullets: emptyBullets(),
+        enemyShots: emptyEnemyShots(),
+        particles: emptyParticles(),
+        camera: Camera(x: 0.0, y: 0.0),
+        delivered: 0,
+        lives: 3,
+        won: false,
+        pulse: 0.0)
+}
+
+func resetLevel(game: &Game, index: Int) {
+    game.levelIndex = index
+    game.level = loadLevel(index: index)
+    game.ship = makeShip(position: game.level.start)
+    game.bullets = emptyBullets()
+    game.enemyShots = emptyEnemyShots()
+    game.particles = emptyParticles()
+    game.delivered = 0
+    game.won = false
+    updateCamera(camera: &game.camera, target: game.ship.position)
+}
+
+func restartGame(game: &Game) {
+    game.lives = 3
+    resetLevel(game: game, index: 0)
+}
+
+func levelWallHit(level: Level, position: Vec2, radius: Float32) -> Bool {
+    for i in 0..level.wallCount {
+        if circleHitsRect(center: position, radius: radius, r: level.walls[i]) {
+            return true
+        }
+    }
+
+    return false
+}
+
+func bulletHitsWall(level: Level, position: Vec2) -> Bool {
+    for i in 0..level.wallCount {
+        if rectContains(r: level.walls[i], p: position) {
+            return true
+        }
+    }
+
+    return false
+}
+
+func bulletHitsEnemies(game: &Game) {
+    for bulletIndex in 0..game.bullets.count {
+        if game.bullets[bulletIndex].active {
+            for enemyIndex in 0..game.level.enemyCount {
+                if game.level.enemies[enemyIndex].alive &&
+                   distanceSquared(game.bullets[bulletIndex].position, game.level.enemies[enemyIndex].position) < ENEMY_RADIUS * ENEMY_RADIUS {
+                    game.bullets[bulletIndex].active = false
+                    game.level.enemies[enemyIndex].alive = false
+                    burst(&game.particles, game.level.enemies[enemyIndex].position, 18, 255, 90, 115)
+                }
+            }
+        }
+    }
+}
+
+func enemyShotsHitWalls(game: &Game) {
+    for i in 0..game.enemyShots.count {
+        if game.enemyShots[i].active && bulletHitsWall(level: game.level, position: game.enemyShots[i].position) {
+            game.enemyShots[i].active = false
+        }
+    }
+}
+
+func shipHitsEnemyShot(game: &Game) -> Bool {
+    for i in 0..game.enemyShots.count {
+        if game.enemyShots[i].active &&
+           distanceSquared(game.ship.position, game.enemyShots[i].position) < (SHIP_RADIUS + ENEMY_SHOT_RADIUS) * (SHIP_RADIUS + ENEMY_SHOT_RADIUS) {
+            game.enemyShots[i].active = false
+            return true
+        }
+    }
+
+    return false
+}
+
+func shipHitsEnemy(game: &Game) -> Bool {
+    for i in 0..game.level.enemyCount {
+        if game.level.enemies[i].alive &&
+           distanceSquared(game.ship.position, game.level.enemies[i].position) < (SHIP_RADIUS + ENEMY_RADIUS) * (SHIP_RADIUS + ENEMY_RADIUS) {
+            return true
+        }
+    }
+
+    return false
+}
+
+func shipTouchesPad(ship: Ship, pad: Rect) -> Bool {
+    let bottom = ship.position.y + SHIP_RADIUS
+    let centered = ship.position.x >= pad.x && ship.position.x <= pad.x + pad.w
+    return centered && bottom >= pad.y - 3.0 && bottom <= pad.y + 13.0 && ship.velocity.y >= 0.0
+}
+
+func shipLandedOnPad(ship: Ship, pad: Rect) -> Bool {
+    return shipTouchesPad(ship: ship, pad: pad) &&
+        ship.velocity.y <= LANDING_SPEED &&
+        Math.abs(ship.velocity.x) <= LANDING_SPEED &&
+        angleDistance(ship.angle, -PI_F * 0.5) <= LANDING_ANGLE
+}
+
+func shipCrashesOnPad(ship: Ship, pad: Rect) -> Bool {
+    return shipTouchesPad(ship: ship, pad: pad) && !shipLandedOnPad(ship: ship, pad: pad)
+}
+
+func settleShipOnPad(ship: &Ship, pad: Rect) {
+    ship.velocity = vec2(x: ship.velocity.x * 0.72, y: 0.0)
+    ship.position.y = pad.y - SHIP_RADIUS
+    ship.angle = -PI_F * 0.5
+    ship.landed = true
+}
+
+func collectPackages(game: &Game) {
+    for i in 0..game.level.packageCount {
+        if !game.level.packages[i].collected && distanceSquared(game.ship.position, game.level.packages[i].position) < 32.0 * 32.0 {
+            game.level.packages[i].collected = true
+            game.delivered = game.delivered + 1
+            burst(&game.particles, game.level.packages[i].position, 14, 255, 220, 80)
+        }
+    }
+}
+
+func crashShip(game: &Game) {
+    if !game.ship.alive {
+        return
+    }
+
+    game.ship.alive = false
+    game.ship.respawnTimer = 1.2
+    game.lives = game.lives - 1
+    burst(&game.particles, game.ship.position, 28, 255, 105, 60)
+}
+
+func respawnShip(game: &Game) {
+    if game.lives < 0 {
+        restartGame(game)
+        return
+    }
+
+    game.ship = makeShip(position: game.level.start)
+}
+
+func finishLevel(game: &Game) {
+    if game.levelIndex + 1 < LEVEL_COUNT {
+        resetLevel(game: game, index: game.levelIndex + 1)
+    } else {
+        game.won = true
+    }
+}
+
+func updateGame(game: &Game, input: InputState, dt: Float32) {
+    if input.restart {
+        restartGame(game)
+        return
+    }
+
+    game.pulse = game.pulse + dt * 4.0
+    updateParticles(&game.particles, dt)
+
+    if game.won {
+        return
+    }
+
+    if input.fire {
+        spawnBullet(&game.bullets, &game.ship)
+    }
+
+    updateShip(ship: &game.ship, input: input, dt: dt)
+    updateBullets(&game.bullets, dt)
+    updateEnemyShots(&game.enemyShots, dt)
+    updateEnemies(&game.level.enemies, &game.enemyShots, game.ship.position, dt)
+
+    for i in 0..game.bullets.count {
+        if game.bullets[i].active && bulletHitsWall(level: game.level, position: game.bullets[i].position) {
+            game.bullets[i].active = false
+            burst(&game.particles, game.bullets[i].position, 5, 130, 220, 255)
+        }
+    }
+    bulletHitsEnemies(game)
+    enemyShotsHitWalls(game)
+
+    if game.ship.alive {
+        collectPackages(game)
+
+        if levelWallHit(level: game.level, position: game.ship.position, radius: SHIP_RADIUS) || shipHitsEnemy(game) || shipHitsEnemyShot(game) || shipCrashesOnPad(ship: game.ship, pad: game.level.base) || shipCrashesOnPad(ship: game.ship, pad: game.level.exitBase) {
+            crashShip(game)
+        } else if shipLandedOnPad(ship: game.ship, pad: game.level.base) {
+            settleShipOnPad(ship: &game.ship, pad: game.level.base)
+        } else if shipLandedOnPad(ship: game.ship, pad: game.level.exitBase) {
+            settleShipOnPad(ship: &game.ship, pad: game.level.exitBase)
+            if game.delivered >= game.level.packageCount {
+                finishLevel(game)
+            }
+        }
+    } else if game.ship.respawnTimer <= 0.0 {
+        respawnShip(game)
+    }
+
+    updateCamera(camera: &game.camera, target: game.ship.position)
+}
+
+func setKey(input: &InputState, scancode: SDL3.Scancode, pressed: Bool) {
+    if scancode == SDL3.Scancode.left || scancode == SDL3.Scancode.a {
+        input.left = pressed
+    } else if scancode == SDL3.Scancode.right || scancode == SDL3.Scancode.d {
+        input.right = pressed
+    } else if scancode == SDL3.Scancode.up || scancode == SDL3.Scancode.w {
+        input.thrust = pressed
+    } else if scancode == SDL3.Scancode.space {
+        input.fire = pressed
+    } else if scancode == SDL3.Scancode.r {
+        input.restart = pressed
+    } else if scancode == SDL3.Scancode.escape {
+        input.escape = pressed
+    }
+}
+
+func handleEvent(event: SDL3.Event, input: &InputState) -> Bool {
+    if event.type == SDL3.EventType.quit {
+        return false
+    }
+
+    if event.type == SDL3.EventType.keyDown && event.down {
+        setKey(input, event.scancode, true)
+        if event.scancode == SDL3.Scancode.escape {
+            return false
+        }
+    } else if event.type == SDL3.EventType.keyUp {
+        setKey(input, event.scancode, false)
+    }
+
+    return true
+}

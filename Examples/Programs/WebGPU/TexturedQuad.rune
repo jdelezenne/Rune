@@ -1,0 +1,400 @@
+// Indexed, animated textured rendering through the standardized WebGPU C API.
+
+import Standard.*
+import WebGPU
+
+const WIDTH: UInt32 = 800
+const HEIGHT: UInt32 = 600
+
+let shaderSource: String = """
+struct Uniforms {
+    rotation: vec2<f32>,
+    tint: vec2<f32>,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var imageSampler: sampler;
+@group(0) @binding(2) var imageTexture: texture_2d<f32>;
+
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) uv: vec2<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vertexMain(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    let c = uniforms.rotation.x;
+    let s = uniforms.rotation.y;
+    let rotated = vec2<f32>(
+        input.position.x * c - input.position.y * s,
+        input.position.x * s + input.position.y * c);
+    output.position = vec4<f32>(rotated, 0.0, 1.0);
+    output.uv = input.uv;
+    return output;
+}
+
+@fragment
+fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
+    let sampled = textureSample(imageTexture, imageSampler, input.uv);
+    return vec4<f32>(sampled.rgb * vec3<f32>(uniforms.tint, 1.0), sampled.a);
+}
+"""
+
+@layout(kind: c)
+struct Vertex {
+    var x: Float32
+    var y: Float32
+    var u: Float32
+    var v: Float32
+}
+
+var instance = WebGPU.Instance.fromHandle(handle: nil)
+var surface = WebGPU.Surface.fromHandle(handle: nil)
+var adapter = WebGPU.Adapter.fromHandle(handle: nil)
+var device = WebGPU.Device.fromHandle(handle: nil)
+var queue = WebGPU.Queue.fromHandle(handle: nil)
+var pipeline = WebGPU.RenderPipeline.fromHandle(handle: nil)
+var bindGroup = WebGPU.BindGroup.fromHandle(handle: nil)
+var vertexBuffer = WebGPU.GPUBuffer.fromHandle(handle: nil)
+var indexBuffer = WebGPU.GPUBuffer.fromHandle(handle: nil)
+var uniformBuffer = WebGPU.GPUBuffer.fromHandle(handle: nil)
+var texture = WebGPU.Texture.fromHandle(handle: nil)
+var textureView = WebGPU.TextureView.fromHandle(handle: nil)
+var sampler = WebGPU.Sampler.fromHandle(handle: nil)
+var surfaceFormat: WebGPU.TextureFormat = WebGPU.TextureFormat.undefined
+var angle: Float32 = 0.0
+var ready = false
+
+func emptyStringView() -> WebGPU.StringView {
+    return WebGPU.StringView(data: nil, length: WebGPU.STRLEN)
+}
+
+func renderFrame() {
+    if !ready {
+        return
+    }
+
+    angle = angle + 0.012
+    var uniforms: [Float32, 4] = [
+        Math.cos(angle),
+        Math.sin(angle),
+        0.75 + Math.sin(angle * 0.7) * 0.25,
+        0.75 + Math.cos(angle * 0.9) * 0.25,
+    ]
+    queue.writeBuffer(
+        buffer: uniformBuffer, bufferOffset: 0,
+        data: (uniforms.bytes as *Byte), size: 16)
+
+    var surfaceTexture = WebGPU.SurfaceTexture(
+        nextInChain: nil, texture: nil,
+        status: WebGPU.SurfaceGetCurrentTextureStatus.error)
+    surface.getCurrentTexture(surfaceTexture: &surfaceTexture)
+    if surfaceTexture.status != WebGPU.SurfaceGetCurrentTextureStatus.successOptimal and
+        surfaceTexture.status != WebGPU.SurfaceGetCurrentTextureStatus.successSuboptimal {
+        return
+    }
+
+    let surfaceTextureObject = WebGPU.Texture.fromHandle(handle: surfaceTexture.texture)
+    let targetView = surfaceTextureObject.createView()
+    let encoder = device.createCommandEncoder()
+    if !targetView.isValid or !encoder.isValid {
+        targetView.release()
+        surfaceTextureObject.release()
+        return
+    }
+
+    var colorAttachment = WebGPU.RenderPassColorAttachment(
+        nextInChain: nil,
+        view: targetView.rawHandle,
+        depthSlice: WebGPU.DEPTH_SLICE_UNDEFINED,
+        resolveTarget: nil,
+        loadOp: WebGPU.LoadOp.clear,
+        storeOp: WebGPU.StoreOp.store,
+        clearValue: WebGPU.Color(r: 0.015, g: 0.02, b: 0.04, a: 1.0))
+    var passDescriptor = WebGPU.RenderPassDescriptor(
+        nextInChain: nil,
+        label: emptyStringView(),
+        colorAttachmentCount: 1,
+        colorAttachments: *colorAttachment,
+        depthStencilAttachment: nil,
+        occlusionQuerySet: nil,
+        timestampWrites: nil)
+    let pass = encoder.beginRenderPass(descriptor: &passDescriptor)
+    pass.setPipeline(pipeline: pipeline)
+    pass.setBindGroup(groupIndex: 0, group: bindGroup)
+    pass.setVertexBuffer(slot: 0, buffer: vertexBuffer)
+    pass.setIndexBuffer(buffer: indexBuffer, format: WebGPU.IndexFormat.uint16)
+    pass.drawIndexed(indexCount: 6)
+    pass.end()
+
+    let commandBuffer = encoder.finish()
+    queue.submit(command: commandBuffer)
+    // Emscripten presents the surface when this animation-frame callback returns.
+    commandBuffer.release()
+    pass.release()
+    encoder.release()
+    targetView.release()
+    surfaceTextureObject.release()
+}
+
+func createResources() -> Bool {
+    queue = device.getQueue()
+
+    var capabilities = WebGPU.SurfaceCapabilities(
+        nextInChain: nil, usages: 0, formatCount: 0, formats: nil,
+        presentModeCount: 0, presentModes: nil,
+        alphaModeCount: 0, alphaModes: nil)
+    if !queue.isValid or
+        surface.getCapabilities(adapter: adapter, capabilities: &capabilities) != WebGPU.Status.success or
+        capabilities.formatCount == 0 or capabilities.presentModeCount == 0 or
+        capabilities.alphaModeCount == 0 {
+        Console.printLine("WebGPU textured example capabilities are unavailable.")
+        return false
+    }
+    surfaceFormat = capabilities.formats!^
+    let presentMode = capabilities.presentModes!^
+    let alphaMode = capabilities.alphaModes!^
+    var configuration = WebGPU.SurfaceConfiguration(
+        nextInChain: nil, device: device.rawHandle, format: surfaceFormat,
+        usage: WebGPU.TEXTURE_USAGE_RENDER_ATTACHMENT,
+        width: WIDTH, height: HEIGHT,
+        viewFormatCount: 0, viewFormats: nil,
+        alphaMode: alphaMode, presentMode: presentMode)
+    surface.configure(configuration: &configuration)
+    capabilities.freeMembers()
+
+    var vertices: [Vertex, 4] = [
+        Vertex(x: -0.65, y: -0.65, u: 0.0, v: 1.0),
+        Vertex(x:  0.65, y: -0.65, u: 1.0, v: 1.0),
+        Vertex(x:  0.65, y:  0.65, u: 1.0, v: 0.0),
+        Vertex(x: -0.65, y:  0.65, u: 0.0, v: 0.0),
+    ]
+    var indices: [UInt16, 6] = [0, 1, 2, 0, 2, 3]
+    var vertexDescriptor = WebGPU.BufferDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        usage: WebGPU.BUFFER_USAGE_VERTEX | WebGPU.BUFFER_USAGE_COPY_DST,
+        size: (vertices.byteLength as! UInt64), mappedAtCreation: 0)
+    var indexDescriptor = WebGPU.BufferDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        usage: WebGPU.BUFFER_USAGE_INDEX | WebGPU.BUFFER_USAGE_COPY_DST,
+        size: (indices.byteLength as! UInt64), mappedAtCreation: 0)
+    var uniformDescriptor = WebGPU.BufferDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        usage: WebGPU.BUFFER_USAGE_UNIFORM | WebGPU.BUFFER_USAGE_COPY_DST,
+        size: 16, mappedAtCreation: 0)
+    vertexBuffer = device.createBuffer(descriptor: &vertexDescriptor)
+    indexBuffer = device.createBuffer(descriptor: &indexDescriptor)
+    uniformBuffer = device.createBuffer(descriptor: &uniformDescriptor)
+    if !vertexBuffer.isValid or !indexBuffer.isValid or !uniformBuffer.isValid {
+        Console.printLine("WebGPU textured example buffer creation failed.")
+        return false
+    }
+    queue.writeBuffer(
+        buffer: vertexBuffer, bufferOffset: 0,
+        data: (vertices.bytes as *Byte), size: (vertices.byteLength as! UInt))
+    queue.writeBuffer(
+        buffer: indexBuffer, bufferOffset: 0,
+        data: (indices.bytes as *Byte), size: (indices.byteLength as! UInt))
+
+    var pixels: [UInt8, 64] = [
+        255, 40, 90, 255,   25, 220, 255, 255,  255, 220, 35, 255,   80, 40, 255, 255,
+         25, 220, 255, 255, 255, 40, 90, 255,    80, 40, 255, 255, 255, 220, 35, 255,
+        255, 220, 35, 255,  80, 40, 255, 255,   255, 40, 90, 255,   25, 220, 255, 255,
+         80, 40, 255, 255, 255, 220, 35, 255,    25, 220, 255, 255, 255, 40, 90, 255,
+    ]
+    var textureSize = WebGPU.Extent3D(width: 4, height: 4, depthOrArrayLayers: 1)
+    var textureDescriptor = WebGPU.TextureDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        usage: WebGPU.TEXTURE_USAGE_COPY_DST | WebGPU.TEXTURE_USAGE_TEXTURE_BINDING,
+        dimension: WebGPU.TextureDimension.d2, size: textureSize,
+        format: WebGPU.TextureFormat.rgba8Unorm,
+        mipLevelCount: 1, sampleCount: 1,
+        viewFormatCount: 0, viewFormats: nil)
+    texture = device.createTexture(descriptor: &textureDescriptor)
+    if !texture.isValid {
+        Console.printLine("WebGPU texture creation failed.")
+        return false
+    }
+    textureView = texture.createView()
+    var samplerDescriptor = WebGPU.SamplerDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        addressModeU: WebGPU.AddressMode.repeat,
+        addressModeV: WebGPU.AddressMode.repeat,
+        addressModeW: WebGPU.AddressMode.repeat,
+        magFilter: WebGPU.FilterMode.nearest,
+        minFilter: WebGPU.FilterMode.nearest,
+        mipmapFilter: WebGPU.MipmapFilterMode.nearest,
+        lodMinClamp: 0.0, lodMaxClamp: 1.0,
+        compare: WebGPU.CompareFunction.undefined, maxAnisotropy: 1)
+    sampler = device.createSampler(descriptor: &samplerDescriptor)
+    if !textureView.isValid or !sampler.isValid {
+        Console.printLine("WebGPU texture view or sampler creation failed.")
+        return false
+    }
+    var destination = WebGPU.TexelCopyTextureInfo(
+        texture: texture.rawHandle, mipLevel: 0,
+        origin: WebGPU.Origin3D(), aspect: WebGPU.TextureAspect.all)
+    var layout = WebGPU.TexelCopyBufferLayout(offset: 0, bytesPerRow: 16, rowsPerImage: 4)
+    queue.writeTexture(
+        destination: *destination, data: (pixels.bytes as *Byte), dataSize: 64,
+        dataLayout: *layout, writeSize: *textureSize)
+
+    let shaderCString = CString(value: shaderSource)
+    var shaderWGSL = WebGPU.ShaderSourceWGSL(
+        chain: WebGPU.ChainedStruct(
+            next: nil, sType: WebGPU.SType.shaderSourceWGSL),
+        code: WebGPU.StringView(
+            data: (shaderCString.asCStringSlice().rawPointer() as *Int8),
+            length: (shaderCString.asSlice().length as! UInt)))
+    var shaderDescriptor = WebGPU.ShaderModuleDescriptor(
+        nextInChain: *shaderWGSL.chain, label: emptyStringView())
+    let shader = device.createShaderModule(descriptor: &shaderDescriptor)
+    if !shader.isValid {
+        Console.printLine("WebGPU textured shader creation failed.")
+        return false
+    }
+
+    var attributes: [WebGPU.VertexAttribute, 2] = [
+        WebGPU.VertexAttribute(
+            nextInChain: nil, format: WebGPU.VertexFormat.float32x2,
+            offset: 0, shaderLocation: 0),
+        WebGPU.VertexAttribute(
+            nextInChain: nil, format: WebGPU.VertexFormat.float32x2,
+            offset: 8, shaderLocation: 1),
+    ]
+    var vertexLayout = WebGPU.VertexBufferLayout(
+        nextInChain: nil, stepMode: WebGPU.VertexStepMode.vertex, arrayStride: 16,
+        attributeCount: 2, attributes: (attributes.bytes as *WebGPU.VertexAttribute))
+    let vertexEntryPoint: CStringSlice = "vertexMain"
+    var vertexState = WebGPU.VertexState(
+        nextInChain: nil, module: shader.rawHandle,
+        entryPoint: WebGPU.StringView(
+            data: (vertexEntryPoint.rawPointer() as *Int8), length: 10),
+        constantCount: 0, constants: nil,
+        bufferCount: 1, buffers: *vertexLayout)
+    var colorTarget = WebGPU.ColorTargetState(
+        nextInChain: nil, format: surfaceFormat,
+        blend: nil, writeMask: WebGPU.COLOR_WRITE_MASK_ALL)
+    let fragmentEntryPoint: CStringSlice = "fragmentMain"
+    var fragmentState = WebGPU.FragmentState(
+        nextInChain: nil, module: shader.rawHandle,
+        entryPoint: WebGPU.StringView(
+            data: (fragmentEntryPoint.rawPointer() as *Int8), length: 12),
+        constantCount: 0, constants: nil,
+        targetCount: 1, targets: *colorTarget)
+    var pipelineDescriptor = WebGPU.RenderPipelineDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: nil,
+        vertex: vertexState,
+        primitive: WebGPU.PrimitiveState(
+            nextInChain: nil,
+            topology: WebGPU.PrimitiveTopology.triangleList,
+            stripIndexFormat: WebGPU.IndexFormat.undefined,
+            frontFace: WebGPU.FrontFace.ccw,
+            cullMode: WebGPU.CullMode.back,
+            unclippedDepth: 0),
+        depthStencil: nil,
+        multisample: WebGPU.MultisampleState(
+            nextInChain: nil,
+            count: 1,
+            mask: 0xFFFFFFFF,
+            alphaToCoverageEnabled: 0),
+        fragment: *fragmentState)
+    pipeline = device.createRenderPipeline(descriptor: &pipelineDescriptor)
+    shader.release()
+    if !pipeline.isValid {
+        Console.printLine("WebGPU textured pipeline creation failed.")
+        return false
+    }
+
+    let bindGroupLayout = pipeline.getBindGroupLayout(groupIndex: 0)
+    if !bindGroupLayout.isValid {
+        Console.printLine("WebGPU textured bind group layout creation failed.")
+        return false
+    }
+    var entries: [WebGPU.BindGroupEntry, 3] = [
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 0, buffer: uniformBuffer.rawHandle,
+            offset: 0, size: 16,
+            sampler: nil,
+            textureView: nil),
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 1,
+            buffer: nil,
+            offset: 0, size: WebGPU.WHOLE_SIZE, sampler: sampler.rawHandle,
+            textureView: nil),
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 2,
+            buffer: nil,
+            offset: 0, size: WebGPU.WHOLE_SIZE,
+            sampler: nil, textureView: textureView.rawHandle),
+    ]
+    var bindGroupDescriptor = WebGPU.BindGroupDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: bindGroupLayout.rawHandle,
+        entryCount: 3, entries: (entries.bytes as *WebGPU.BindGroupEntry))
+    bindGroup = device.createBindGroup(descriptor: &bindGroupDescriptor)
+    bindGroupLayout.release()
+
+    if !bindGroup.isValid {
+        Console.printLine("WebGPU textured bind group creation failed.")
+        return false
+    }
+    return true
+}
+
+func deviceReady(
+    status: WebGPU.RequestDeviceStatus,
+    receivedDevice: &WebGPU.DeviceHandle?,
+    message: WebGPU.StringView,
+    userdata1: &Byte?,
+    userdata2: &Byte?) {
+    if status != WebGPU.RequestDeviceStatus.success or receivedDevice == nil {
+        Console.printLine("WebGPU textured example device request failed.")
+        return
+    }
+    device = WebGPU.Device.fromHandle(handle: receivedDevice)
+    if createResources() {
+        ready = true
+        Console.printLine("WebGPU textured quad started.")
+    }
+}
+
+func adapterReady(
+    status: WebGPU.RequestAdapterStatus,
+    receivedAdapter: &WebGPU.AdapterHandle?,
+    message: WebGPU.StringView,
+    userdata1: &Byte?,
+    userdata2: &Byte?) {
+    if status != WebGPU.RequestAdapterStatus.success or receivedAdapter == nil {
+        Console.printLine("WebGPU textured example adapter request failed.")
+        return
+    }
+    adapter = WebGPU.Adapter.fromHandle(handle: receivedAdapter)
+    adapter.requestDevice(callback: deviceReady)
+}
+
+func main() -> Int {
+    instance = WebGPU.Instance.create()
+    let canvasSelector: CStringSlice = "#canvas"
+    var source = WebGPU.EmscriptenSurfaceSourceCanvasHTMLSelector(
+        chain: WebGPU.ChainedStruct(
+            next: nil, sType: WebGPU.SType.emscriptenSurfaceSourceCanvasHTMLSelector),
+        selector: WebGPU.StringView(
+            data: (canvasSelector.rawPointer() as *Int8), length: 7))
+    var descriptor = WebGPU.SurfaceDescriptor(
+        nextInChain: *source.chain, label: emptyStringView())
+    surface = instance.createSurface(descriptor: &descriptor)
+    if !instance.isValid or !surface.isValid {
+        Console.printLine("WebGPU textured example initialization failed.")
+        return 1
+    }
+    Console.printLine("Requesting a WebGPU adapter for textured rendering...")
+    instance.requestAdapter(callback: adapterReady)
+    Platform.Emscripten.setMainLoop(renderFrame, 0, 1)
+    return 0
+}

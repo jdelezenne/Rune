@@ -1,0 +1,15 @@
+#embedSource "Includes/SourceIncludeShared.rune"
+
+func main() -> Int {
+    let value = includedValue()
+    let label = includedLabel()
+
+    #printLn("Included value: ", value)
+    #printLn("Included label: ", label)
+
+    if value == 42 && label == "shared source" {
+        return 0
+    }
+
+    return 1
+}

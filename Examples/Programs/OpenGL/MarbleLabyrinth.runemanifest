@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "name": "MarbleLabyrinth",
+  "kind": "executable",
+  "unsafe": true,
+  "sources": [
+    "MarbleLabyrinth.rune"
+  ],
+  "dependencies": [
+    "../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../Modules/SDL3/SDL3.runemanifest",
+    "../../Modules/OpenGL/OpenGL.runemanifest"
+  ]
+}

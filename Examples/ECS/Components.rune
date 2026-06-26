@@ -1,0 +1,76 @@
+import ECS
+
+@component
+struct Position {
+    var x: Int
+    var y: Int
+}
+
+@component
+struct Velocity {
+    var dx: Int
+    var dy: Int
+}
+
+@system
+func integrate(position: &Position, velocity: Velocity) -> Void {
+    position.x += velocity.dx
+    position.y += velocity.dy
+}
+
+func main() -> Int {
+    var world = ECS.World()
+    var positions = ECS.ComponentStore<Position>()
+    var velocities = ECS.ComponentStore<Velocity>()
+
+    let entity = world.spawn()
+    if entity.id != 0 {
+        return 1
+    }
+    if world.entityCount != 1 {
+        return 2
+    }
+    if !world.isAlive(entity: entity) {
+        return 3
+    }
+    if !world.destroy(entity: entity) {
+        return 4
+    }
+    if world.isAlive(entity: entity) {
+        return 5
+    }
+    if world.destroy(entity: entity) {
+        return 6
+    }
+
+    let moving = world.spawn()
+    if !world.add(entity: moving, component: Position(x: 1, y: 2), to: &positions) {
+        return 7
+    }
+    if !world.add(entity: moving, component: Velocity(dx: 3, dy: 4), to: &velocities) {
+        return 8
+    }
+    if !world.has(entity: moving, in: positions) {
+        return 9
+    }
+    if !world.has(entity: moving, in: velocities) {
+        return 10
+    }
+
+    var position = world.get(entity: moving, from: positions)
+    let velocity = world.get(entity: moving, from: velocities)
+    integrate(position: &position, velocity: velocity)
+    if !world.set(entity: moving, component: position, in: &positions) {
+        return 11
+    }
+
+    let storedPosition = world.get(entity: moving, from: positions)
+    if storedPosition.x != 4 {
+        return 12
+    }
+    if storedPosition.y != 6 {
+        return 13
+    }
+
+    return 0
+}

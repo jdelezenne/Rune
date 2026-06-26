@@ -1,0 +1,419 @@
+// Render: maze walls, dots/pellets, Pac-Man, ghosts and the HUD.
+//
+// Circular shapes (dots, pellets, Pac-Man, ghost heads/eyes) are built as
+// triangle fans and drawn with SDL3.renderGeometry, the same technique
+// Cube.rune and Asteroids.rune use for colored polygons.
+
+import Standard.*
+import SDL3
+
+const TAU_F: Float32 = 6.2831855
+const PI_F: Float32 = 3.1415927
+const HALF_PI_F: Float32 = 1.5707964
+
+const CIRCLE_SEGMENTS: Int32 = 14
+const CIRCLE_MAX_VERTICES: Int32 = CIRCLE_SEGMENTS * 3
+
+struct Rgb {
+    var r: Float32
+    var g: Float32
+    var b: Float32
+}
+
+func makeColorVertex(x: Float32, y: Float32, red: Float32, green: Float32, blue: Float32, alpha: Float32) -> SDL3.Vertex {
+    return SDL3.Vertex(
+        position: SDL3.FPoint(x: x, y: y),
+        color: SDL3.FColor(r: red / 255.0, g: green / 255.0, b: blue / 255.0, a: alpha),
+        texCoord: SDL3.FPoint(x: 0.0, y: 0.0))
+}
+
+func drawFilledCircle(renderer: &SDL3.Renderer?, cx: Float32, cy: Float32, radius: Float32, red: Float32, green: Float32, blue: Float32, alpha: Float32) {
+    var vertices: [SDL3.Vertex, CIRCLE_MAX_VERTICES] = []
+    var vertexCount: Int32 = 0
+    for segmentIndex in 0..CIRCLE_SEGMENTS {
+        let angle0 = Float32(segmentIndex) / Float32(CIRCLE_SEGMENTS) * TAU_F
+        let angle1 = Float32(segmentIndex + 1) / Float32(CIRCLE_SEGMENTS) * TAU_F
+        vertices[Int(vertexCount)] = makeColorVertex(cx, cy, red, green, blue, alpha)
+        vertices[Int(vertexCount + 1)] = makeColorVertex(cx + Math.cos(angle0) * radius, cy + Math.sin(angle0) * radius, red, green, blue, alpha)
+        vertices[Int(vertexCount + 2)] = makeColorVertex(cx + Math.cos(angle1) * radius, cy + Math.sin(angle1) * radius, red, green, blue, alpha)
+        vertexCount = vertexCount + 3
+    }
+
+    SDL3.renderGeometry(renderer, nil, ((vertices.bytes) as &SDL3.Vertex), vertexCount, nil, 0)
+}
+
+func drawArcWedge(renderer: &SDL3.Renderer?, cx: Float32, cy: Float32, radius: Float32, startAngle: Float32, endAngle: Float32, red: Float32, green: Float32, blue: Float32, alpha: Float32) {
+    var vertices: [SDL3.Vertex, CIRCLE_MAX_VERTICES] = []
+    var vertexCount: Int32 = 0
+    for segmentIndex in 0..CIRCLE_SEGMENTS {
+        let t0 = Float32(segmentIndex) / Float32(CIRCLE_SEGMENTS)
+        let t1 = Float32(segmentIndex + 1) / Float32(CIRCLE_SEGMENTS)
+        let angle0 = startAngle + (endAngle - startAngle) * t0
+        let angle1 = startAngle + (endAngle - startAngle) * t1
+        vertices[Int(vertexCount)] = makeColorVertex(cx, cy, red, green, blue, alpha)
+        vertices[Int(vertexCount + 1)] = makeColorVertex(cx + Math.cos(angle0) * radius, cy + Math.sin(angle0) * radius, red, green, blue, alpha)
+        vertices[Int(vertexCount + 2)] = makeColorVertex(cx + Math.cos(angle1) * radius, cy + Math.sin(angle1) * radius, red, green, blue, alpha)
+        vertexCount = vertexCount + 3
+    }
+
+    SDL3.renderGeometry(renderer, nil, ((vertices.bytes) as &SDL3.Vertex), vertexCount, nil, 0)
+}
+
+func directionAngle(direction: Direction) -> Float32 {
+    if direction == Direction.up {
+        return -HALF_PI_F
+    }
+
+    if direction == Direction.down {
+        return HALF_PI_F
+    }
+
+    if direction == Direction.left {
+        return PI_F
+    }
+
+    return 0.0
+}
+
+// MARK: - Maze
+
+func drawMazeWalls(renderer: &SDL3.Renderer?) {
+    SDL3.setRenderDrawColor(renderer, 33, 88, 255, 255)
+    for row in 0..MAZE_ROWS {
+        for col in 0..MAZE_COLS {
+            if !isWallTile(col, row) {
+                continue
+            }
+
+            let x0 = BOARD_X + Float32(col) * CELL
+            let y0 = BOARD_Y + Float32(row) * CELL
+            let x1 = x0 + CELL
+            let y1 = y0 + CELL
+
+            if !isWallTile(col, row - 1) {
+                SDL3.renderLine(renderer, x0, y0, x1, y0)
+            }
+            if !isWallTile(col, row + 1) {
+                SDL3.renderLine(renderer, x0, y1, x1, y1)
+            }
+            if !isWallTile(col - 1, row) {
+                SDL3.renderLine(renderer, x0, y0, x0, y1)
+            }
+            if !isWallTile(col + 1, row) {
+                SDL3.renderLine(renderer, x1, y0, x1, y1)
+            }
+        }
+    }
+
+    SDL3.setRenderDrawColor(renderer, 255, 184, 222, 255)
+    let doorX = BOARD_X + Float32(DOOR_COL) * CELL
+    let doorY = BOARD_Y + Float32(DOOR_ROW) * CELL
+    SDL3.renderLine(renderer, doorX, doorY, doorX + CELL * 2.0, doorY)
+}
+
+func drawDots(renderer: &SDL3.Renderer?, game: *Game, pelletPulse: Float32) {
+    for row in 0..MAZE_ROWS {
+        for col in 0..MAZE_COLS {
+            let dot = game.dots[tileIndex(col, row)]
+            if dot == DOT_NONE {
+                continue
+            }
+
+            let cx = tileCenterX(col)
+            let cy = tileCenterY(row)
+            if dot == DOT_POWER {
+                drawFilledCircle(renderer, cx, cy, 4.5 + pelletPulse, 255.0, 220.0, 170.0, 1.0)
+            } else {
+                drawFilledCircle(renderer, cx, cy, 2.0, 245.0, 210.0, 150.0, 1.0)
+            }
+        }
+    }
+}
+
+// MARK: - Pac-Man
+
+func drawPacMan(renderer: &SDL3.Renderer?, pm: *PacMan, deathProgress: Float32) {
+    let cx = pacManPixelX(pm)
+    let cy = pacManPixelY(pm)
+    let radius: Float32 = 9.0
+
+    if deathProgress > 0.0 {
+        let startAngle = -HALF_PI_F
+        let sweep = TAU_F * deathProgress
+        drawArcWedge(renderer, cx, cy, radius, startAngle, startAngle + (TAU_F - sweep), 255.0, 221.0, 0.0, 1.0)
+        return
+    }
+
+    let mouthFraction = Math.abs(Math.sin(pm.mouthTimer * 9.0))
+    let mouthHalf: Float32 = 0.15 + mouthFraction * 0.62
+    let facing = directionAngle(pm.direction)
+
+    drawArcWedge(renderer, cx, cy, radius, facing + mouthHalf, facing + TAU_F - mouthHalf, 255.0, 221.0, 0.0, 1.0)
+}
+
+// MARK: - Ghosts
+
+func ghostBodyColor(g: *Ghost, frightenedFlashWhite: Bool) -> Rgb {
+    if g.mode == GhostMode.frightened {
+        if frightenedFlashWhite {
+            return Rgb(r: 255.0, g: 255.0, b: 255.0)
+        }
+        return Rgb(r: 33.0, g: 33.0, b: 230.0)
+    }
+
+    if g.personality == GhostPersonality.blinky {
+        return Rgb(r: 240.0, g: 38.0, b: 38.0)
+    }
+    if g.personality == GhostPersonality.pinky {
+        return Rgb(r: 255.0, g: 184.0, b: 222.0)
+    }
+    if g.personality == GhostPersonality.inky {
+        return Rgb(r: 90.0, g: 230.0, b: 242.0)
+    }
+
+    return Rgb(r: 255.0, g: 184.0, b: 82.0)
+}
+
+func drawGhostSkirt(renderer: &SDL3.Renderer?, cx: Float32, cy: Float32, radius: Float32, red: Float32, green: Float32, blue: Float32) {
+    let legs: Int32 = 4
+    let segWidth = (radius * 2.0) / Float32(legs)
+    var vertices: [SDL3.Vertex, 12] = []
+    var vertexCount: Int32 = 0
+    let baseY = cy + radius
+    let tipY = baseY + 4.0
+    var x = cx - radius
+    for legIndex in 0..legs {
+        let leftX = x
+        let rightX = x + segWidth
+        let apexX = x + segWidth * 0.5
+        vertices[Int(vertexCount)] = makeColorVertex(leftX, baseY, red, green, blue, 1.0)
+        vertices[Int(vertexCount + 1)] = makeColorVertex(rightX, baseY, red, green, blue, 1.0)
+        vertices[Int(vertexCount + 2)] = makeColorVertex(apexX, tipY, red, green, blue, 1.0)
+        vertexCount = vertexCount + 3
+        x = x + segWidth
+    }
+
+    SDL3.renderGeometry(renderer, nil, ((vertices.bytes) as &SDL3.Vertex), vertexCount, nil, 0)
+}
+
+func drawGhostEyes(renderer: &SDL3.Renderer?, cx: Float32, cy: Float32, direction: Direction, frightened: Bool) {
+    let eyeOffsetX: Float32 = 3.2
+    let eyeOffsetY: Float32 = -2.0
+    let eyeRadius: Float32 = 2.6
+    let pupilRadius: Float32 = 1.3
+
+    let leftEyeX = cx - eyeOffsetX
+    let rightEyeX = cx + eyeOffsetX
+    let eyeY = cy + eyeOffsetY
+
+    if frightened {
+        drawFilledCircle(renderer, leftEyeX, eyeY, eyeRadius * 0.85, 255.0, 255.0, 255.0, 1.0)
+        drawFilledCircle(renderer, rightEyeX, eyeY, eyeRadius * 0.85, 255.0, 255.0, 255.0, 1.0)
+        return
+    }
+
+    drawFilledCircle(renderer, leftEyeX, eyeY, eyeRadius, 255.0, 255.0, 255.0, 1.0)
+    drawFilledCircle(renderer, rightEyeX, eyeY, eyeRadius, 255.0, 255.0, 255.0, 1.0)
+
+    let pupilDx = Float32(directionDx(direction)) * 1.1
+    let pupilDy = Float32(directionDy(direction)) * 1.1
+    drawFilledCircle(renderer, leftEyeX + pupilDx, eyeY + pupilDy, pupilRadius, 24.0, 24.0, 140.0, 1.0)
+    drawFilledCircle(renderer, rightEyeX + pupilDx, eyeY + pupilDy, pupilRadius, 24.0, 24.0, 140.0, 1.0)
+}
+
+func drawGhost(renderer: &SDL3.Renderer?, g: *Ghost, frightenedFlashWhite: Bool) {
+    let cx = ghostPixelX(g)
+    let cy = ghostPixelY(g)
+    let radius: Float32 = 9.0
+
+    if g.mode == GhostMode.eaten {
+        drawGhostEyes(renderer, cx, cy, g.direction, false)
+        return
+    }
+
+    let color = ghostBodyColor(g, frightenedFlashWhite)
+    drawFilledCircle(renderer, cx, cy, radius, color.r, color.g, color.b, 1.0)
+
+    SDL3.setRenderDrawColor(renderer, UInt8(color.r), UInt8(color.g), UInt8(color.b), 255)
+    var bodyRect = SDL3.FRect(x: cx - radius, y: cy, w: radius * 2.0, h: radius)
+    SDL3.renderFillRect(renderer, &bodyRect)
+
+    drawGhostSkirt(renderer, cx, cy, radius, color.r, color.g, color.b)
+    drawGhostEyes(renderer, cx, cy - 1.0, g.direction, g.mode == GhostMode.frightened)
+}
+
+// MARK: - HUD digit font (same bitmap approach as Snake.rune)
+
+const DIGIT_COLS: Int = 5
+const DIGIT_ROWS: Int = 7
+const HUD_PIXEL: Float32 = 2.5
+const HUD_GAP: Float32 = 2.0
+
+const DIGIT_0: [UInt8, _] = [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E]
+const DIGIT_1: [UInt8, _] = [0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E]
+const DIGIT_2: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x10, 0x10, 0x0E]
+const DIGIT_3: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_4: [UInt8, _] = [0x11, 0x11, 0x11, 0x1F, 0x01, 0x01, 0x01]
+const DIGIT_5: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_6: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_7: [UInt8, _] = [0x0E, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01]
+const DIGIT_8: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_9: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x01, 0x01, 0x0E]
+
+func drawDigit(renderer: &SDL3.Renderer?, digit: Int, x: Float32, y: Float32, pixel: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    var rows: [UInt8, DIGIT_ROWS] = [0, 0, 0, 0, 0, 0, 0]
+    if digit == 0 {
+        rows = DIGIT_0
+    }
+
+    if digit == 1 {
+        rows = DIGIT_1
+    }
+
+    if digit == 2 {
+        rows = DIGIT_2
+    }
+
+    if digit == 3 {
+        rows = DIGIT_3
+    }
+
+    if digit == 4 {
+        rows = DIGIT_4
+    }
+
+    if digit == 5 {
+        rows = DIGIT_5
+    }
+
+    if digit == 6 {
+        rows = DIGIT_6
+    }
+
+    if digit == 7 {
+        rows = DIGIT_7
+    }
+
+    if digit == 8 {
+        rows = DIGIT_8
+    }
+
+    if digit == 9 {
+        rows = DIGIT_9
+    }
+    for row in 0..DIGIT_ROWS {
+        let mask = rows[row]
+        for col in 0..DIGIT_COLS {
+            let bit = UInt8(1 << (DIGIT_COLS - 1 - col))
+            if (mask & bit) != 0 {
+                var rect = SDL3.FRect(
+                    x: x + Float32(col) * pixel,
+                    y: y + Float32(row) * pixel,
+                    w: pixel,
+                    h: pixel)
+                SDL3.setRenderDrawColor(renderer, red, green, blue, 255)
+                SDL3.renderFillRect(renderer, &rect)
+            }
+        }
+    }
+}
+
+func drawNumber(renderer: &SDL3.Renderer?, value: Int32, x: Float32, y: Float32, pixel: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    var remaining = value
+    if remaining <= 0 {
+        drawDigit(renderer, 0, x, y, pixel, red, green, blue)
+        return
+    }
+
+    var digits: [Int] = []
+    while remaining > 0 {
+        digits.append(Int(remaining % 10))
+        remaining = remaining / 10
+    }
+
+    for digitIndex in 0..digits.count {
+        let digit = digits[digits.count - 1 - digitIndex]
+        drawDigit(renderer, digit, x + Float32(digitIndex) * ((Float32(DIGIT_COLS) * pixel) + HUD_GAP), y, pixel, red, green, blue)
+    }
+}
+
+// MARK: - HUD and overlays
+
+func drawHud(renderer: &SDL3.Renderer?, game: *Game) {
+    SDL3.setRenderDrawColor(renderer, 190, 210, 230, 255)
+    SDL3.renderDebugText(renderer, BOARD_X, 22.0, "SCORE")
+    drawNumber(renderer, game.score, BOARD_X + 60.0, 20.0, HUD_PIXEL, 255, 221, 0)
+
+    SDL3.renderDebugText(renderer, BOARD_X + 220.0, 22.0, "HIGH")
+    drawNumber(renderer, game.highScore, BOARD_X + 270.0, 20.0, HUD_PIXEL, 245, 215, 120)
+
+    SDL3.renderDebugText(renderer, BOARD_X + 420.0, 22.0, "LEVEL")
+    drawNumber(renderer, Int32(game.level), BOARD_X + 470.0, 20.0, HUD_PIXEL, 130, 220, 255)
+
+    var lifeIndex = 0
+    while lifeIndex < game.lives {
+        let lx = BOARD_X + Float32(lifeIndex) * 26.0 + 12.0
+        let ly = Float32(HEIGHT) - 24.0
+        drawArcWedge(renderer, lx, ly, 8.0, 0.5, TAU_F - 0.5, 255.0, 221.0, 0.0, 1.0)
+        lifeIndex = lifeIndex + 1
+    }
+}
+
+func drawCenterMessage(renderer: &SDL3.Renderer?, text: String, x: Float32, y: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    SDL3.setRenderDrawColor(renderer, red, green, blue, 255)
+    let cs = CString(text)
+    SDL3.renderDebugText(renderer, x, y, cs.asCStringSlice())
+}
+
+func drawOverlay(renderer: &SDL3.Renderer?, game: *Game) {
+    if game.paused {
+        drawCenterMessage(renderer, "PAUSED", BOARD_X + BOARD_W * 0.5 - 24.0, BOARD_Y + BOARD_H * 0.5, 230, 235, 240)
+        return
+    }
+
+    if game.phase == GamePhase.ready {
+        drawCenterMessage(renderer, "READY!", BOARD_X + BOARD_W * 0.5 - 24.0, tileCenterY(PACMAN_START_ROW) - 24.0, 255, 221, 0)
+        return
+    }
+
+    if game.phase == GamePhase.gameOver {
+        drawCenterMessage(renderer, "GAME OVER", BOARD_X + BOARD_W * 0.5 - 36.0, BOARD_Y + BOARD_H * 0.5 - 8.0, 245, 90, 90)
+        drawCenterMessage(renderer, "PRESS R TO RESTART", BOARD_X + BOARD_W * 0.5 - 64.0, BOARD_Y + BOARD_H * 0.5 + 12.0, 210, 210, 210)
+        return
+    }
+
+    if game.phase == GamePhase.levelClear {
+        drawCenterMessage(renderer, "LEVEL CLEAR", BOARD_X + BOARD_W * 0.5 - 40.0, BOARD_Y + BOARD_H * 0.5, 120, 240, 170)
+    }
+}
+
+func drawGame(renderer: &SDL3.Renderer?, game: *Game, pelletPulse: Float32) {
+    SDL3.setRenderDrawColor(renderer, 4, 4, 10, 255)
+    SDL3.renderClear(renderer)
+
+    drawMazeWalls(renderer)
+    drawDots(renderer, game, pelletPulse)
+
+    var flashWhite = false
+    if game.frightenedTimer > 0.0 && game.frightenedTimer < FRIGHTENED_FLASH_START {
+        flashWhite = (Int32(game.frightenedTimer * 6.0) % 2) == 0
+    }
+
+    for ghostIndex in 0..4 {
+        drawGhost(renderer, *game.ghosts[ghostIndex], flashWhite)
+    }
+
+    var deathProgress: Float32 = 0.0
+    if game.phase == GamePhase.pacmanDying {
+        deathProgress = 1.0 - (game.phaseTimer / DEATH_DURATION)
+        if deathProgress < 0.0 {
+            deathProgress = 0.0
+        }
+    }
+    drawPacMan(renderer, *game.pacman, deathProgress)
+
+    drawHud(renderer, game)
+    drawOverlay(renderer, game)
+
+    SDL3.renderPresent(renderer)
+}

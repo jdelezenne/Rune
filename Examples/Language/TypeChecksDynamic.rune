@@ -1,0 +1,51 @@
+// Runtime `is` downcast through a base reference.
+//
+// A `*Shape` fat reference carries the dynamic type of the value it points to.
+// `x is Circle` recovers that dynamic type at runtime and compares it to the
+// (closed) target, so a base reference can be classified without a manual tag.
+
+open struct Shape {
+    var tag: Int
+    open func area() -> Int {
+        return 0
+    }
+}
+
+struct Circle extends Shape {
+    var radius: Int
+    override func area() -> Int {
+        return radius * radius
+    }
+}
+
+struct Square extends Shape {
+    var side: Int
+    override func area() -> Int {
+        return side * side
+    }
+}
+
+func classify(shape: *Shape) -> Int {
+    if shape is Circle {
+        return 1
+    }
+    if shape is Square {
+        return 2
+    }
+    return 0
+}
+
+func main() -> Int {
+    let c = Circle(tag: 1, radius: 5)
+    let q = Square(tag: 2, side: 4)
+
+    // Circle classifies as 1, Square as 2; neither is misidentified as the other.
+    if classify(*c) != 1 {
+        return 10
+    }
+    if classify(*q) != 2 {
+        return 20
+    }
+
+    return 0
+}

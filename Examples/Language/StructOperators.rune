@@ -1,0 +1,105 @@
+struct Vector {
+    var x: Int
+    var y: Int
+
+    static operator ==(lhs: Vector, rhs: Vector) -> Bool {
+        return lhs.x == rhs.x and lhs.y == rhs.y
+    }
+
+    static operator +(lhs: Vector, rhs: Vector) -> Vector {
+        return Vector(x: lhs.x + rhs.x, y: lhs.y + rhs.y)
+    }
+
+    static operator +(lhs: Vector, rhs: Int) -> Vector {
+        return Vector(x: lhs.x + rhs, y: lhs.y + rhs)
+    }
+
+    static operator -(lhs: Vector, rhs: Vector) -> Vector {
+        return Vector(x: lhs.x - rhs.x, y: lhs.y - rhs.y)
+    }
+
+    static operator -(lhs: Vector, rhs: Int) -> Vector {
+        return Vector(x: lhs.x - rhs, y: lhs.y - rhs)
+    }
+
+    static operator +(value: Vector) -> Vector {
+        return Vector(x: value.x, y: value.y)
+    }
+
+    static operator -(value: Vector) -> Vector {
+        return Vector(x: -value.x, y: -value.y)
+    }
+
+    static operator *(lhs: Vector, rhs: Vector) -> Vector {
+        return Vector(x: lhs.x * rhs.x, y: lhs.y * rhs.y)
+    }
+
+    static operator *(lhs: Vector, rhs: Int) -> Vector {
+        return Vector(x: lhs.x * rhs, y: lhs.y * rhs)
+    }
+
+    static operator /(lhs: Vector, rhs: Vector) -> Vector {
+        return Vector(x: lhs.x / rhs.x, y: lhs.y / rhs.y)
+    }
+
+    static operator /(lhs: Vector, rhs: Int) -> Vector {
+        return Vector(x: lhs.x / rhs, y: lhs.y / rhs)
+    }
+}
+
+func main() -> Int {
+    let a = Vector(x: 3, y: 4)
+    let b = Vector(x: 1, y: 2)
+    let sum = a + b
+    let offset = a + 2
+    let difference = a - b
+    let shifted = a - 1
+    let same = +b
+    let inverse = -b
+    let product = a * b
+    let scaled = a * 3
+    let quotient = scaled / a
+    let divided = scaled / 3
+
+    if sum != Vector(x: 4, y: 6) {
+        return 1
+    }
+
+    if offset != Vector(x: 5, y: 6) {
+        return 2
+    }
+
+    if difference != Vector(x: 2, y: 2) {
+        return 3
+    }
+
+    if shifted != Vector(x: 2, y: 3) {
+        return 4
+    }
+
+    if same != b {
+        return 5
+    }
+
+    if inverse != Vector(x: -1, y: -2) {
+        return 6
+    }
+
+    if product != Vector(x: 3, y: 8) {
+        return 7
+    }
+
+    if scaled != Vector(x: 9, y: 12) {
+        return 8
+    }
+
+    if quotient != Vector(x: 3, y: 3) {
+        return 9
+    }
+
+    if divided != a {
+        return 10
+    }
+
+    return 0
+}

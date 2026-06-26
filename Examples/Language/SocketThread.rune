@@ -1,0 +1,174 @@
+// Run blocking socket work on a Thread: a server function runs on a spawned
+// OS thread while the client runs on the main thread. See
+// Examples/Language/Socket.rune for single-threaded TCP/UDP loopback and
+// Examples/Language/Thread.rune for the Thread basics.
+//
+// Thread(body:) only accepts noncapturing functions or closures that capture
+// immutable value locals - it does not accept a captured Socket. So the
+// accepted/bound connection is kept in module globals owned by the thread
+// function, and results are read back through globals after `join()`, which
+// establishes happens-before ordering (matches the pattern in Thread.rune).
+
+import Standard.*
+
+const TCP_PORT: UInt16 = 18472
+const UDP_PORT: UInt16 = 18473
+const MAX_CONNECT_ATTEMPTS: Int = 2000
+const MAX_UDP_SEND_ATTEMPTS: Int = 5000
+
+func fail(message: String) -> Int {
+    Console.printLine("FAIL: ${message}")
+    return 1
+}
+
+var tcpServerReceived: Int64 = -1
+var tcpServerSent: Int64 = -1
+var tcpServerError = ""
+
+func runTcpServer() {
+    var listener = Socket()
+    var listenErr = ""
+    if !listener.listen(host: "127.0.0.1", port: TCP_PORT, backlog: 1, error: &listenErr) {
+        tcpServerError = "listen: ${listenErr}"
+        return
+    }
+
+    var acceptErr = ""
+    var connection = listener.accept(error: &acceptErr)
+    if !connection.isOpen {
+        tcpServerError = "accept: ${acceptErr}"
+        return
+    }
+
+    let buffer = try! Memory.systemAllocate(size: 64)
+    var recvErr = ""
+    let received = connection.receive(buffer: buffer, length: 64, error: &recvErr)
+    tcpServerReceived = received
+    if received > 0 {
+        var sendErr = ""
+        tcpServerSent = connection.send(data: buffer, length: UInt(received), error: &sendErr)
+    }
+
+    Memory.systemDeallocate(address: buffer)
+    connection.close()
+    listener.close()
+}
+
+// The server thread's listen() may not have run yet, so retry until it has
+// (each failed connect to a not-yet-listening port fails immediately).
+func connectWithRetry(client: &Socket) -> Bool {
+    var attempt = 0
+    while attempt < MAX_CONNECT_ATTEMPTS {
+        var err = ""
+        if client.connect(host: "127.0.0.1", port: TCP_PORT, error: &err) {
+            return true
+        }
+        attempt = attempt + 1
+    }
+    return false
+}
+
+func tcpThreadLoopback() -> Int {
+    var server = Thread(body: runTcpServer)
+
+    var client = Socket()
+    if !connectWithRetry(client: &client) {
+        server.join()
+        return fail("tcp thread connect: ${tcpServerError}")
+    }
+
+    let message = try! Memory.systemAllocate(size: 5)
+    Memory.fill(destination: message, value: 65, byteCount: 5)
+    var sendErr = ""
+    let sent = client.send(data: message, length: 5, error: &sendErr)
+
+    let buffer = try! Memory.systemAllocate(size: 64)
+    var recvErr = ""
+    let received = client.receive(buffer: buffer, length: 64, error: &recvErr)
+
+    client.close()
+    server.join()
+
+    Memory.systemDeallocate(address: message)
+    Memory.systemDeallocate(address: buffer)
+
+    if tcpServerError != "" {
+        return fail("tcp thread server: ${tcpServerError}")
+    }
+    if sent != 5 || received != 5 || tcpServerReceived != 5 || tcpServerSent != 5 {
+        return fail("tcp thread mismatch: sent=${sent} received=${received} serverReceived=${tcpServerReceived} serverSent=${tcpServerSent}")
+    }
+
+    Console.printLine("tcp thread loopback: sent/received ${received} bytes")
+    return 0
+}
+
+var udpReceived: Int64 = -1
+var udpFromEmpty = true
+var udpServerError = ""
+
+func runUdpServer() {
+    var receiver = Socket()
+    var bindErr = ""
+    if !receiver.bind(host: "127.0.0.1", port: UDP_PORT, error: &bindErr) {
+        udpServerError = "bind: ${bindErr}"
+        return
+    }
+
+    let buffer = try! Memory.systemAllocate(size: 64)
+    var fromHost = ""
+    var fromPort: UInt16 = 0
+    var recvErr = ""
+    let received = receiver.receiveFrom(buffer: buffer, length: 64, fromHost: &fromHost, fromPort: &fromPort, error: &recvErr)
+    udpReceived = received
+    udpFromEmpty = fromHost == "" || fromPort == 0
+
+    Memory.systemDeallocate(address: buffer)
+    receiver.close()
+}
+
+func udpThreadLoopback() -> Int {
+    var server = Thread(body: runUdpServer)
+
+    var sender = Socket()
+    let message = try! Memory.systemAllocate(size: 3)
+    Memory.fill(destination: message, value: 66, byteCount: 3)
+
+    // UDP has no handshake to retry against, so resend until the receiver's
+    // bind() has had time to run; receiveFrom() picks up whichever lands.
+    var attempt = 0
+    while attempt < MAX_UDP_SEND_ATTEMPTS {
+        var sendErr = ""
+        let _ = sender.sendTo(data: message, length: 3, host: "127.0.0.1", port: UDP_PORT, error: &sendErr)
+        attempt = attempt + 1
+    }
+
+    server.join()
+    sender.close()
+    Memory.systemDeallocate(address: message)
+
+    if udpServerError != "" {
+        return fail("udp thread server: ${udpServerError}")
+    }
+    if udpReceived != 3 || udpFromEmpty {
+        return fail("udp thread mismatch: received=${udpReceived} fromEmpty=${udpFromEmpty}")
+    }
+
+    Console.printLine("udp thread loopback: sent/received ${udpReceived} bytes")
+    return 0
+}
+
+func main() -> Int {
+    let tcpResult = tcpThreadLoopback()
+    if tcpResult != 0 {
+        return tcpResult
+    }
+
+    let udpResult = udpThreadLoopback()
+    if udpResult != 0 {
+        return udpResult
+    }
+
+    Console.printLine("socket thread smoke test: OK")
+    return 0
+}

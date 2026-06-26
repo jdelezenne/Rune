@@ -1,0 +1,45 @@
+@flags
+public enum SurfaceFlags: UInt32 {
+    preallocated = 0x00000001 // SDL_SURFACE_PREALLOCATED
+    lockNeeded = 0x00000002 // SDL_SURFACE_LOCK_NEEDED
+    locked = 0x00000004 // SDL_SURFACE_LOCKED
+    simdAligned = 0x00000008 // SDL_SURFACE_SIMD_ALIGNED
+}
+
+@layout(kind: c)
+public struct Surface {
+    public var flags: SurfaceFlags
+    public var format: PixelFormat
+    public var w: Int32
+    public var h: Int32
+    public var pitch: Int32
+    public var pixels: *Byte?
+    public var refcount: Int32
+    public var reserved: *Byte?
+}
+
+@symbol("SDL_CreateSurface")
+public func createSurface(width: Int32, height: Int32, format: PixelFormat) -> &Surface?
+
+@symbol("SDL_DestroySurface")
+public func destroySurface(surface: &Surface?) -> Void
+
+@symbol("SDL_LockSurface")
+public func lockSurface(surface: &Surface?) -> Bool
+
+@symbol("SDL_UnlockSurface")
+public func unlockSurface(surface: &Surface?) -> Void
+
+@symbol("SDL_ConvertSurface")
+public func convertSurface(surface: &Surface?, format: PixelFormat) -> &Surface?
+
+@symbol("SDL_CreateTextureFromSurface")
+public func createTextureFromSurface(renderer: &Renderer?, surface: &Surface?) -> &Texture?
+
+// SDL_MUSTLOCK is a C macro (not a linkable symbol), so it's reimplemented
+// here directly from its definition: `(flags & SDL_SURFACE_LOCK_NEEDED) ==
+// SDL_SURFACE_LOCK_NEEDED`.
+public func surfaceMustLock(surface: &Surface) -> Bool {
+    return (surface.flags & SurfaceFlags.lockNeeded) == SurfaceFlags.lockNeeded
+}
+

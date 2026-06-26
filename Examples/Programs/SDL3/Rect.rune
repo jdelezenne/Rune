@@ -1,0 +1,56 @@
+import Standard.*
+import SDL3
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var event = SDL3.Event()
+var running = true
+
+func mainLoop() {
+    while SDL3.pollEvent(&event) {
+        if event.type == SDL3.EventType.quit || event.type == SDL3.EventType.windowCloseRequested {
+            running = false
+        }
+    }
+
+    if !running {
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    SDL3.setRenderDrawColor(renderer, 20, 50, 90, 255)
+    SDL3.renderClear(renderer)
+
+    var rect = SDL3.FRect(x: 160.0, y: 120.0, w: 320.0, h: 180.0)
+    SDL3.setRenderDrawColor(renderer, 240, 220, 80, 255)
+    SDL3.renderFillRect(renderer, &rect)
+
+    SDL3.renderPresent(renderer)
+    SDL3.delay(16)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        Console.printLine("SDL3.initialize failed")
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Primitive", 640, 480, 0, &window, &renderer) {
+        Console.printLine("SDL3.createWindowAndRenderer failed")
+        return 1
+    }
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

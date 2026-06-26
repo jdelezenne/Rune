@@ -1,0 +1,1203 @@
+// SDL3 Tetris: grid puzzle demo (complements Asteroids / Breakout).
+//
+// Language / runtime highlights:
+//   • enum piece kinds + game phase state machine
+//   • fixed playfield as InlineArray `[Cell, COLS * ROWS]`
+//   • 7-bag randomizer with `[PieceKind]` + Fisher–Yates shuffle
+//   • coordinate rotation in software (no per-rotation shape tables)
+//   • ghost piece, soft drop, lock delay, line clears + scoring tiers
+//   • keyboard + gamepad, performance-counter delta time
+//
+// Controls:
+//   Left/Right or A/D / D-pad     - move
+//   Up / W / X / gamepad North    - rotate clockwise
+//   Z / gamepad West              - rotate counter-clockwise
+//   Down / S / D-pad Down         - soft drop
+//   Space / gamepad South         - hard drop
+//   C / gamepad East              - hold (single slot)
+//   P                             - pause
+//   R                             - restart after game over
+//   Escape / close                - quit
+
+import Standard.*
+import SDL3
+
+const WIDTH: Int32 = 420
+const HEIGHT: Int32 = 680
+
+const COLS: Int32 = 10
+const ROWS: Int32 = 20
+const HIDDEN_ROWS: Int32 = 2
+const CELL: Float32 = 28.0
+const GRID_W: Int = 10
+const GRID_H: Int = 20
+const GRID_CELLS: Int = 200
+
+const BOARD_X: Float32 = 40.0
+const BOARD_Y: Float32 = 40.0
+const BOARD_W: Float32 = 280.0
+const BOARD_H: Float32 = 560.0
+
+const SOFT_DROP_INTERVAL: Float32 = 0.05
+const LOCK_DELAY: Float32 = 0.5
+const MOVE_REPEAT: Float32 = 0.12
+const GHOST_ALPHA: UInt8 = 110
+
+const DIGIT_COLS: Int = 5
+const DIGIT_ROWS: Int = 7
+const HUD_PIXEL: Float32 = 2.5
+const HUD_GAP: Float32 = 2.0
+
+const DIGIT_0: [UInt8, _] = [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E]
+const DIGIT_1: [UInt8, _] = [0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E]
+const DIGIT_2: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x10, 0x10, 0x0E]
+const DIGIT_3: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_4: [UInt8, _] = [0x11, 0x11, 0x11, 0x1F, 0x01, 0x01, 0x01]
+const DIGIT_5: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_6: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_7: [UInt8, _] = [0x0E, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01]
+const DIGIT_8: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_9: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x01, 0x01, 0x0E]
+
+enum PieceKind: Int32 {
+    i = 0
+    o = 1
+    t = 2
+    s = 3
+    z = 4
+    j = 5
+    l = 6
+}
+
+enum GamePhase: Int32 {
+    playing = 0
+    paused = 1
+    gameOver = 2
+}
+
+distinct Cell = UInt8
+
+struct Rng {
+    var state: UInt32
+}
+
+struct ActivePiece {
+    var kind: PieceKind
+    var rotation: Int32
+    var x: Int32
+    var y: Int32
+}
+
+struct InputEdge {
+    var moveLeft: Bool
+    var moveRight: Bool
+    var rotateCw: Bool
+    var rotateCcw: Bool
+    var softDrop: Bool
+    var hardDrop: Bool
+    var hold: Bool
+    var pause: Bool
+    var restart: Bool
+    var quit: Bool
+}
+
+struct HeldKeys {
+    var left: Bool
+    var right: Bool
+    var soft: Bool
+}
+
+struct Game {
+    var grid: [Cell, GRID_CELLS]
+    var phase: GamePhase
+    var active: ActivePiece
+    var holdKind: PieceKind
+    var hasHold: Bool
+    var holdUsed: Bool
+    var bag: [PieceKind]
+    var bagPos: Int
+    var nextKind: PieceKind
+    var score: Int32
+    var lines: Int32
+    var level: Int32
+    var dropTimer: Float32
+    var lockTimer: Float32
+    var locking: Bool
+    var moveCooldown: Float32
+    var rng: Rng
+}
+
+func seedRng(rng: &Rng, seed: UInt32) {
+    rng.state = seed
+    if rng.state == 0 {
+        rng.state = 1
+    }
+}
+
+func randU32(rng: &Rng) -> UInt32 {
+    var x = rng.state
+    x = x ^ (x << 13)
+    x = x ^ (x >> 17)
+    x = x ^ (x << 5)
+    rng.state = x
+    return x
+}
+
+func randInt(rng: &Rng, maxExclusive: Int32) -> Int32 {
+    if maxExclusive <= 0 {
+        return 0
+    }
+
+    return Int32(randU32(rng) % UInt32(maxExclusive))
+}
+
+func gridIndex(x: Int32, y: Int32) -> Int {
+    return Int(y * COLS + x)
+}
+
+func cellAt(grid: [Cell, GRID_CELLS], x: Int32, y: Int32) -> Cell {
+    if x < 0 || x >= COLS || y < 0 || y >= ROWS {
+        return Cell(0)
+    }
+
+    return grid[gridIndex(x, y)]
+}
+
+func setCell(grid: &[Cell, GRID_CELLS], x: Int32, y: Int32, value: Cell) {
+    if x < 0 || x >= COLS || y < 0 || y >= ROWS {
+        return
+    }
+    grid[gridIndex(x, y)] = value
+}
+
+func clearGrid(grid: &[Cell, GRID_CELLS]) {
+    for cellIndex in 0..GRID_CELLS {
+        grid[cellIndex] = Cell(0)
+    }
+}
+
+func baseMino(kind: PieceKind, index: Int32) -> (dx: Int32, dy: Int32) {
+    let cellIndex = Int(index)
+    if kind == PieceKind.i {
+        if cellIndex == 0 {
+            return (dx: Int32(-1), dy: Int32(0))
+        }
+        if cellIndex == 1 {
+            return (dx: Int32(0), dy: Int32(0))
+        }
+        if cellIndex == 2 {
+            return (dx: Int32(1), dy: Int32(0))
+        }
+        return (dx: Int32(2), dy: Int32(0))
+    }
+
+    if kind == PieceKind.o {
+        if cellIndex == 0 {
+            return (dx: Int32(0), dy: Int32(0))
+        }
+        if cellIndex == 1 {
+            return (dx: Int32(1), dy: Int32(0))
+        }
+        if cellIndex == 2 {
+            return (dx: Int32(0), dy: Int32(1))
+        }
+        return (dx: Int32(1), dy: Int32(1))
+    }
+
+    if kind == PieceKind.t {
+        if cellIndex == 0 {
+            return (dx: Int32(0), dy: Int32(0))
+        }
+        if cellIndex == 1 {
+            return (dx: Int32(-1), dy: Int32(0))
+        }
+        if cellIndex == 2 {
+            return (dx: Int32(1), dy: Int32(0))
+        }
+        return (dx: Int32(0), dy: Int32(1))
+    }
+
+    if kind == PieceKind.s {
+        if cellIndex == 0 {
+            return (dx: Int32(0), dy: Int32(0))
+        }
+        if cellIndex == 1 {
+            return (dx: Int32(1), dy: Int32(0))
+        }
+        if cellIndex == 2 {
+            return (dx: Int32(0), dy: Int32(1))
+        }
+        return (dx: Int32(-1), dy: Int32(1))
+    }
+
+    if kind == PieceKind.z {
+        if cellIndex == 0 {
+            return (dx: Int32(0), dy: Int32(0))
+        }
+        if cellIndex == 1 {
+            return (dx: Int32(-1), dy: Int32(0))
+        }
+        if cellIndex == 2 {
+            return (dx: Int32(0), dy: Int32(1))
+        }
+        return (dx: Int32(1), dy: Int32(1))
+    }
+
+    if kind == PieceKind.j {
+        if cellIndex == 0 {
+            return (dx: Int32(0), dy: Int32(0))
+        }
+        if cellIndex == 1 {
+            return (dx: Int32(-1), dy: Int32(0))
+        }
+        if cellIndex == 2 {
+            return (dx: Int32(1), dy: Int32(0))
+        }
+        return (dx: Int32(-1), dy: Int32(1))
+    }
+
+    if cellIndex == 0 {
+        return (dx: Int32(0), dy: Int32(0))
+    }
+
+    if cellIndex == 1 {
+        return (dx: Int32(1), dy: Int32(0))
+    }
+
+    if cellIndex == 2 {
+        return (dx: Int32(0), dy: Int32(1))
+    }
+
+    return (dx: Int32(1), dy: Int32(1))
+}
+
+func rotateMino(dx: Int32, dy: Int32, times: Int32) -> (dx: Int32, dy: Int32) {
+    var x = dx
+    var y = dy
+    var remaining = times % 4
+    if remaining < 0 {
+        remaining = remaining + 4
+    }
+    while remaining > 0 {
+        let rotatedX = -y
+        let rotatedY = x
+        x = rotatedX
+        y = rotatedY
+        remaining = remaining - 1
+    }
+
+    return (dx: x, dy: y)
+}
+
+func minoWorld(piece: ActivePiece, index: Int32) -> (x: Int32, y: Int32) {
+    let base = baseMino(piece.kind, index)
+    let rotated = rotateMino(base.dx, base.dy, piece.rotation)
+    return (x: piece.x + rotated.dx, y: piece.y + rotated.dy)
+}
+
+func pieceFits(grid: [Cell, GRID_CELLS], piece: ActivePiece) -> Bool {
+    for minoIndex in 0..Int32(4) {
+        let cell = minoWorld(piece, minoIndex)
+        if cell.x < 0 || cell.x >= COLS {
+            return false
+        }
+        if cell.y >= ROWS {
+            return false
+        }
+        if cell.y >= 0 {
+            let occupied = cellAt(grid, cell.x, cell.y)
+            if UInt8(occupied) != 0 {
+                return false
+            }
+        }
+    }
+
+    return true
+}
+
+func cellForKind(kind: PieceKind) -> Cell {
+    if kind == PieceKind.i {
+        return Cell(1)
+    }
+
+    if kind == PieceKind.o {
+        return Cell(2)
+    }
+
+    if kind == PieceKind.t {
+        return Cell(3)
+    }
+
+    if kind == PieceKind.s {
+        return Cell(4)
+    }
+
+    if kind == PieceKind.z {
+        return Cell(5)
+    }
+
+    if kind == PieceKind.j {
+        return Cell(6)
+    }
+
+    return Cell(7)
+}
+
+func pieceColor(kind: PieceKind) -> (red: UInt8, green: UInt8, blue: UInt8) {
+    if kind == PieceKind.i {
+        return (red: UInt8(80), green: UInt8(220), blue: UInt8(255))
+    }
+
+    if kind == PieceKind.o {
+        return (red: UInt8(255), green: UInt8(220), blue: UInt8(80))
+    }
+
+    if kind == PieceKind.t {
+        return (red: UInt8(200), green: UInt8(120), blue: UInt8(255))
+    }
+
+    if kind == PieceKind.s {
+        return (red: UInt8(90), green: UInt8(220), blue: UInt8(120))
+    }
+
+    if kind == PieceKind.z {
+        return (red: UInt8(255), green: UInt8(90), blue: UInt8(110))
+    }
+
+    if kind == PieceKind.j {
+        return (red: UInt8(90), green: UInt8(130), blue: UInt8(255))
+    }
+
+    return (red: UInt8(255), green: UInt8(170), blue: UInt8(80))
+}
+
+func cellColor(cell: Cell) -> (red: UInt8, green: UInt8, blue: UInt8) {
+    let v = UInt8(cell)
+    if v == 0 {
+        return (red: UInt8(0), green: UInt8(0), blue: UInt8(0))
+    }
+
+    if v == 1 {
+        return pieceColor(PieceKind.i)
+    }
+
+    if v == 2 {
+        return pieceColor(PieceKind.o)
+    }
+
+    if v == 3 {
+        return pieceColor(PieceKind.t)
+    }
+
+    if v == 4 {
+        return pieceColor(PieceKind.s)
+    }
+
+    if v == 5 {
+        return pieceColor(PieceKind.z)
+    }
+
+    if v == 6 {
+        return pieceColor(PieceKind.j)
+    }
+
+    return pieceColor(PieceKind.l)
+}
+
+func refillBag(game: &Game) {
+    game.bag = []
+    game.bag.append(PieceKind.i)
+    game.bag.append(PieceKind.o)
+    game.bag.append(PieceKind.t)
+    game.bag.append(PieceKind.s)
+    game.bag.append(PieceKind.z)
+    game.bag.append(PieceKind.j)
+    game.bag.append(PieceKind.l)
+    game.bagPos = 0
+}
+
+func shuffleBag(game: &Game) {
+    var bagIndex = game.bag.count - 1
+    while bagIndex > 0 {
+        let swapIndex = Int(randInt(&game.rng, Int32(bagIndex + 1)))
+        let swappedPiece = game.bag[bagIndex]
+        game.bag[bagIndex] = game.bag[swapIndex]
+        game.bag[swapIndex] = swappedPiece
+        bagIndex = bagIndex - 1
+    }
+}
+
+func drawFromBag(game: &Game) -> PieceKind {
+    if game.bagPos >= game.bag.count {
+        refillBag(game)
+        shuffleBag(game)
+    }
+    let kind = game.bag[game.bagPos]
+    game.bagPos = game.bagPos + 1
+    return kind
+}
+
+func spawnPiece(kind: PieceKind) -> ActivePiece {
+    return ActivePiece(kind: kind, rotation: 0, x: 3, y: -1)
+}
+
+func lockPiece(game: &Game) {
+    for minoIndex in 0..Int32(4) {
+        let cell = minoWorld(game.active, minoIndex)
+        if cell.y >= 0 {
+            setCell(&game.grid, cell.x, cell.y, cellForKind(game.active.kind))
+        }
+    }
+}
+
+func clearFullLines(game: &Game) -> Int32 {
+    var cleared: Int32 = 0
+    var y: Int32 = ROWS - 1
+    while y >= 0 {
+        var full = true
+        for x in 0..COLS {
+            if UInt8(cellAt(game.grid, x, y)) == 0 {
+                full = false
+            }
+        }
+        if full {
+            cleared = cleared + 1
+            var row = y
+            while row > 0 {
+                for cx in 0..COLS {
+                    setCell(&game.grid, cx, row, cellAt(game.grid, cx, row - 1))
+                }
+                row = row - 1
+            }
+            for topX in 0..COLS {
+                setCell(&game.grid, topX, 0, Cell(0))
+            }
+        } else {
+            y = y - 1
+        }
+    }
+
+    return cleared
+}
+
+func addLineScore(game: &Game, cleared: Int32) {
+    if cleared == 1 {
+        game.score = game.score + 100 * (game.level + 1)
+    } else if cleared == 2 {
+        game.score = game.score + 300 * (game.level + 1)
+    } else if cleared == 3 {
+        game.score = game.score + 500 * (game.level + 1)
+    } else if cleared >= 4 {
+        game.score = game.score + 800 * (game.level + 1)
+    }
+    game.lines = game.lines + cleared
+    game.level = game.lines / 10
+}
+
+func dropInterval(level: Int32) -> Float32 {
+    let base: Float32 = 0.85
+    let step: Float32 = 0.05
+    let interval = base - step * Float32(level)
+    if interval < 0.08 {
+        return 0.08
+    }
+
+    return interval
+}
+
+func trySpawn(game: &Game) -> Bool {
+    game.active = spawnPiece(game.nextKind)
+    game.nextKind = drawFromBag(game)
+    game.locking = false
+    game.lockTimer = 0.0
+    game.holdUsed = false
+    if !pieceFits(game.grid, game.active) {
+        game.phase = GamePhase.gameOver
+        return false
+    }
+
+    return true
+}
+
+func resetGame(game: &Game) {
+    clearGrid(&game.grid)
+    game.phase = GamePhase.playing
+    game.holdKind = PieceKind.i
+    game.hasHold = false
+    game.holdUsed = false
+    game.score = 0
+    game.lines = 0
+    game.level = 0
+    game.dropTimer = 0.0
+    game.lockTimer = 0.0
+    game.locking = false
+    game.moveCooldown = 0.0
+    refillBag(game)
+    shuffleBag(game)
+    game.nextKind = drawFromBag(game)
+    trySpawn(game)
+}
+
+func ghostPiece(grid: [Cell, GRID_CELLS], piece: ActivePiece) -> ActivePiece {
+    var ghost = piece
+    while pieceFits(grid, ActivePiece(kind: ghost.kind, rotation: ghost.rotation, x: ghost.x, y: ghost.y + 1)) {
+        ghost.y = ghost.y + 1
+    }
+
+    return ghost
+}
+
+func tryMove(game: &Game, dx: Int32, dy: Int32) -> Bool {
+    let moved = ActivePiece(
+        kind: game.active.kind,
+        rotation: game.active.rotation,
+        x: game.active.x + dx,
+        y: game.active.y + dy)
+    if !pieceFits(game.grid, moved) {
+        return false
+    }
+    game.active = moved
+    if dy > 0 {
+        game.lockTimer = 0.0
+    }
+
+    return true
+}
+
+func tryRotate(game: &Game, delta: Int32) -> Bool {
+    let rotated = ActivePiece(
+        kind: game.active.kind,
+        rotation: game.active.rotation + delta,
+        x: game.active.x,
+        y: game.active.y)
+    if pieceFits(game.grid, rotated) {
+        game.active = rotated
+        game.lockTimer = 0.0
+        return true
+    }
+
+    if pieceFits(game.grid, ActivePiece(kind: rotated.kind, rotation: rotated.rotation, x: rotated.x - 1, y: rotated.y)) {
+        game.active = ActivePiece(kind: rotated.kind, rotation: rotated.rotation, x: rotated.x - 1, y: rotated.y)
+        game.lockTimer = 0.0
+        return true
+    }
+
+    if pieceFits(game.grid, ActivePiece(kind: rotated.kind, rotation: rotated.rotation, x: rotated.x + 1, y: rotated.y)) {
+        game.active = ActivePiece(kind: rotated.kind, rotation: rotated.rotation, x: rotated.x + 1, y: rotated.y)
+        game.lockTimer = 0.0
+        return true
+    }
+
+    return false
+}
+
+func hardDrop(game: &Game) {
+    while tryMove(game, 0, 1) {
+    }
+    lockPiece(game)
+    let cleared = clearFullLines(game)
+    addLineScore(game, cleared)
+    trySpawn(game)
+    game.dropTimer = 0.0
+    game.locking = false
+}
+
+func tryHold(game: &Game) {
+    if game.holdUsed {
+        return
+    }
+    let current = game.active.kind
+    if game.hasHold {
+        game.active = spawnPiece(game.holdKind)
+        game.holdKind = current
+    } else {
+        game.holdKind = current
+        game.hasHold = true
+        game.active = spawnPiece(game.nextKind)
+        game.nextKind = drawFromBag(game)
+    }
+    game.holdUsed = true
+    game.locking = false
+    game.lockTimer = 0.0
+    if !pieceFits(game.grid, game.active) {
+        game.phase = GamePhase.gameOver
+    }
+}
+
+func updateGame(game: &Game, deltaTime: Float32, input: InputEdge, softHeld: Bool) {
+    if game.phase != GamePhase.playing {
+        return
+    }
+
+    if input.hold {
+        tryHold(game)
+    }
+
+    if game.moveCooldown <= 0.0 {
+        if input.moveLeft {
+            tryMove(game, -1, 0)
+            game.moveCooldown = MOVE_REPEAT
+        } else if input.moveRight {
+            tryMove(game, 1, 0)
+            game.moveCooldown = MOVE_REPEAT
+        }
+    } else {
+        game.moveCooldown = game.moveCooldown - deltaTime
+    }
+
+    if input.rotateCw {
+        tryRotate(game, 1)
+    }
+
+    if input.rotateCcw {
+        tryRotate(game, -1)
+    }
+
+    if input.hardDrop {
+        hardDrop(game)
+        return
+    }
+
+    var movedDown = false
+    if input.softDrop || softHeld {
+        if tryMove(game, 0, 1) {
+            game.score = game.score + 1
+            movedDown = true
+            game.dropTimer = 0.0
+        }
+    }
+
+    game.dropTimer = game.dropTimer + deltaTime
+    if game.dropTimer >= dropInterval(game.level) {
+        game.dropTimer = 0.0
+        if tryMove(game, 0, 1) {
+            movedDown = true
+        } else {
+            game.locking = true
+        }
+    } else if !movedDown && !pieceFits(game.grid, ActivePiece(kind: game.active.kind, rotation: game.active.rotation, x: game.active.x, y: game.active.y + 1)) {
+        game.locking = true
+    }
+
+    if game.locking {
+        game.lockTimer = game.lockTimer + deltaTime
+        if game.lockTimer >= LOCK_DELAY {
+            lockPiece(game)
+            let cleared = clearFullLines(game)
+            addLineScore(game, cleared)
+            trySpawn(game)
+            game.dropTimer = 0.0
+            game.locking = false
+            game.lockTimer = 0.0
+        }
+    }
+}
+
+func drawDigit(
+    renderer: &SDL3.Renderer?,
+    digit: Int,
+    x: Float32,
+    y: Float32,
+    pixelSize: Float32,
+    red: UInt8,
+    green: UInt8,
+    blue: UInt8) {
+    var rows: [UInt8, 7] = [0, 0, 0, 0, 0, 0, 0]
+    if digit == 0 {
+        rows = DIGIT_0
+    }
+
+    if digit == 1 {
+        rows = DIGIT_1
+    }
+
+    if digit == 2 {
+        rows = DIGIT_2
+    }
+
+    if digit == 3 {
+        rows = DIGIT_3
+    }
+
+    if digit == 4 {
+        rows = DIGIT_4
+    }
+
+    if digit == 5 {
+        rows = DIGIT_5
+    }
+
+    if digit == 6 {
+        rows = DIGIT_6
+    }
+
+    if digit == 7 {
+        rows = DIGIT_7
+    }
+
+    if digit == 8 {
+        rows = DIGIT_8
+    }
+
+    if digit == 9 {
+        rows = DIGIT_9
+    }
+
+    for row in 0..DIGIT_ROWS {
+        let bits = rows[row]
+        for col in 0..DIGIT_COLS {
+            let mask = UInt8(1 << (DIGIT_COLS - 1 - col))
+            if (bits & mask) != 0 {
+                var rect = SDL3.FRect(
+                    x: x + Float32(col) * pixelSize,
+                    y: y + Float32(row) * pixelSize,
+                    w: pixelSize,
+                    h: pixelSize)
+                SDL3.setRenderDrawColor(renderer, red, green, blue, 255)
+                SDL3.renderFillRect(renderer, &rect)
+            }
+        }
+    }
+}
+
+func drawNumber(renderer: &SDL3.Renderer?, value: Int32, x: Float32, y: Float32, pixel: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    if value == 0 {
+        drawDigit(renderer, 0, x, y, pixel, red, green, blue)
+        return
+    }
+    var remaining = value
+    if remaining < 0 {
+        remaining = -remaining
+    }
+    var digits: [Int] = []
+    while remaining > 0 {
+        digits.append(Int(remaining % 10))
+        remaining = remaining / 10
+    }
+    var drawX = x
+    for digitIndex in 0..digits.count {
+        let digit = digits[digits.count - 1 - digitIndex]
+        drawDigit(renderer, digit, drawX, y, pixel, red, green, blue)
+        drawX = drawX + Float32(DIGIT_COLS) * pixel + HUD_GAP
+    }
+}
+
+func drawCell(renderer: &SDL3.Renderer?, x: Float32, y: Float32, red: UInt8, green: UInt8, blue: UInt8, alpha: UInt8) {
+    var rect = SDL3.FRect(x: x + 1.0, y: y + 1.0, w: CELL - 2.0, h: CELL - 2.0)
+    SDL3.setRenderDrawColor(renderer, red, green, blue, alpha)
+    SDL3.renderFillRect(renderer, &rect)
+    SDL3.setRenderDrawColor(renderer, 255, 255, 255, UInt8(Int32(alpha) / 2 + 40))
+    SDL3.renderRect(renderer, &rect)
+}
+
+func drawPieceAt(renderer: &SDL3.Renderer?, piece: ActivePiece, originX: Float32, originY: Float32, alpha: UInt8) {
+    let color = pieceColor(piece.kind)
+    for minoIndex in 0..Int32(4) {
+        let cell = minoWorld(piece, minoIndex)
+        if cell.y >= 0 {
+            let px = originX + Float32(cell.x) * CELL
+            let py = originY + Float32(cell.y) * CELL
+            drawCell(renderer, px, py, color.red, color.green, color.blue, alpha)
+        }
+    }
+}
+
+func drawPreviewPiece(renderer: &SDL3.Renderer?, kind: PieceKind, x: Float32, y: Float32) {
+    let preview = spawnPiece(kind)
+    let color = pieceColor(kind)
+    for minoIndex in 0..Int32(4) {
+        let base = baseMino(kind, minoIndex)
+        let px = x + Float32(base.dx + 1) * (CELL * 0.65)
+        let py = y + Float32(base.dy + 1) * (CELL * 0.65)
+        var rect = SDL3.FRect(x: px, y: py, w: CELL * 0.6, h: CELL * 0.6)
+        SDL3.setRenderDrawColor(renderer, color.red, color.green, color.blue, 255)
+        SDL3.renderFillRect(renderer, &rect)
+    }
+}
+
+func drawBoard(renderer: &SDL3.Renderer?, game: *Game) {
+    SDL3.setRenderDrawColor(renderer, 12, 16, 28, 255)
+    var panel = SDL3.FRect(x: BOARD_X - 6.0, y: BOARD_Y - 6.0, w: BOARD_W + 12.0, h: BOARD_H + 12.0)
+    SDL3.renderFillRect(renderer, &panel)
+    SDL3.setRenderDrawColor(renderer, 48, 58, 88, 255)
+    SDL3.renderRect(renderer, &panel)
+
+    for y in 0..ROWS {
+        for x in 0..COLS {
+            let cell = cellAt(game.grid, x, y)
+            let px = BOARD_X + Float32(x) * CELL
+            let py = BOARD_Y + Float32(y) * CELL
+            if UInt8(cell) != 0 {
+                let color = cellColor(cell)
+                drawCell(renderer, px, py, color.red, color.green, color.blue, 255)
+            } else {
+                SDL3.setRenderDrawColor(renderer, 20, 26, 40, 255)
+                var dot = SDL3.FRect(x: px + CELL * 0.45, y: py + CELL * 0.45, w: 2.0, h: 2.0)
+                SDL3.renderFillRect(renderer, &dot)
+            }
+        }
+    }
+
+    if game.phase == GamePhase.playing {
+        let ghost = ghostPiece(game.grid, game.active)
+        SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.blend)
+        drawPieceAt(renderer, ghost, BOARD_X, BOARD_Y, GHOST_ALPHA)
+        SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.none)
+        drawPieceAt(renderer, game.active, BOARD_X, BOARD_Y, 255)
+    }
+}
+
+func drawHud(renderer: &SDL3.Renderer?, game: *Game) {
+    let hudX = BOARD_X + BOARD_W + 16.0
+    SDL3.setRenderDrawColor(renderer, 180, 190, 220, 255)
+    SDL3.renderDebugText(renderer, hudX, 48.0, "SCORE")
+    drawNumber(renderer, game.score, hudX, 68.0, HUD_PIXEL, 240, 230, 180)
+    SDL3.renderDebugText(renderer, hudX, 120.0, "LINES")
+    drawNumber(renderer, game.lines, hudX, 140.0, HUD_PIXEL, 120, 220, 255)
+    SDL3.renderDebugText(renderer, hudX, 192.0, "LEVEL")
+    drawNumber(renderer, game.level, hudX, 212.0, HUD_PIXEL, 255, 180, 120)
+
+    SDL3.renderDebugText(renderer, hudX, 280.0, "NEXT")
+    drawPreviewPiece(renderer, game.nextKind, hudX, 304.0)
+
+    SDL3.renderDebugText(renderer, hudX, 400.0, "HOLD")
+    if game.hasHold {
+        drawPreviewPiece(renderer, game.holdKind, hudX, 424.0)
+    }
+
+    if game.phase == GamePhase.paused {
+        SDL3.setRenderDrawColor(renderer, 0, 0, 0, 160)
+        var overlay = SDL3.FRect(x: 0.0, y: 0.0, w: Float32(WIDTH), h: Float32(HEIGHT))
+        SDL3.renderFillRect(renderer, &overlay)
+        SDL3.renderDebugText(renderer, 150.0, 320.0, "PAUSED")
+    }
+}
+
+func drawGameOverOverlay(renderer: &SDL3.Renderer?, score: Int32, lines: Int32) {
+    SDL3.setRenderDrawColor(renderer, 0, 0, 0, 180)
+    var dim = SDL3.FRect(x: 0.0, y: 0.0, w: Float32(WIDTH), h: Float32(HEIGHT))
+    SDL3.renderFillRect(renderer, &dim)
+
+    var panel = SDL3.FRect(x: 70.0, y: 270.0, w: 280.0, h: 140.0)
+    SDL3.setRenderDrawColor(renderer, 10, 12, 20, 230)
+    SDL3.renderFillRect(renderer, &panel)
+    SDL3.setRenderDrawColor(renderer, 255, 120, 120, 255)
+    SDL3.renderDebugText(renderer, 130.0, 290.0, "GAME OVER")
+    SDL3.setRenderDrawColor(renderer, 180, 190, 220, 255)
+    SDL3.renderDebugText(renderer, 100.0, 330.0, "SCORE")
+    drawNumber(renderer, score, 170.0, 330.0, HUD_PIXEL, 240, 230, 180)
+    SDL3.renderDebugText(renderer, 100.0, 370.0, "LINES")
+    drawNumber(renderer, lines, 170.0, 370.0, HUD_PIXEL, 120, 220, 255)
+}
+
+func clearInputEdge(edge: &InputEdge) {
+    edge.moveLeft = false
+    edge.moveRight = false
+    edge.rotateCw = false
+    edge.rotateCcw = false
+    edge.softDrop = false
+    edge.hardDrop = false
+    edge.hold = false
+    edge.pause = false
+    edge.restart = false
+    edge.quit = false
+}
+
+func keyDown(edge: &InputEdge, scancode: SDL3.Scancode) {
+    if scancode == SDL3.Scancode.left || scancode == SDL3.Scancode.a {
+        edge.moveLeft = true
+    } else if scancode == SDL3.Scancode.right || scancode == SDL3.Scancode.d {
+        edge.moveRight = true
+    } else if scancode == SDL3.Scancode.up || scancode == SDL3.Scancode.w || scancode == SDL3.Scancode.x {
+        edge.rotateCw = true
+    } else if scancode == SDL3.Scancode.z {
+        edge.rotateCcw = true
+    } else if scancode == SDL3.Scancode.down || scancode == SDL3.Scancode.s {
+        edge.softDrop = true
+    } else if scancode == SDL3.Scancode.space {
+        edge.hardDrop = true
+    } else if scancode == SDL3.Scancode.c {
+        edge.hold = true
+    } else if scancode == SDL3.Scancode.p {
+        edge.pause = true
+    } else if scancode == SDL3.Scancode.r {
+        edge.restart = true
+    } else if scancode == SDL3.Scancode.escape {
+        edge.quit = true
+    }
+}
+
+func keyboardDown(state: *Bool?, scancode: SDL3.Scancode) -> Bool {
+    if state == nil {
+        return false
+    }
+    let slot = (Int(state!) + Int(scancode as Int32)) as *Bool
+    return slot^
+}
+
+func readKeyboardHeld() -> HeldKeys {
+    let keys = SDL3.getKeyboardState(nil)
+    return HeldKeys(
+        left: keyboardDown(keys, SDL3.Scancode.left) || keyboardDown(keys, SDL3.Scancode.a),
+        right: keyboardDown(keys, SDL3.Scancode.right) || keyboardDown(keys, SDL3.Scancode.d),
+        soft: keyboardDown(keys, SDL3.Scancode.down) || keyboardDown(keys, SDL3.Scancode.s))
+}
+
+func applyGamepad(edge: &InputEdge, held: &HeldKeys, gamepad: &SDL3.Gamepad?) {
+    if gamepad == nil {
+        return
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.dpadLeft) {
+        edge.moveLeft = true
+        held.left = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.dpadRight) {
+        edge.moveRight = true
+        held.right = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.dpadDown) {
+        edge.softDrop = true
+        held.soft = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.north) {
+        edge.rotateCw = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.west) {
+        edge.rotateCcw = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.south) {
+        edge.hardDrop = true
+    }
+
+    if SDL3.getGamepadButton(gamepad, SDL3.GamepadButton.east) {
+        edge.hold = true
+    }
+}
+
+func openFirstGamepad() -> &SDL3.Gamepad? {
+    var count: Int32 = 0
+    let ids = SDL3.getGamepads(&count)
+    if ids == nil || count <= 0 {
+        return nil
+    }
+    let list = Slice<SDL3.JoystickId>(elements: ids!, count: Int(count))
+    let firstId = list[0]
+    SDL3.free(ids)
+    return SDL3.openGamepad(firstId)
+}
+
+func promptReplay(window: &SDL3.Window?, score: Int32, lines: Int32) -> Bool {
+    let title = CString("Tetris")
+    let body = CString("Score: ${score}, Lines: ${lines}. Play again?")
+    let noLabel = CString("No")
+    let yesLabel = CString("Yes")
+
+    var buttons: [SDL3.MessageBoxButtonData, 2] = [
+        SDL3.MessageBoxButtonData(
+            flags: SDL3.MessageBoxButtonFlags.escapeKeyDefault,
+            buttonId: 0,
+            text: noLabel.asCStringSlice()),
+        SDL3.MessageBoxButtonData(
+            flags: SDL3.MessageBoxButtonFlags.returnKeyDefault,
+            buttonId: 1,
+            text: yesLabel.asCStringSlice()),
+    ]
+
+    var data = SDL3.MessageBoxData(
+        flags: SDL3.MessageBoxFlags.warning,
+        parentWindow: window,
+        title: title.asCStringSlice(),
+        message: body.asCStringSlice(),
+        numButtons: 2,
+        buttons: *buttons[0],
+        colorScheme: nil)
+
+    var buttonId: Int32 = -1
+    if SDL3.showMessageBox(&data, &buttonId) {
+        return buttonId == 1
+    }
+
+    return true
+}
+
+func handleEvent(event: SDL3.Event, edge: &InputEdge, gamepad: &(&SDL3.Gamepad?)) -> Bool {
+    if event.type == SDL3.EventType.quit {
+        return false
+    }
+
+    if event.type == SDL3.EventType.keyDown && event.down {
+        keyDown(edge, event.scancode)
+        if event.scancode == SDL3.Scancode.escape {
+            return false
+        }
+    }
+
+    if event.type == SDL3.EventType.gamepadAdded {
+        if gamepad^ == nil {
+            gamepad^ = SDL3.openGamepad(event.windowId)
+        }
+    }
+
+    if event.type == SDL3.EventType.gamepadRemoved {
+        if gamepad^ != nil {
+            SDL3.closeGamepad(gamepad^)
+            gamepad^ = nil
+        }
+    }
+
+    return true
+}
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var gamepad: &SDL3.Gamepad? = nil
+var running = true
+var announcedGameOver = false
+var event = SDL3.Event()
+var perfFreq: UInt64 = 1
+var lastCounter: UInt64 = 0
+
+var game = Game(
+    grid: [],
+    phase: GamePhase.playing,
+    active: spawnPiece(PieceKind.t),
+    holdKind: PieceKind.i,
+    hasHold: false,
+    holdUsed: false,
+    bag: [],
+    bagPos: 0,
+    nextKind: PieceKind.i,
+    score: 0,
+    lines: 0,
+    level: 0,
+    dropTimer: 0.0,
+    lockTimer: 0.0,
+    locking: false,
+    moveCooldown: 0.0,
+    rng: Rng(state: 1))
+
+func mainLoop() {
+    var edge = InputEdge(
+        moveLeft: false,
+        moveRight: false,
+        rotateCw: false,
+        rotateCcw: false,
+        softDrop: false,
+        hardDrop: false,
+        hold: false,
+        pause: false,
+        restart: false,
+        quit: false)
+
+    while SDL3.pollEvent(&event) {
+        if !handleEvent(event, &edge, &gamepad) {
+            running = false
+        }
+    }
+
+    let counter = SDL3.getPerformanceCounter()
+    var deltaTime = Float32(counter - lastCounter) / Float32(perfFreq)
+    lastCounter = counter
+    if deltaTime > 0.05 {
+        deltaTime = 0.05
+    }
+
+    var held = readKeyboardHeld()
+    applyGamepad(&edge, &held, gamepad)
+    if held.left {
+        edge.moveLeft = true
+    }
+    if held.right {
+        edge.moveRight = true
+    }
+
+    if edge.quit {
+        running = false
+    }
+    if edge.pause && game.phase == GamePhase.playing {
+        game.phase = GamePhase.paused
+    } else if edge.pause && game.phase == GamePhase.paused {
+        game.phase = GamePhase.playing
+    }
+    if edge.restart && game.phase == GamePhase.gameOver {
+        resetGame(&game)
+        announcedGameOver = false
+    }
+
+    updateGame(&game, deltaTime, edge, held.soft)
+
+    SDL3.setRenderDrawColor(renderer, 8, 10, 18, 255)
+    SDL3.renderClear(renderer)
+    drawBoard(renderer, *game)
+    drawHud(renderer, *game)
+    if game.phase == GamePhase.gameOver {
+        drawGameOverOverlay(renderer, game.score, game.lines)
+    }
+    SDL3.renderPresent(renderer)
+
+    if game.phase == GamePhase.gameOver && !announcedGameOver {
+        announcedGameOver = true
+        let replay = promptReplay(window, game.score, game.lines)
+        if replay {
+            resetGame(&game)
+            announcedGameOver = false
+        } else {
+            running = false
+        }
+    }
+
+    if !running {
+        if gamepad != nil {
+            SDL3.closeGamepad(gamepad)
+        }
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        Console.printLine("Tetris finished.")
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video | SDL3.InitFlags.gamepad) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Tetris", WIDTH, HEIGHT, 0, &window, &renderer) {
+        Console.printLine("SDL_CreateWindowAndRenderer failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.setRenderVSync(renderer, 1) {
+        Console.printLine("SDL_SetRenderVSync failed: ${SDL3.getError()!}")
+    }
+
+    seedRng(&game.rng, UInt32(SDL3.getTicks()))
+    resetGame(&game)
+
+    gamepad = openFirstGamepad()
+    perfFreq = SDL3.getPerformanceFrequency()
+    lastCounter = SDL3.getPerformanceCounter()
+
+    Console.printLine("Tetris: hold, ghost piece, 7-bag, keyboard + gamepad.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

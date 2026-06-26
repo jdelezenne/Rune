@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "name": "BattleCity",
+  "kind": "executable",
+  "sources": [
+    "Arena.rune",
+    "Actors.rune",
+    "World.rune",
+    "Render.rune",
+    "Main.rune"
+  ],
+  "dependencies": [
+    "../../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../../Modules/SDL3/SDL3.runemanifest"
+  ]
+}

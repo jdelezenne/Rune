@@ -1,0 +1,12 @@
+/// Result of a three-way comparison.
+public enum Ordering: Int8 {
+    less = -1
+    equal = 0
+    greater = 1
+}
+
+/// Types with a total ordering, required by sorted collections.
+public interface Comparable extends Equatable {
+    /// Returns the ordering of `lhs` relative to `rhs`.
+    static operator <=>(lhs: Self, rhs: Self) -> Ordering
+}

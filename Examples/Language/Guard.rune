@@ -1,0 +1,21 @@
+func describe(value: Int?) -> Int {
+    guard let number = value else {
+        return 0
+    }
+
+    return number
+}
+
+func main() -> Int {
+    guard true else {
+        return 0
+    }
+
+    let total = describe(value: 42) + describe(value: nil)
+
+    if total == 42 {
+        return 0
+    }
+
+    return 1
+}

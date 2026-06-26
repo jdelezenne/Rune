@@ -1,0 +1,66 @@
+struct Point {
+    var x: Int
+    var y: Int
+}
+
+func main() -> Int {
+    // Implicit widening: a concrete value boxes into `Any` with no cast.
+    let boxedInt: Any = 42
+    let boxedBool: Any = true
+    let boxedPoint: Any = Point(x: 3, y: 4)
+
+    // `is` tests the boxed dynamic type.
+    if !(boxedInt is Int) {
+        return 10
+    }
+    if boxedInt is Bool {
+        return 11
+    }
+
+    // `as!` recovers the value; it traps on a mismatch (not exercised here).
+    let recovered: Int = boxedInt as! Int
+    if recovered != 42 {
+        return 20
+    }
+
+    // `as?` yields `T?`: the boxed type on a match, nil otherwise.
+    if let flag = boxedBool as? Bool {
+        if !flag {
+            return 30
+        }
+    } else {
+        return 31
+    }
+    if boxedBool as? Int != nil {
+        return 32
+    }
+
+    // A value struct round-trips through the box.
+    if let p = boxedPoint as? Point {
+        if p.x + p.y != 7 {
+            return 40
+        }
+    } else {
+        return 41
+    }
+
+    // `Any` through a function boundary.
+    let echoed: Any = 99
+    if (echoed as! Int) != 99 {
+        return 50
+    }
+
+    // Heterogeneous collection: `Array<Any>` stores boxes uniformly.
+    let values: Array<Any> = [1, 2, 3, 4]
+    var sum: Int = 0
+    for value in values {
+        if let n = value as? Int {
+            sum = sum + n
+        }
+    }
+    if sum != 10 {
+        return 60
+    }
+
+    return 0
+}

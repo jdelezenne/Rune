@@ -1,0 +1,29 @@
+// Lambdas and closures: pass inline functions and capture outer variables.
+
+alias IntBinaryOperation = (Int, Int) -> Int
+alias IntUnaryOperation = (Int) -> Int
+
+func applyOperation(x: Int, y: Int, op: IntBinaryOperation) -> Int {
+    return op(x, y)
+}
+
+func apply(value: Int, op: IntUnaryOperation) -> Int {
+    return op(value)
+}
+
+func main() -> Int {
+    let sum = applyOperation(x: 10, y: 5, op: (x: Int, y: Int) -> x + y)
+
+    let doubleValue: IntUnaryOperation = (value: Int) -> value * 2
+    let doubled = apply(value: 21, op: doubleValue)
+
+    let factor = 10
+    let scale: (Int) -> Int = (x: Int) -> x * factor
+
+    let result = sum + doubled + scale(5)
+    if result != 107 {
+        return 1
+    }
+
+    return 0
+}

@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "name": "WebGPUPulse",
+  "kind": "executable",
+  "unsafe": true,
+  "sources": [
+    "Pulse.rune"
+  ],
+  "dependencies": [
+    "../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../Modules/SDL3/SDL3.runemanifest",
+    "../../Modules/WebGPU/WebGPU.runemanifest"
+  ]
+}

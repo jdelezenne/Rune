@@ -1,0 +1,138 @@
+/// A priority queue that always yields its smallest element first.
+///
+/// Elements are kept in a binary min-heap backed by a contiguous `Buffer<T>`,
+/// giving O(log n) `push`/`pop` and O(1) `peek`. Ordering is defined by the
+/// element type's `Comparable` conformance: `a` has higher priority than `b`
+/// when `a < b`.
+public struct PriorityQueue<T extends Comparable> {
+    var _buffer: Buffer<T>
+    var _count: Int = 0
+
+    /// Creates an empty priority queue.
+    public init() {
+        _buffer = Buffer<T>()
+    }
+}
+
+public extension PriorityQueue<T extends Comparable> implements Collection {
+    public type Element = T
+    public type Iter = ArrayIterator<T>
+
+    /// Returns an iterator over the stored values in internal heap order.
+    public func makeIterator() -> ArrayIterator<T> {
+        return _buffer.makeIterator(count: _count)
+    }
+
+    /// Number of stored values.
+    public count: Int {
+        get { return _count }
+    }
+
+    /// `true` when the queue contains no values.
+    public isEmpty: Bool {
+        get { return _count == 0 }
+    }
+
+    /// Number of elements that can be stored without reallocating.
+    public capacity: Int {
+        get { return _buffer.capacity }
+    }
+
+    /// Ensures the queue can hold at least `capacity` elements.
+    public mutating func ensureCapacity(capacity: Int) {
+        if capacity <= _buffer.capacity {
+            return
+        }
+
+        _buffer.reserve(count: capacity)
+    }
+
+    /// Returns the value at `index` in internal heap order.
+    ///
+    /// This is the order elements happen to occupy in the backing heap, not
+    /// sorted order; use `pop` repeatedly to retrieve values by priority.
+    public operator [](index: Int) -> T {
+        return _buffer.getAt(index: index)
+    }
+
+    /// Returns the smallest value without removing it.
+    public func peek() -> T {
+        return _buffer.getAt(index: 0)
+    }
+
+    /// Inserts `element`, restoring the heap by sifting it up toward the root.
+    public mutating func push(element: T) {
+        if _count == _buffer.capacity {
+            let newCapacity = _count == 0 ? 4 : _count * 2
+            self.ensureCapacity(capacity: newCapacity)
+        }
+
+        _buffer.setAt(index: _count, element: element)
+        _count = _count + 1
+
+        var child = _count - 1
+        while child > 0 {
+            let parent = (child - 1) / 2
+            if _buffer.getAt(index: child) < _buffer.getAt(index: parent) {
+                let moved = _buffer.getAt(index: child)
+                _buffer.setAt(index: child, element: _buffer.getAt(index: parent))
+                _buffer.setAt(index: parent, element: moved)
+                child = parent
+            } else {
+                break
+            }
+        }
+    }
+
+    /// Removes and returns the smallest value, restoring the heap by sifting the
+    /// former last element down from the root.
+    public mutating func pop() -> T {
+        let smallest = _buffer.getAt(index: 0)
+        _count = _count - 1
+
+        if _count > 0 {
+            _buffer.setAt(index: 0, element: _buffer.getAt(index: _count))
+
+            var parent = 0
+            while true {
+                let left = 2 * parent + 1
+                let right = 2 * parent + 2
+                var candidate = parent
+
+                if left < _count &&
+                    _buffer.getAt(index: left) < _buffer.getAt(index: candidate) {
+                    candidate = left
+                }
+                if right < _count &&
+                    _buffer.getAt(index: right) < _buffer.getAt(index: candidate) {
+                    candidate = right
+                }
+                if candidate == parent {
+                    break
+                }
+
+                let moved = _buffer.getAt(index: parent)
+                _buffer.setAt(index: parent, element: _buffer.getAt(index: candidate))
+                _buffer.setAt(index: candidate, element: moved)
+                parent = candidate
+            }
+        }
+
+        return smallest
+    }
+
+    /// Removes all elements, retaining allocated storage.
+    public mutating func clear() {
+        _count = 0
+    }
+}
+
+public extension PriorityQueue<T extends Comparable> implements ArrayLiteralConvertible {
+    public init(elements: T...) {
+        _buffer = Buffer<T>()
+
+        for element in elements {
+            self.push(element: element)
+        }
+    }
+}

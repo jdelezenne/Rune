@@ -1,0 +1,33 @@
+{
+  "version": "1.0.0",
+  "name": "Rune",
+  "kind": "library",
+  "sources": [
+    "Allocator.rune",
+    "Array.rune",
+    "Buffer.rune",
+    "Byte.rune",
+    "CString.rune",
+    "CStringSlice.rune",
+    "Collections.rune",
+    "Comparable.rune",
+    "CustomStringConvertible.rune",
+    "HashMap.rune",
+    "HashSet.rune",
+    "InlineArray.rune",
+    "Limits.rune",
+    "LiteralConvertible.rune",
+    "Memory.rune",
+    "Option.rune",
+    "Primitives.rune",
+    "Range.rune",
+    "Result.rune",
+    "SIMD.rune",
+    "Slice.rune",
+    "SortedMap.rune",
+    "SortedSet.rune",
+    "String.rune",
+    "StringSlice.rune",
+    "SystemAllocator.rune"
+  ]
+}

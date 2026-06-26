@@ -1,0 +1,21 @@
+func main() -> Int {
+    let greeting: String = "Hello" + ", " + "world"
+    if greeting != "Hello, world" {
+        return 1
+    }
+
+    if greeting.length != 12 {
+        return 2
+    }
+
+    if greeting[0] != 'H' {
+        return 3
+    }
+
+    let middleIndex = 7
+    if greeting[middleIndex] != 'w' {
+        return 4
+    }
+
+    return 0
+}

@@ -1,0 +1,11 @@
+public static Platform {
+    public static Emscripten {
+        public alias MainLoopCallback = () -> Void
+
+        @runtime("rune_emscripten_set_main_loop")
+        public func setMainLoop(callback: MainLoopCallback, fps: Int32, simulateInfiniteLoop: Int32) -> Void
+
+        @runtime("rune_emscripten_cancel_main_loop")
+        public func cancelMainLoop() -> Void
+    }
+}

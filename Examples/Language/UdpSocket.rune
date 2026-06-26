@@ -1,0 +1,60 @@
+import Standard.*
+
+func fail(message: String) -> Int {
+    #printLn("FAIL: ${message}")
+    return 1
+}
+
+func udpTypedLoopback() throws(String) -> Int {
+    var receiver = try UdpSocket.bind(address: SocketAddress(host: "127.0.0.1", port: 18473))
+    var sender = UdpSocket()
+
+    let message = try! Memory.systemAllocate(size: 3)
+    Memory.fill(destination: message, value: 68, byteCount: 3)
+
+    let sent = try sender.sendTo(data: message, length: 3, address: SocketAddress(host: "127.0.0.1", port: 18473))
+    if sent != 3 {
+        receiver.close()
+        sender.close()
+        Memory.systemDeallocate(address: message)
+        return fail("UdpSocket.sendTo: expected 3 bytes")
+    }
+
+    let buffer = try! Memory.systemAllocate(size: 16)
+    let datagram = try receiver.receiveFrom(buffer: buffer, length: 16)
+    if datagram.byteCount != 3 {
+        receiver.close()
+        sender.close()
+        Memory.systemDeallocate(address: message)
+        Memory.systemDeallocate(address: buffer)
+        return fail("UdpDatagram.byteCount: expected 3 bytes")
+    }
+    if datagram.remoteAddress.host == "" || datagram.remoteAddress.port == 0 {
+        receiver.close()
+        sender.close()
+        Memory.systemDeallocate(address: message)
+        Memory.systemDeallocate(address: buffer)
+        return fail("UdpDatagram.remoteAddress unexpectedly empty")
+    }
+
+    receiver.close()
+    sender.close()
+    Memory.systemDeallocate(address: message)
+    Memory.systemDeallocate(address: buffer)
+    return 0
+}
+
+func main() -> Int {
+    do {
+        let result = udpTypedLoopback()
+        if result != 0 {
+            return result
+        }
+    }
+    catch let error {
+        return fail("typed UDP socket error: ${error}")
+    }
+
+    #printLn("typed UDP socket smoke test: OK")
+    return 0
+}

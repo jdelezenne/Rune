@@ -1,0 +1,4 @@
+func main() -> Int {
+    #printLn("Hello, Rune!")
+    return 0
+}

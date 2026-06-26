@@ -1,0 +1,69 @@
+func sum(values: Slice<Int>) -> Int {
+    var total = 0
+    for value in values {
+        total = total + value
+    }
+    return total
+}
+
+func totalTextLength(values: Slice<String>) -> Int {
+    var total = 0
+    for value in values {
+        total = total + value.length
+    }
+    return total
+}
+
+func main() -> Int {
+    let text: String = "Rune"
+    if text.length != 4 {
+        return 1
+    }
+
+    let textView: StringSlice = "Rune"
+    if textView.length != 4 {
+        return 2
+    }
+
+    let array: [Int] = [1, 2, 3]
+    if array.count != 3 || array[0] != 1 || array[2] != 3 {
+        return 3
+    }
+
+    let inline: [Int, 3] = [4, 5, 6]
+    if inline[0] != 4 || inline[2] != 6 {
+        return 4
+    }
+
+    let slice: Slice<Int> = [7, 8, 9]
+    if slice.count != 3 || sum(values: slice) != 24 {
+        return 5
+    }
+
+    let textSlice: Slice<String> = ["a", "bb", "ccc"]
+    if textSlice.count != 3 || totalTextLength(values: textSlice) != 6 {
+        return 6
+    }
+
+    let set: HashSet<Int> = [4, 5, 4, 6]
+    if set.count != 3 || !set.contains(element: 4) || !set.contains(element: 6) {
+        return 7
+    }
+
+    let sortedSet: SortedSet<Int> = [9, 7, 8, 7]
+    if sortedSet.count != 3 || !sortedSet.contains(element: 7) || !sortedSet.contains(element: 9) {
+        return 8
+    }
+
+    let map: HashMap<String, Int> = ["red": 10, "green": 20, "blue": 30]
+    if map.count != 3 || map["red"] != 10 || map["blue"] != 30 {
+        return 9
+    }
+
+    let sortedMap: SortedMap<Int, String> = [3: "three", 1: "one", 2: "two"]
+    if sortedMap.count != 3 || sortedMap[1] != "one" || sortedMap[3] != "three" {
+        return 10
+    }
+
+    return 0
+}

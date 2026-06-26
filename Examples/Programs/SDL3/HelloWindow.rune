@@ -1,0 +1,77 @@
+// Minimal SDL3 window example.
+
+import Standard.*
+import SDL3
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var event = SDL3.Event()
+var running = true
+
+func quit() {
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+
+    Console.printLine("SDL3 example finished")
+}
+
+func mainLoop() {
+    while SDL3.pollEvent(&event) {
+        if event.type == SDL3.EventType.quit || event.type == SDL3.EventType.windowCloseRequested {
+            quit()
+            if #platform(wasm) {
+                Platform.Emscripten.cancelMainLoop()
+            }
+            running = false
+            return
+        }
+    }
+}
+
+func main() -> Int {
+    Console.printLine("SDL3 example starting...")
+
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        let error = SDL3.getError()
+        if error == nil {
+            Console.printLine("SDL_Init failed")
+        } else {
+            Console.printLine("SDL_Init failed: ${error!}")
+        }
+
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune SDL3", 640, 480, 0, &window, &renderer) {
+        let error = SDL3.getError()
+        if error == nil {
+            Console.printLine("SDL_CreateWindowAndRenderer failed")
+        } else {
+            Console.printLine("SDL_CreateWindowAndRenderer failed: ${error!}")
+        }
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.setRenderDrawColor(renderer, 30, 120, 200, 255) {
+        Console.printLine("SDL_SetRenderDrawColor failed")
+    }
+
+    if !SDL3.renderClear(renderer) {
+        Console.printLine("SDL_RenderClear failed")
+    }
+
+    if !SDL3.renderPresent(renderer) {
+        Console.printLine("SDL_RenderPresent failed")
+    }
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

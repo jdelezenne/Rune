@@ -1,0 +1,107 @@
+/// Type-safe angle that stores its value in radians while letting call sites
+/// construct and read it in whichever unit is convenient. Using `Angle` instead
+/// of a bare `Float32` removes the "was this degrees or radians?" ambiguity that
+/// causes a whole class of trigonometry bugs.
+@layout(kind: c)
+public struct Angle {
+    /// The angle in radians (the canonical stored representation).
+    public var radians: Float32 = 0.0
+
+    /// Zero angle.
+    public static func zero() -> Angle {
+        return Angle(radians: 0.0)
+    }
+
+    /// Constructs an angle from a value in radians.
+    public static func fromRadians(value: Float32) -> Angle {
+        return Angle(radians: value)
+    }
+
+    /// Constructs an angle from a value in degrees.
+    public static func fromDegrees(value: Float32) -> Angle {
+        return Angle(radians: value * Float32(Math.PI / 180.0))
+    }
+
+    /// The angle expressed in degrees.
+    public func degrees() -> Float32 {
+        return radians * Float32(180.0 / Math.PI)
+    }
+
+    /// Sine of the angle.
+    public func sin() -> Float32 {
+        return Math.sin(radians)
+    }
+
+    /// Cosine of the angle.
+    public func cos() -> Float32 {
+        return Math.cos(radians)
+    }
+
+    /// Tangent of the angle.
+    public func tan() -> Float32 {
+        return Math.tan(radians)
+    }
+
+    /// Returns this angle wrapped into the range [0, 2π).
+    public func normalized() -> Angle {
+        let tau = Float32(Math.TAU)
+        var value = Math.fmod(radians, tau)
+        if value < 0.0 {
+            value = value + tau
+        }
+        return Angle(radians: value)
+    }
+
+    /// Returns this angle wrapped into the range (-π, π].
+    public func normalizedSigned() -> Angle {
+        let tau = Float32(Math.TAU)
+        let pi = Float32(Math.PI)
+        var value = Math.fmod(radians + pi, tau)
+        if value <= 0.0 {
+            value = value + tau
+        }
+        return Angle(radians: value - pi)
+    }
+
+    public static operator +(lhs: Angle, rhs: Angle) -> Angle {
+        return Angle(radians: lhs.radians + rhs.radians)
+    }
+
+    public static operator -(lhs: Angle, rhs: Angle) -> Angle {
+        return Angle(radians: lhs.radians - rhs.radians)
+    }
+
+    public static operator -(value: Angle) -> Angle {
+        return Angle(radians: 0.0 - value.radians)
+    }
+
+    public static operator *(lhs: Angle, rhs: Float32) -> Angle {
+        return Angle(radians: lhs.radians * rhs)
+    }
+
+    public static operator *(lhs: Float32, rhs: Angle) -> Angle {
+        return Angle(radians: lhs * rhs.radians)
+    }
+
+    public static operator /(lhs: Angle, rhs: Float32) -> Angle {
+        return Angle(radians: lhs.radians / rhs)
+    }
+}
+
+public extension Angle implements Equatable {
+    public static operator ==(lhs: Angle, rhs: Angle) -> Bool {
+        return lhs.radians == rhs.radians
+    }
+}
+
+public extension Angle implements Comparable {
+    public static operator <=>(lhs: Angle, rhs: Angle) -> Ordering {
+        return lhs.radians <=> rhs.radians
+    }
+}
+
+public extension Angle implements CustomStringConvertible {
+    public func toString() -> String {
+        return "${self.radians} rad"
+    }
+}

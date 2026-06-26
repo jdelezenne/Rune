@@ -1,0 +1,65 @@
+/// Oriented bounding box (OBB): a box defined by a `center`, per-axis
+/// `halfExtents`, and an `orientation` quaternion. Unlike Box (an AABB), it can
+/// be rotated arbitrarily, giving a tighter fit for rotated objects at the cost
+/// of more expensive tests.
+@layout(kind: c)
+public struct OrientedBox {
+    public var center: Vector3
+    /// Half the size along each local axis (before rotation).
+    public var halfExtents: Vector3
+    public var orientation: Quaternion
+
+    /// Builds an oriented box from an axis-aligned Box (identity orientation).
+    public static func fromBox(box: Box) -> OrientedBox {
+        return OrientedBox(
+            center: box.center(),
+            halfExtents: box.extents(),
+            orientation: Quaternion.identity())
+    }
+
+    /// Whether `point` lies inside (or on the surface of) the box.
+    public func contains(point: Vector3) -> Bool {
+        let local = orientation.conjugate().rotate(vector: point - center)
+        return Math.abs(local.x) <= halfExtents.x
+            && Math.abs(local.y) <= halfExtents.y
+            && Math.abs(local.z) <= halfExtents.z
+    }
+
+    /// The point on or inside the box closest to `point`.
+    public func closestPoint(point: Vector3) -> Vector3 {
+        let local = orientation.conjugate().rotate(vector: point - center)
+        let clamped = Vector3(
+            x: Math.clamp(local.x, 0.0 - halfExtents.x, halfExtents.x),
+            y: Math.clamp(local.y, 0.0 - halfExtents.y, halfExtents.y),
+            z: Math.clamp(local.z, 0.0 - halfExtents.z, halfExtents.z))
+        return center + orientation.rotate(vector: clamped)
+    }
+
+    /// Whether this oriented box overlaps `other` (separating-axis test).
+    public func intersects(other: OrientedBox) -> Bool {
+        return Intersection.orientedBoxOrientedBox(a: self, b: other)
+    }
+
+    /// Whether this oriented box overlaps `sphere`.
+    public func intersects(sphere: Sphere) -> Bool {
+        return Intersection.sphereOrientedBox(sphere: sphere, box: self)
+    }
+
+    /// The world-space axis-aligned box that fully encloses this oriented box.
+    public func toBox() -> Box {
+        let rot = orientation.toMatrix3()
+        let extent = Vector3(
+            x: Math.abs(rot.m[0]) * halfExtents.x + Math.abs(rot.m[3]) * halfExtents.y + Math.abs(rot.m[6]) * halfExtents.z,
+            y: Math.abs(rot.m[1]) * halfExtents.x + Math.abs(rot.m[4]) * halfExtents.y + Math.abs(rot.m[7]) * halfExtents.z,
+            z: Math.abs(rot.m[2]) * halfExtents.x + Math.abs(rot.m[5]) * halfExtents.y + Math.abs(rot.m[8]) * halfExtents.z)
+        return Box(min: center - extent, max: center + extent)
+    }
+}
+
+public extension OrientedBox implements Equatable {
+    public static operator ==(lhs: OrientedBox, rhs: OrientedBox) -> Bool {
+        return lhs.center == rhs.center
+            && lhs.halfExtents == rhs.halfExtents
+            && lhs.orientation == rhs.orientation
+    }
+}

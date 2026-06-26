@@ -1,0 +1,7 @@
+func main() -> Int {
+    let prefix: RangeTo<Int> = ..5
+    let suffix: RangeFrom<Int> = 3..
+    let prefixInclusive: RangeToInclusive<Int> = ..=7
+
+    return 0
+}

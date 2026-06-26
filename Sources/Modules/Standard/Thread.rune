@@ -1,0 +1,89 @@
+/// Opaque platform thread handle.
+public distinct ThreadHandle
+
+alias VoidHandler = () -> Void
+
+/// Borrowed handle to the currently running OS thread.
+public struct CurrentThread {
+    public name: String? {
+        get {
+            var value: String = ""
+            if CurrentThread.currentNameInternal(value: &value) {
+                return value
+            }
+
+            return nil
+        }
+        set {
+            if newValue != nil {
+                CurrentThread.setCurrentNameInternal(name: newValue!)
+            } else {
+                CurrentThread.setCurrentNameInternal(name: "")
+            }
+        }
+    }
+
+    @runtime("rune_runtime_thread_current_name")
+    private static func currentNameInternal(value: &String) -> Bool
+
+    @runtime("rune_runtime_thread_set_current_name")
+    private static func setCurrentNameInternal(name: String)
+}
+
+/// Joinable OS thread running Rune bytecode.
+///
+/// Each thread uses its own interpreter call stack while sharing module globals
+/// with other threads in the same process. Protect shared state with `Mutex`.
+@builtin
+public struct Thread {
+    /// Borrowed handle to the currently running OS thread.
+    public static func current() -> CurrentThread {
+        return CurrentThread()
+    }
+
+    /// Handle suitable for passing to native FFI callbacks.
+    public nativeHandle: *ThreadHandle? {
+        @runtime("rune_runtime_thread_native_handle")
+        get
+    }
+
+    /// Starts a new joinable platform thread running `body`.
+    @runtime("rune_runtime_thread_spawn")
+    public init(body: VoidHandler)
+
+    /// Starts a new joinable platform thread running `body` with a debugger-visible name.
+    @runtime("rune_runtime_thread_spawn_named")
+    public init(body: VoidHandler, name: String)
+
+    @runtime("rune_runtime_thread_sleep_nanoseconds")
+    private static func sleepNanoseconds(nanoseconds: Int64)
+
+    @runtime("rune_runtime_thread_sleep_until_nanoseconds")
+    private static func sleepUntilNanoseconds(nanoseconds: Int64)
+
+    /// Sleeps the current thread for at least `duration`.
+    public static func sleep(duration: Duration) {
+        Thread.sleepNanoseconds(nanoseconds: duration.nanoseconds)
+    }
+
+    /// Sleeps the current thread until the monotonic `deadline`.
+    public static func sleepUntil(deadline: Instant) {
+        Thread.sleepUntilNanoseconds(nanoseconds: deadline.nanoseconds)
+    }
+
+    /// Yields execution of the current thread to the platform scheduler.
+    @runtime("rune_runtime_thread_yield")
+    public static func yield()
+
+    /// Releases the native handle if still attached.
+    @runtime("rune_runtime_thread_destroy")
+    final()
+
+    /// Waits for the thread to finish.
+    @runtime("rune_runtime_thread_join")
+    public mutating func join()
+
+    /// Releases the native handle without waiting for the thread to finish.
+    @runtime("rune_runtime_thread_detach")
+    public mutating func detach()
+}

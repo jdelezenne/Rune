@@ -1,0 +1,17 @@
+public extension GPUBuffer {
+    public static func fromHandle(handle: &BufferHandle?) -> GPUBuffer {
+        return GPUBuffer(handle: handle)
+    }
+
+    public rawHandle: &BufferHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func release() {
+        bufferRelease(handle)
+    }
+}

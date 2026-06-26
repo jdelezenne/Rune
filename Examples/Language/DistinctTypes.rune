@@ -1,0 +1,16 @@
+distinct UserId = Int
+distinct ProductId = Int
+
+func userId(value: Int) -> UserId {
+    return UserId(value)
+}
+
+func main() -> Int {
+    let user = userId(7)
+    let product = ProductId(99)
+    if user != UserId(7) || product != ProductId(99) {
+        return 1
+    }
+
+    return 0
+}

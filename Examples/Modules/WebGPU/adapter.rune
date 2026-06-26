@@ -1,0 +1,25 @@
+public extension Adapter {
+    public static func fromHandle(handle: &AdapterHandle?) -> Adapter {
+        return Adapter(handle: handle)
+    }
+
+    public rawHandle: &AdapterHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func requestDevice(
+        callback: RequestDeviceCallback,
+        userdata1: &Byte? = nil,
+        userdata2: &Byte? = nil)
+    {
+        adapterRequestDevice(handle, callback, userdata1, userdata2)
+    }
+
+    public func release() {
+        adapterRelease(handle)
+    }
+}

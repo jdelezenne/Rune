@@ -1,0 +1,19 @@
+import Standard.*
+
+enum Direction: UInt32 {
+    north, south, east, west
+}
+
+func describe(d: Direction) -> String {
+    match d {
+        .north => return "North"
+        .south => return "South"
+        .east  => return "East"
+        .west  => return "West"
+    }
+}
+
+func main() -> Int {
+    Console.printLine(describe(.east))
+    return 0
+}

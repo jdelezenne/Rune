@@ -1,0 +1,22 @@
+// Date is a calendar date without time-of-day or timezone information.
+
+import Standard.*
+
+func main() -> Int {
+    let date = Date(year: 2026, month: 7, day: 4)
+
+    if date.year != 2026 {
+        return 1
+    }
+
+    if date.month != 7 {
+        return 2
+    }
+
+    if date.day != 4 {
+        return 3
+    }
+
+    #printLn("date smoke: ${date.year}-${date.month}-${date.day}")
+    return 0
+}

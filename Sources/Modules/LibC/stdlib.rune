@@ -1,0 +1,80 @@
+@symbol
+public func malloc(size: UInt) -> &Byte?
+
+@symbol
+public func calloc(count: UInt, size: UInt) -> &Byte?
+
+@symbol
+public func realloc(ptr: &Byte?, size: UInt) -> &Byte?
+
+@symbol
+public func free(ptr: *Byte?) -> Void
+
+@symbol
+public func atoi(value: CStringSlice?) -> Int32
+
+@symbol
+public func atol(value: CStringSlice?) -> Int64
+
+@symbol
+public func atoll(value: CStringSlice?) -> Int64
+
+@symbol
+public func atof(value: CStringSlice?) -> Float64
+
+@symbol
+public func strtol(nptr: CStringSlice?, endptr: &(*Byte?)?, base: Int32) -> Int64
+
+@symbol
+public func strtoul(nptr: CStringSlice?, endptr: &(*Byte?)?, base: Int32) -> UInt
+
+@symbol
+public func strtoll(nptr: CStringSlice?, endptr: &(*Byte?)?, base: Int32) -> Int64
+
+@symbol
+public func strtoull(nptr: CStringSlice?, endptr: &(*Byte?)?, base: Int32) -> UInt64
+
+@symbol
+public func strtod(nptr: CStringSlice?, endptr: &(*Byte?)) -> Float64
+
+@symbol
+public func strtof(nptr: CStringSlice?, endptr: &(*Byte?)?) -> Float32
+
+@symbol
+public func abs(value: Int32) -> Int32
+
+@symbol
+public func labs(value: Int64) -> Int64
+
+@symbol
+public func llabs(value: Int64) -> Int64
+
+@symbol
+public func rand() -> Int32
+
+@symbol
+public func srand(seed: UInt32) -> Void
+
+@symbol
+public func getenv(name: CStringSlice?) -> CStringSlice?
+
+@symbol
+public func system(command: CStringSlice?) -> Int32
+
+@symbol
+public func exit(code: Int32) -> Void
+
+@symbol
+public func abort() -> Void
+
+@symbol
+public func setenv(name: CStringSlice?, value: CStringSlice?, overwrite: Int32) -> Int32
+
+@symbol
+public func unsetenv(name: CStringSlice?) -> Int32
+
+@symbol
+public func qsort(base: &Byte?, count: UInt, size: UInt, compare: &Byte?) -> Void
+
+@symbol
+public func bsearch(key: *Byte?, base: *Byte?, count: UInt, size: UInt, compare: &Byte?) -> *Byte?

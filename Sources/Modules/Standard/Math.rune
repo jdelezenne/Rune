@@ -1,0 +1,733 @@
+/// Mathematical standard library.
+public static Math {
+    //region Mathematical Constants
+
+    /// Fundamental constants (Float64 precision)
+
+    public const PI: Float64 = 3.14159265358979323846   ///< π
+    public const E: Float64 = 2.71828182845904523536    ///< e
+    public const TAU: Float64 = 6.28318530717958647692  ///< 2π
+    public const PHI: Float64 = 1.61803398874989484820  ///< Golden ratio
+    
+    /// Common fractional values
+
+    public const PI_2: Float64 = 1.57079632679489661923;    ///< π/2
+    public const PI_4: Float64 = 0.78539816339744830962;    ///< π/4
+    public const INV_PI: Float64 = 0.31830988618379067154;  ///< 1/π
+
+    public const EPSILON: Float64 = 0.00001 ///< Default tolerance for near-zero float comparisons
+
+    /// Mathematical constants (Float32 precision)
+
+    public const PI_F32: Float32 = Float32(PI)           ///< π
+    public const E_F32: Float32 = Float32(E)             ///< e
+    public const TAU_F32: Float32 = Float32(TAU)         ///< 2π
+    public const PHI_F32: Float32 = Float32(PHI)         ///< Golden ratio
+    public const PI_2_F32: Float32 = Float32(PI_2)       ///< π/2
+    public const PI_4_F32: Float32 = Float32(PI_4)       ///< π/4
+    public const INV_PI_F32: Float32 = Float32(INV_PI)   ///< 1/π
+    public const EPSILON_F32: Float32 = Float32(EPSILON) ///< Default tolerance for near-zero float comparisons
+
+    //endregion
+
+    //region Trigonometric Functions (Float64)
+
+    /// Sine function
+    @runtime("rune_math_sin")
+    public func sin(x: Float64) -> Float64
+
+    /// Cosine function
+    @runtime("rune_math_cos")
+    public func cos(x: Float64) -> Float64
+
+    /// Tangent function
+    @runtime("rune_math_tan")
+    public func tan(x: Float64) -> Float64
+
+    /// Arc sine (inverse sine)
+    @runtime("rune_math_asin")
+    public func asin(x: Float64) -> Float64
+
+    /// Arc cosine (inverse cosine)
+    @runtime("rune_math_acos")
+    public func acos(x: Float64) -> Float64
+
+    /// Arc tangent (inverse tangent)
+    @runtime("rune_math_atan")
+    public func atan(x: Float64) -> Float64
+
+    /// Arc tangent of y/x (handles quadrants correctly)
+    @runtime("rune_math_atan2")
+    public func atan2(y: Float64, x: Float64) -> Float64
+
+    //endregion
+
+    //region Trigonometric Functions (Float32)
+
+    /// Sine function (Float32).
+    @runtime("rune_math_sinf")
+    public func sin(x: Float32) -> Float32
+
+    /// Cosine function (Float32).
+    @runtime("rune_math_cosf")
+    public func cos(x: Float32) -> Float32
+
+    /// Tangent function (Float32).
+    @runtime("rune_math_tanf")
+    public func tan(x: Float32) -> Float32
+
+    /// Arc sine (inverse sine) (Float32).
+    @runtime("rune_math_asinf")
+    public func asin(x: Float32) -> Float32
+
+    /// Arc cosine (inverse cosine) (Float32).
+    @runtime("rune_math_acosf")
+    public func acos(x: Float32) -> Float32
+
+    /// Arc tangent (inverse tangent) (Float32).
+    @runtime("rune_math_atanf")
+    public func atan(x: Float32) -> Float32
+
+    /// Arc tangent of y/x (handles quadrants correctly) (Float32).
+    @runtime("rune_math_atan2f")
+    public func atan2(y: Float32, x: Float32) -> Float32
+
+    //endregion
+
+    //region Hyperbolic Functions (Float64)
+
+    /// Hyperbolic sine
+    @runtime("rune_math_sinh")
+    public func sinh(x: Float64) -> Float64
+
+    /// Hyperbolic cosine
+    @runtime("rune_math_cosh")
+    public func cosh(x: Float64) -> Float64
+
+    /// Hyperbolic tangent
+    @runtime("rune_math_tanh")
+    public func tanh(x: Float64) -> Float64
+
+    /// Inverse hyperbolic sine
+    @runtime("rune_math_asinh")
+    public func asinh(x: Float64) -> Float64
+
+    /// Inverse hyperbolic cosine
+    @runtime("rune_math_acosh")
+    public func acosh(x: Float64) -> Float64
+
+    /// Inverse hyperbolic tangent
+    @runtime("rune_math_atanh")
+    public func atanh(x: Float64) -> Float64
+
+    //endregion
+
+    //region Hyperbolic Functions (Float32)
+
+    /// Hyperbolic sine (Float32).
+    @runtime("rune_math_sinhf")
+    public func sinh(x: Float32) -> Float32
+
+    /// Hyperbolic cosine (Float32).
+    @runtime("rune_math_coshf")
+    public func cosh(x: Float32) -> Float32
+
+    /// Hyperbolic tangent (Float32).
+    @runtime("rune_math_tanhf")
+    public func tanh(x: Float32) -> Float32
+
+    /// Inverse hyperbolic sine (Float32).
+    @runtime("rune_math_asinhf")
+    public func asinh(x: Float32) -> Float32
+
+    /// Inverse hyperbolic cosine (Float32).
+    @runtime("rune_math_acoshf")
+    public func acosh(x: Float32) -> Float32
+
+    /// Inverse hyperbolic tangent (Float32).
+    @runtime("rune_math_atanhf")
+    public func atanh(x: Float32) -> Float32
+
+    //endregion
+
+    //region Exponential and Logarithmic Functions (Float64)
+
+    /// e^x
+    @runtime("rune_math_exp")
+    public func exp(x: Float64) -> Float64
+
+    /// 2^x
+    @runtime("rune_math_exp2")
+    public func exp2(x: Float64) -> Float64
+
+    /// Natural logarithm (base e)
+    @runtime("rune_math_log")
+    public func log(x: Float64) -> Float64
+
+    /// Base-10 logarithm
+    @runtime("rune_math_log10")
+    public func log10(x: Float64) -> Float64
+
+    /// Base-2 logarithm
+    @runtime("rune_math_log2")
+    public func log2(x: Float64) -> Float64
+
+    /// log(1 + x) with better precision for small x
+    @runtime("rune_math_log1p")
+    public func log1p(x: Float64) -> Float64
+
+    //endregion
+
+    //region Exponential and Logarithmic Functions (Float32)
+
+    /// e^x (Float32).
+    @runtime("rune_math_expf")
+    public func exp(x: Float32) -> Float32
+
+    /// 2^x (Float32).
+    @runtime("rune_math_exp2f")
+    public func exp2(x: Float32) -> Float32
+
+    /// Natural logarithm (base e) (Float32).
+    @runtime("rune_math_logf")
+    public func log(x: Float32) -> Float32
+
+    /// Base-10 logarithm (Float32).
+    @runtime("rune_math_log10f")
+    public func log10(x: Float32) -> Float32
+
+    /// Base-2 logarithm (Float32).
+    @runtime("rune_math_log2f")
+    public func log2(x: Float32) -> Float32
+
+    /// log(1 + x) with better precision for small x (Float32).
+    @runtime("rune_math_log1pf")
+    public func log1p(x: Float32) -> Float32
+
+    //endregion
+
+    //region Power and Root Functions (Float64)
+
+    /// Square root
+    @runtime("rune_math_sqrt")
+    public func sqrt(x: Float64) -> Float64
+
+    /// Cube root
+    @runtime("rune_math_cbrt")
+    public func cbrt(x: Float64) -> Float64
+
+    /// x^y
+    @runtime("rune_math_pow")
+    public func pow(base: Float64, exponent: Float64) -> Float64
+
+    /// sqrt(x² + y²) with no overflow
+    @runtime("rune_math_hypot")
+    public func hypot(x: Float64, y: Float64) -> Float64
+
+    //endregion
+
+    //region Power and Root Functions (Float32)
+
+    /// Square root (Float32).
+    @runtime("rune_math_sqrtf")
+    public func sqrt(x: Float32) -> Float32
+
+    /// Cube root (Float32).
+    @runtime("rune_math_cbrtf")
+    public func cbrt(x: Float32) -> Float32
+
+    /// x^y (Float32).
+    @runtime("rune_math_powf")
+    public func pow(base: Float32, exponent: Float32) -> Float32
+
+    /// sqrt(x² + y²) with no overflow (Float32).
+    @runtime("rune_math_hypotf")
+    public func hypot(x: Float32, y: Float32) -> Float32
+
+    //endregion
+
+    //region Rounding and Remainder Functions (Float64)
+
+    /// Round to nearest integer
+    @runtime("rune_math_round")
+    public func round(x: Float64) -> Float64
+
+    /// Round towards zero (truncate)
+    @runtime("rune_math_trunc")
+    public func trunc(x: Float64) -> Float64
+
+    /// Round down (floor)
+    @runtime("rune_math_floor")
+    public func floor(x: Float64) -> Float64
+
+    /// Round up (ceiling)
+    @runtime("rune_math_ceil")
+    public func ceil(x: Float64) -> Float64
+
+    /// Floating-point remainder of x/y
+    @runtime("rune_math_fmod")
+    public func fmod(x: Float64, y: Float64) -> Float64
+
+    /// IEEE remainder of x/y
+    @runtime("rune_math_remainder")
+    public func remainder(x: Float64, y: Float64) -> Float64
+
+    //endregion
+
+    //region Rounding and Remainder Functions (Float32)
+
+    /// Round to nearest integer (Float32).
+    @runtime("rune_math_roundf")
+    public func round(x: Float32) -> Float32
+
+    /// Round towards zero (truncate) (Float32).
+    @runtime("rune_math_truncf")
+    public func trunc(x: Float32) -> Float32
+
+    /// Round down (floor) (Float32).
+    @runtime("rune_math_floorf")
+    public func floor(x: Float32) -> Float32
+
+    /// Round up (ceiling) (Float32).
+    @runtime("rune_math_ceilf")
+    public func ceil(x: Float32) -> Float32
+
+    /// Floating-point remainder of x/y (Float32).
+    @runtime("rune_math_fmodf")
+    public func fmod(x: Float32, y: Float32) -> Float32
+
+    /// IEEE remainder of x/y (Float32).
+    @runtime("rune_math_remainderf")
+    public func remainder(x: Float32, y: Float32) -> Float32
+
+    //endregion
+
+    //region Absolute Value and Sign Functions (Float64)
+
+    /// Absolute value
+    @runtime("rune_math_abs")
+    public func abs(x: Float64) -> Float64
+
+    /// Copy sign from y to x
+    @runtime("rune_math_copysign")
+    public func copysign(x: Float64, y: Float64) -> Float64
+
+    //endregion
+
+    //region Absolute Value and Sign Functions (Float32)
+
+    /// Absolute value (Float32).
+    @runtime("rune_math_absf")
+    public func abs(x: Float32) -> Float32
+
+    /// Copy sign from y to x (Float32).
+    @runtime("rune_math_copysignf")
+    public func copysign(x: Float32, y: Float32) -> Float32
+
+    //endregion
+
+    //region Comparison and Classification Functions (Float64)
+
+    /// Maximum of two values
+    @runtime("rune_math_fmax")
+    public func max(x: Float64, y: Float64) -> Float64
+
+    /// Minimum of two values
+    @runtime("rune_math_fmin")
+    public func min(x: Float64, y: Float64) -> Float64
+
+    /// Positive difference (max(x-y, 0))
+    @runtime("rune_math_fdim")
+    public func fdim(x: Float64, y: Float64) -> Float64
+
+    /// Check if finite (not inf or nan)
+    @runtime("rune_math_isfinite")
+    public func isfinite(x: Float64) -> Bool
+
+    /// Check if infinite
+    @runtime("rune_math_isinf")
+    public func isinf(x: Float64) -> Bool
+
+    /// Check if NaN
+    @runtime("rune_math_isnan")
+    public func isnan(x: Float64) -> Bool
+
+    //endregion
+
+    //region Comparison and Classification Functions (Float32)
+
+    /// Maximum of two values (Float32).
+    @runtime("rune_math_fmaxf")
+    public func max(x: Float32, y: Float32) -> Float32
+
+    /// Minimum of two values (Float32).
+    @runtime("rune_math_fminf")
+    public func min(x: Float32, y: Float32) -> Float32
+
+    /// Positive difference (max(x-y, 0)) (Float32).
+    @runtime("rune_math_fdimf")
+    public func fdim(x: Float32, y: Float32) -> Float32
+
+    /// Check if finite (not inf or nan) (Float32).
+    @runtime("rune_math_isfinite")
+    public func isfinite(x: Float32) -> Bool
+
+    /// Check if infinite (Float32).
+    @runtime("rune_math_isinf")
+    public func isinf(x: Float32) -> Bool
+
+    /// Check if NaN (Float32).
+    @runtime("rune_math_isnan")
+    public func isnan(x: Float32) -> Bool
+
+    //endregion
+
+    //region Integer Math Functions
+
+    /// Absolute value for Int
+    public func abs(x: Int) -> Int { return if x < 0 { -x } else { x } }
+
+    /// Absolute value for Int8.
+    public func abs(x: Int8) -> Int8 { return if x < 0 { -x } else { x } }
+
+    /// Absolute value for Int16.
+    public func abs(x: Int16) -> Int16 { return if x < 0 { -x } else { x } }
+
+    /// Absolute value for Int32.
+    public func abs(x: Int32) -> Int32 { return if x < 0 { -x } else { x } }
+
+    /// Absolute value for Int64.
+    public func abs(x: Int64) -> Int64 { return if x < 0 { -x } else { x } }
+
+    /// Sign of x: -1, 0, or +1.
+    public func sign(x: Int) -> Int { return if x > 0 { 1 } else if x < 0 { -1 } else { 0 } }
+
+    /// Sign of x: -1, 0, or +1 (Int8).
+    public func sign(x: Int8) -> Int8 { return if x > 0 { 1 } else if x < 0 { -1 } else { 0 } }
+
+    /// Sign of x: -1, 0, or +1 (Int16).
+    public func sign(x: Int16) -> Int16 { return if x > 0 { 1 } else if x < 0 { -1 } else { 0 } }
+
+    /// Sign of x: -1, 0, or +1 (Int32).
+    public func sign(x: Int32) -> Int32 { return if x > 0 { 1 } else if x < 0 { -1 } else { 0 } }
+
+    /// Sign of x: -1, 0, or +1 (Int64).
+    public func sign(x: Int64) -> Int64 { return if x > 0 { 1 } else if x < 0 { -1 } else { 0 } }
+
+    /// Maximum of two integers
+    public func max(x: Int, y: Int) -> Int { return if x > y { x } else { y } }
+
+    /// Maximum of two integers (Int32).
+    public func max(x: Int32, y: Int32) -> Int32 { return if x > y { x } else { y } }
+
+    /// Maximum of two integers (Int64).
+    public func max(x: Int64, y: Int64) -> Int64 { return if x > y { x } else { y } }
+
+    /// Minimum of two integers
+    public func min(x: Int, y: Int) -> Int { return if x < y { x } else { y } }
+
+    /// Minimum of two integers (Int32).
+    public func min(x: Int32, y: Int32) -> Int32 { return if x < y { x } else { y } }
+
+    /// Minimum of two integers (Int64).
+    public func min(x: Int64, y: Int64) -> Int64 { return if x < y { x } else { y } }
+
+    /// Clamp value between min and max
+    public func clamp(value: Int, minVal: Int, maxVal: Int) -> Int {
+        if value < minVal { return minVal }
+        if value > maxVal { return maxVal }
+        return value
+    }
+
+    /// Clamp value between min and max (Int32).
+    public func clamp(value: Int32, minVal: Int32, maxVal: Int32) -> Int32 {
+        if value < minVal { return minVal }
+        if value > maxVal { return maxVal }
+        return value
+    }
+
+    /// Clamp value between min and max (Int64).
+    public func clamp(value: Int64, minVal: Int64, maxVal: Int64) -> Int64 {
+        if value < minVal { return minVal }
+        if value > maxVal { return maxVal }
+        return value
+    }
+
+    //endregion
+
+    //region Utility Functions (Float64)
+
+    /// x * y + z with single rounding
+    @runtime("rune_math_fma")
+    public func fma(x: Float64, y: Float64, z: Float64) -> Float64
+
+    /// Linear interpolation: a + t*(b-a)
+    @runtime("rune_math_lerp")
+    public func lerp(a: Float64, b: Float64, t: Float64) -> Float64
+
+    /// Clamp value between min and max
+    @runtime("rune_math_clamp_float64")
+    public func clamp(value: Float64, minVal: Float64, maxVal: Float64) -> Float64
+
+    /// Convert degrees to radians.
+    public func radians(degreeValue: Float64) -> Float64 {
+        return degreeValue * (PI / 180.0)
+    }
+
+    /// Convert radians to degrees.
+    public func degrees(radianValue: Float64) -> Float64 {
+        return radianValue * (180.0 / PI)
+    }
+
+    //endregion
+
+    //region Utility Functions (Float32)
+
+    /// x * y + z with single rounding (Float32).
+    @runtime("rune_math_fmaf")
+    public func fma(x: Float32, y: Float32, z: Float32) -> Float32
+
+    /// Linear interpolation: a + t*(b-a) (Float32).
+    @runtime("rune_math_lerpf")
+    public func lerp(a: Float32, b: Float32, t: Float32) -> Float32
+
+    /// Clamp value between min and max (Float32).
+    @runtime("rune_math_clamp_float32")
+    public func clamp(value: Float32, minVal: Float32, maxVal: Float32) -> Float32
+
+    /// Convert degrees to radians (Float32).
+    public func radians(degreeValue: Float32) -> Float32 {
+        return degreeValue * Float32(PI / 180.0)
+    }
+
+    /// Convert radians to degrees (Float32).
+    public func degrees(radianValue: Float32) -> Float32 {
+        return radianValue * Float32(180.0 / PI)
+    }
+
+    //endregion
+
+    //region Interpolation and Range Utilities (Float64)
+
+    /// Sign of x: -1, 0, or +1.
+    public func sign(x: Float64) -> Float64 {
+        if x > 0.0 { return 1.0 }
+        if x < 0.0 { return -1.0 }
+        return 0.0
+    }
+
+    /// Clamp x into [0, 1].
+    public func saturate(x: Float64) -> Float64 {
+        if x < 0.0 { return 0.0 }
+        if x > 1.0 { return 1.0 }
+        return x
+    }
+
+    /// Smooth Hermite interpolation between 0 and 1 as x moves from edge0 to
+    /// edge1 (0 below edge0, 1 above edge1).
+    public func smoothstep(edge0: Float64, edge1: Float64, x: Float64) -> Float64 {
+        let denom = edge1 - edge0
+        if abs(denom) < EPSILON {
+            return if x < edge0 { 0.0 } else { 1.0 }
+        }
+        let t = saturate((x - edge0) / denom)
+        return t * t * (3.0 - 2.0 * t)
+    }
+
+    /// Like smoothstep but with zero first and second derivatives at the edges.
+    public func smootherstep(edge0: Float64, edge1: Float64, x: Float64) -> Float64 {
+        let denom = edge1 - edge0
+        if abs(denom) < EPSILON {
+            return if x < edge0 { 0.0 } else { 1.0 }
+        }
+        let t = saturate((x - edge0) / denom)
+        return t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+    }
+
+    /// Re-maps value from the range [inMin, inMax] to [outMin, outMax].
+    public func remap(value: Float64, inMin: Float64, inMax: Float64, outMin: Float64, outMax: Float64) -> Float64 {
+        let denom = inMax - inMin
+        if abs(denom) < EPSILON {
+            return outMin
+        }
+        return outMin + (value - inMin) * (outMax - outMin) / denom
+    }
+
+    /// The inverse of lerp: the parameter t for which lerp(a, b, t) == value
+    /// (not clamped to [0, 1]).
+    public func inverseLerp(a: Float64, b: Float64, value: Float64) -> Float64 {
+        let denom = b - a
+        if abs(denom) < EPSILON {
+            return 0.0
+        }
+        return (value - a) / denom
+    }
+
+    /// Moves current towards target by at most maxDelta.
+    public func moveTowards(current: Float64, target: Float64, maxDelta: Float64) -> Float64 {
+        let delta = target - current
+        if abs(delta) <= maxDelta {
+            return target
+        }
+        if delta > 0.0 {
+            return current + maxDelta
+        }
+        return current - maxDelta
+    }
+
+    /// Whether a and b are equal within a relative tolerance derived from EPSILON.
+    public func approximately(a: Float64, b: Float64) -> Bool {
+        let scale = max(abs(a), abs(b))
+        return abs(a - b) <= max(EPSILON, EPSILON * scale)
+    }
+
+    /// Whether a and b are within an explicit absolute tolerance.
+    public func approximately(a: Float64, b: Float64, tolerance: Float64) -> Bool {
+        return abs(a - b) <= tolerance
+    }
+
+    /// Wraps value into the half-open range [minVal, maxVal).
+    public func wrap(value: Float64, minVal: Float64, maxVal: Float64) -> Float64 {
+        let range = maxVal - minVal
+        if abs(range) < EPSILON {
+            return minVal
+        }
+        var t = fmod(value - minVal, range)
+        if t < 0.0 {
+            t = t + range
+        }
+        return minVal + t
+    }
+
+    /// Shortest signed difference (radians) from `from` to `to`, in (-π, π].
+    public func deltaAngle(from: Float64, to: Float64) -> Float64 {
+        var d = fmod(to - from, TAU)
+        if d < 0.0 {
+            d = d + TAU
+        }
+        if d > PI {
+            d = d - TAU
+        }
+        return d
+    }
+
+    /// Interpolates between angles `a` and `b` (radians) along the shortest arc.
+    public func lerpAngle(a: Float64, b: Float64, t: Float64) -> Float64 {
+        return a + deltaAngle(from: a, to: b) * t
+    }
+
+    //endregion
+
+    //region Interpolation and Range Utilities (Float32)
+
+    /// Sign of x: -1, 0, or +1 (Float32).
+    public func sign(x: Float32) -> Float32 {
+        if x > 0.0 { return 1.0 }
+        if x < 0.0 { return -1.0 }
+        return 0.0
+    }
+
+    /// Clamp x into [0, 1] (Float32).
+    public func saturate(x: Float32) -> Float32 {
+        if x < 0.0 { return 0.0 }
+        if x > 1.0 { return 1.0 }
+        return x
+    }
+
+    /// Smooth Hermite interpolation between 0 and 1 (Float32).
+    public func smoothstep(edge0: Float32, edge1: Float32, x: Float32) -> Float32 {
+        let denom = edge1 - edge0
+        if abs(denom) < EPSILON_F32 {
+            return if x < edge0 { 0.0 } else { 1.0 }
+        }
+        let t = saturate((x - edge0) / denom)
+        return t * t * (3.0 - 2.0 * t)
+    }
+
+    /// Like smoothstep but with zero first and second derivatives at the edges
+    /// (Float32).
+    public func smootherstep(edge0: Float32, edge1: Float32, x: Float32) -> Float32 {
+        let denom = edge1 - edge0
+        if abs(denom) < EPSILON_F32 {
+            return if x < edge0 { 0.0 } else { 1.0 }
+        }
+        let t = saturate((x - edge0) / denom)
+        return t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+    }
+
+    /// Re-maps value from [inMin, inMax] to [outMin, outMax] (Float32).
+    public func remap(value: Float32, inMin: Float32, inMax: Float32, outMin: Float32, outMax: Float32) -> Float32 {
+        let denom = inMax - inMin
+        if abs(denom) < EPSILON_F32 {
+            return outMin
+        }
+        return outMin + (value - inMin) * (outMax - outMin) / denom
+    }
+
+    /// The inverse of lerp: the parameter t for which lerp(a, b, t) == value
+    /// (not clamped to [0, 1]) (Float32).
+    public func inverseLerp(a: Float32, b: Float32, value: Float32) -> Float32 {
+        let denom = b - a
+        if abs(denom) < EPSILON_F32 {
+            return 0.0
+        }
+        return (value - a) / denom
+    }
+
+    /// Moves current towards target by at most maxDelta (Float32).
+    public func moveTowards(current: Float32, target: Float32, maxDelta: Float32) -> Float32 {
+        let delta = target - current
+        if abs(delta) <= maxDelta {
+            return target
+        }
+        if delta > 0.0 {
+            return current + maxDelta
+        }
+        return current - maxDelta
+    }
+
+    /// Whether a and b are equal within a relative tolerance (Float32).
+    public func approximately(a: Float32, b: Float32) -> Bool {
+        let scale = max(abs(a), abs(b))
+        return abs(a - b) <= max(EPSILON_F32, EPSILON_F32 * scale)
+    }
+
+    /// Whether a and b are within an explicit absolute tolerance (Float32).
+    public func approximately(a: Float32, b: Float32, tolerance: Float32) -> Bool {
+        return abs(a - b) <= tolerance
+    }
+
+    /// Wraps value into the half-open range [minVal, maxVal) (Float32).
+    public func wrap(value: Float32, minVal: Float32, maxVal: Float32) -> Float32 {
+        let range = maxVal - minVal
+        if abs(range) < EPSILON_F32 {
+            return minVal
+        }
+        var t = fmod(value - minVal, range)
+        if t < 0.0 {
+            t = t + range
+        }
+        return minVal + t
+    }
+
+    /// Shortest signed difference (radians) from `from` to `to`, in (-π, π]
+    /// (Float32).
+    public func deltaAngle(from: Float32, to: Float32) -> Float32 {
+        var d = fmod(to - from, TAU_F32)
+        if d < 0.0 {
+            d = d + TAU_F32
+        }
+        if d > PI_F32 {
+            d = d - TAU_F32
+        }
+        return d
+    }
+
+    /// Interpolates between angles `a` and `b` (radians) along the shortest arc
+    /// (Float32).
+    public func lerpAngle(a: Float32, b: Float32, t: Float32) -> Float32 {
+        return a + deltaAngle(from: a, to: b) * t
+    }
+
+    //endregion
+}

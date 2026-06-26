@@ -1,0 +1,30 @@
+{
+  "version": "1.0.0",
+  "name": "OpenGL",
+  "kind": "library",
+  "unsafe": true,
+  "sources": [
+    "gl.rune",
+    { "path": "platform/windows/gl.rune", "platforms": ["windows"] },
+    { "path": "platform/linux/gl.rune", "platforms": ["linux"] },
+    { "path": "platform/darwin/gl.rune", "platforms": ["darwin"] },
+    { "path": "platform/wasm/gl.rune", "platforms": ["wasm"] }
+  ],
+  "dependencies": [
+    "../../../Code/Modules/Rune/Rune.runemanifest",
+    "../../../Code/Modules/LibC/LibC.runemanifest"
+  ],
+  "includeHeaders": [
+    { "path": "GL/gl.h", "platforms": ["windows", "linux"] },
+    { "path": "OpenGL/gl.h", "platforms": ["darwin"] },
+    { "path": "GLES2/gl2.h", "platforms": ["wasm"] }
+  ],
+  "linkLibraries": [
+    { "path": "opengl32", "platforms": ["windows"] },
+    { "path": "GL", "platforms": ["linux"] }
+  ],
+  "linkFrameworks": [
+    { "path": "OpenGL", "platforms": ["darwin"] }
+  ],
+  "output": "OpenGL.runemodule"
+}

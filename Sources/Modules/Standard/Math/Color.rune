@@ -1,0 +1,200 @@
+/// Linear RGBA color with Float32 components — the form used for lighting,
+/// blending, and shader math, where channels are conventionally in [0, 1] but
+/// may exceed it for HDR values. See Color32 for the packed 8-bit storage form.
+@layout(kind: c)
+public struct Color {
+    public var r: Float32 = 0.0
+    public var g: Float32 = 0.0
+    public var b: Float32 = 0.0
+    public var a: Float32 = 1.0
+
+    public static func black() -> Color { return Color(r: 0.0, g: 0.0, b: 0.0, a: 1.0) }
+    public static func white() -> Color { return Color(r: 1.0, g: 1.0, b: 1.0, a: 1.0) }
+    public static func red() -> Color { return Color(r: 1.0, g: 0.0, b: 0.0, a: 1.0) }
+    public static func green() -> Color { return Color(r: 0.0, g: 1.0, b: 0.0, a: 1.0) }
+    public static func blue() -> Color { return Color(r: 0.0, g: 0.0, b: 1.0, a: 1.0) }
+    public static func yellow() -> Color { return Color(r: 1.0, g: 1.0, b: 0.0, a: 1.0) }
+    public static func cyan() -> Color { return Color(r: 0.0, g: 1.0, b: 1.0, a: 1.0) }
+    public static func magenta() -> Color { return Color(r: 1.0, g: 0.0, b: 1.0, a: 1.0) }
+    public static func transparent() -> Color { return Color(r: 0.0, g: 0.0, b: 0.0, a: 0.0) }
+
+    /// Opaque shade of gray with each channel set to `value`.
+    public static func gray(value: Float32) -> Color {
+        return Color(r: value, g: value, b: value, a: 1.0)
+    }
+
+    /// Opaque color from RGB channels (alpha = 1).
+    public static func rgb(r: Float32, g: Float32, b: Float32) -> Color {
+        return Color(r: r, g: g, b: b, a: 1.0)
+    }
+
+    /// Returns a copy with the alpha channel replaced.
+    public func withAlpha(a: Float32) -> Color {
+        return Color(r: r, g: g, b: b, a: a)
+    }
+
+    /// Clamps every channel into [0, 1].
+    public func saturated() -> Color {
+        return Color(
+            r: Math.clamp(r, 0.0, 1.0),
+            g: Math.clamp(g, 0.0, 1.0),
+            b: Math.clamp(b, 0.0, 1.0),
+            a: Math.clamp(a, 0.0, 1.0))
+    }
+
+    /// Component-wise linear interpolation from `self` to `to` at `t`.
+    public func lerp(to: Color, t: Float32) -> Color {
+        return Color(
+            r: r + (to.r - r) * t,
+            g: g + (to.g - g) * t,
+            b: b + (to.b - b) * t,
+            a: a + (to.a - a) * t)
+    }
+
+    /// Converts to the packed 8-bit-per-channel form, clamping to [0, 1] first.
+    public func toColor32() -> Color32 {
+        let clamped = saturated()
+        return Color32(
+            r: UInt8(clamped.r * 255.0 + 0.5),
+            g: UInt8(clamped.g * 255.0 + 0.5),
+            b: UInt8(clamped.b * 255.0 + 0.5),
+            a: UInt8(clamped.a * 255.0 + 0.5))
+    }
+
+    /// Packs into a `0xAARRGGBB` 32-bit integer (clamped to [0, 1] first).
+    public func toUInt32() -> UInt32 {
+        return toColor32().toUInt32()
+    }
+
+    /// Unpacks a `0xAARRGGBB` 32-bit integer into a linear-component color.
+    public static func fromUInt32(value: UInt32) -> Color {
+        return Color32.fromUInt32(value: value).toColor()
+    }
+
+    /// Treats this color's RGB as sRGB-encoded and returns the linear form.
+    /// Alpha is left unchanged.
+    public func toLinear() -> Color {
+        return Color(
+            r: Color.srgbToLinear(c: r),
+            g: Color.srgbToLinear(c: g),
+            b: Color.srgbToLinear(c: b),
+            a: a)
+    }
+
+    /// Treats this color's RGB as linear and returns the sRGB-encoded form.
+    /// Alpha is left unchanged.
+    public func toSRGB() -> Color {
+        return Color(
+            r: Color.linearToSRGB(c: r),
+            g: Color.linearToSRGB(c: g),
+            b: Color.linearToSRGB(c: b),
+            a: a)
+    }
+
+    /// Builds an opaque color from HSV, with `hue` in degrees [0, 360),
+    /// `saturation` and `value` in [0, 1].
+    public static func fromHSV(hue: Float32, saturation: Float32, value: Float32) -> Color {
+        let h = Math.wrap(hue, 0.0, 360.0)
+        let c = value * saturation
+        let hp = h / 60.0
+        let x = c * (1.0 - Math.abs(Math.fmod(hp, 2.0) - 1.0))
+
+        var r1: Float32 = 0.0
+        var g1: Float32 = 0.0
+        var b1: Float32 = 0.0
+        if hp < 1.0 {
+            r1 = c
+            g1 = x
+        } else if hp < 2.0 {
+            r1 = x
+            g1 = c
+        } else if hp < 3.0 {
+            g1 = c
+            b1 = x
+        } else if hp < 4.0 {
+            g1 = x
+            b1 = c
+        } else if hp < 5.0 {
+            r1 = x
+            b1 = c
+        } else {
+            r1 = c
+            b1 = x
+        }
+
+        let m = value - c
+        return Color(r: r1 + m, g: g1 + m, b: b1 + m, a: 1.0)
+    }
+
+    /// Returns HSV as `(x: hue degrees, y: saturation, z: value)`.
+    public func toHSV() -> Vector3 {
+        let mx = Math.max(r, Math.max(g, b))
+        let mn = Math.min(r, Math.min(g, b))
+        let delta = mx - mn
+
+        var hue: Float32 = 0.0
+        if delta > Math.EPSILON_F32 {
+            if mx == r {
+                hue = 60.0 * Math.fmod((g - b) / delta, 6.0)
+            } else if mx == g {
+                hue = 60.0 * ((b - r) / delta + 2.0)
+            } else {
+                hue = 60.0 * ((r - g) / delta + 4.0)
+            }
+        }
+        if hue < 0.0 {
+            hue = hue + 360.0
+        }
+
+        let sat = if mx > Math.EPSILON_F32 { delta / mx } else { 0.0 }
+        return Vector3(x: hue, y: sat, z: mx)
+    }
+
+    /// sRGB transfer: encoded channel -> linear.
+    static func srgbToLinear(c: Float32) -> Float32 {
+        if c <= 0.04045 {
+            return c / 12.92
+        }
+        return Math.pow((c + 0.055) / 1.055, 2.4)
+    }
+
+    /// sRGB transfer: linear channel -> encoded.
+    static func linearToSRGB(c: Float32) -> Float32 {
+        if c <= 0.0031308 {
+            return c * 12.92
+        }
+        return 1.055 * Math.pow(c, 1.0 / 2.4) - 0.055
+    }
+
+    /// Adds two colors channel-wise.
+    public static operator +(lhs: Color, rhs: Color) -> Color {
+        return Color(r: lhs.r + rhs.r, g: lhs.g + rhs.g, b: lhs.b + rhs.b, a: lhs.a + rhs.a)
+    }
+
+    /// Subtracts two colors channel-wise.
+    public static operator -(lhs: Color, rhs: Color) -> Color {
+        return Color(r: lhs.r - rhs.r, g: lhs.g - rhs.g, b: lhs.b - rhs.b, a: lhs.a - rhs.a)
+    }
+
+    /// Scales every channel by a scalar.
+    public static operator *(lhs: Color, rhs: Float32) -> Color {
+        return Color(r: lhs.r * rhs, g: lhs.g * rhs, b: lhs.b * rhs, a: lhs.a * rhs)
+    }
+
+    /// Modulates (multiplies) two colors channel-wise.
+    public static operator *(lhs: Color, rhs: Color) -> Color {
+        return Color(r: lhs.r * rhs.r, g: lhs.g * rhs.g, b: lhs.b * rhs.b, a: lhs.a * rhs.a)
+    }
+}
+
+public extension Color implements Equatable {
+    public static operator ==(lhs: Color, rhs: Color) -> Bool {
+        return lhs.r == rhs.r && lhs.g == rhs.g && lhs.b == rhs.b && lhs.a == rhs.a
+    }
+}
+
+public extension Color implements CustomStringConvertible {
+    public func toString() -> String {
+        return "Color(${self.r}, ${self.g}, ${self.b}, ${self.a})"
+    }
+}

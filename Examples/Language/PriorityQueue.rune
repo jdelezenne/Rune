@@ -1,0 +1,76 @@
+import Standard.*
+
+struct Job implements Comparable {
+    var cost: Int
+
+    public static operator <=>(lhs: Job, rhs: Job) -> Ordering {
+        return lhs.cost <=> rhs.cost
+    }
+}
+
+func main() -> Int {
+    // Primitive element type dispatches comparison to the native intrinsic.
+    var numbers: PriorityQueue<Int> = [5, 1, 4, 2, 3]
+
+    if numbers.count != 5 {
+        return 1
+    }
+
+    if numbers.peek() != 1 {
+        return 2
+    }
+
+    if numbers.pop() != 1 {
+        return 3
+    }
+
+    if numbers.pop() != 2 {
+        return 4
+    }
+
+    numbers.push(element: 0)
+
+    if numbers.pop() != 0 {
+        return 5
+    }
+
+    if numbers.pop() != 3 {
+        return 6
+    }
+
+    if numbers.pop() != 4 {
+        return 7
+    }
+
+    if numbers.pop() != 5 {
+        return 8
+    }
+
+    if !numbers.isEmpty {
+        return 13
+    }
+
+    // Struct element type dispatches comparison to the type's `<=>` witness.
+    var jobs = PriorityQueue<Job>()
+    jobs.push(element: Job(cost: 8))
+    jobs.push(element: Job(cost: 3))
+    jobs.push(element: Job(cost: 6))
+
+    if jobs.peek().cost != 3 {
+        return 9
+    }
+
+    if jobs.pop().cost != 3 {
+        return 10
+    }
+
+    if jobs.pop().cost != 6 {
+        return 11
+    }
+
+    if jobs.pop().cost != 8 {
+        return 12
+    }
+
+    return 0
+}

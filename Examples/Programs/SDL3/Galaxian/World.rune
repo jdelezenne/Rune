@@ -1,0 +1,540 @@
+// World: the Game state machine - the alien roster and its sway, the dive
+// scheduler that peels attackers off the formation (flagships with their red
+// escorts), the single-shot cannon economy, bombs, scoring with the classic
+// escorted-flagship convoy bonus, lives and wave progression.
+
+import Standard.*
+
+// MARK: - Tuning
+
+const PLAYER_SPEED: Float32 = 220.0
+const SHOT_SPEED: Float32 = 560.0
+
+const BASE_DIVE_SPEED: Float32 = 152.0
+const DIVE_SPEED_PER_WAVE: Float32 = 12.0
+const MAX_DIVE_SPEED: Float32 = 260.0
+
+const BASE_BOMB_SPEED: Float32 = 188.0
+const BOMB_SPEED_PER_WAVE: Float32 = 10.0
+
+const START_LIVES: Int = 3
+const EXTRA_LIFE_SCORE: Int32 = 7000
+
+// Formation scores (parked) and dive scores (attacking).
+const SCORE_BLUE_FORM: Int32 = 30
+const SCORE_BLUE_DIVE: Int32 = 60
+const SCORE_PURPLE_FORM: Int32 = 40
+const SCORE_PURPLE_DIVE: Int32 = 80
+const SCORE_RED_FORM: Int32 = 50
+const SCORE_RED_DIVE: Int32 = 100
+const SCORE_FLAGSHIP_FORM: Int32 = 60
+// Diving flagship: 150 alone, 300 with one escort already downed, 800 with both
+// (the classic convoy bonus).
+const SCORE_FLAGSHIP_DIVE: [Int32, 3] = [150, 300, 800]
+
+const READY_DURATION: Float32 = 2.2
+const DEATH_DURATION: Float32 = 1.8
+const WAVE_CLEAR_DURATION: Float32 = 2.2
+
+const DIVE_DELAY_BASE: Float32 = 1.7
+const DIVE_DELAY_STEP: Float32 = 0.14
+const DIVE_DELAY_MIN: Float32 = 0.5
+
+// MARK: - Phases
+
+const PHASE_READY: Int32 = 0
+const PHASE_PLAYING: Int32 = 1
+const PHASE_PLAYER_DYING: Int32 = 2
+const PHASE_WAVE_CLEAR: Int32 = 3
+const PHASE_GAME_OVER: Int32 = 4
+
+// MARK: - Input for one frame
+
+struct InputEdge {
+    var moveLeft: Bool
+    var moveRight: Bool
+    var fire: Bool
+    var pause: Bool
+    var restart: Bool
+    var quit: Bool
+}
+
+func makeInputEdge() -> InputEdge {
+    return InputEdge(
+        moveLeft: false,
+        moveRight: false,
+        fire: false,
+        pause: false,
+        restart: false,
+        quit: false)
+}
+
+// MARK: - Game
+
+struct Game {
+    var aliens: [Alien, FORMATION_CELLS]
+    var player: Player
+    var shot: Shot
+    var bombs: [Bomb, MAX_BOMBS]
+    var rng: Rng
+    var score: Int32
+    var highScore: Int32
+    var lives: Int
+    var wave: Int
+    var phase: Int32
+    var phaseTimer: Float32
+    var swayTimer: Float32
+    var diveCooldown: Float32
+    var starScroll: Float32
+    var extraLifeAwarded: Bool
+    var paused: Bool
+
+    mutating func buildFormation() {
+        for row in 0..FORMATION_ROWS {
+            for col in 0..FORMATION_COLS {
+                let index = slotIndex(col, row)
+                let kind = FORMATION_LAYOUT[index]
+                var alien = makeEmptyAlien()
+                alien.kind = kind
+                alien.homeCol = col
+                alien.homeRow = row
+                alien.wigglePhase = randRange(&self.rng, 0.0, TAU_F)
+                if kind == KIND_EMPTY {
+                    alien.state = ALIEN_STATE_DEAD
+                } else {
+                    alien.state = ALIEN_STATE_FORMATION
+                }
+                self.aliens[index] = alien
+            }
+        }
+    }
+
+    mutating func resetForWave() {
+        self.buildFormation()
+        self.player = makePlayer()
+        self.shot = makeShot()
+        for bombIndex in 0..MAX_BOMBS {
+            self.bombs[bombIndex] = makeBomb()
+        }
+        self.phase = PHASE_READY
+        self.phaseTimer = READY_DURATION
+        self.swayTimer = 0.0
+        self.diveCooldown = firstDiveDelay()
+    }
+
+    mutating func fullReset() {
+        self.score = 0
+        self.lives = START_LIVES
+        self.wave = 1
+        self.extraLifeAwarded = false
+        self.paused = false
+        self.resetForWave()
+    }
+
+    func aliveCount() -> Int {
+        var count = 0
+        for index in 0..FORMATION_CELLS {
+            if self.aliens[index].kind != KIND_EMPTY && self.aliens[index].state != ALIEN_STATE_DEAD {
+                count = count + 1
+            }
+        }
+        return count
+    }
+
+    func divingCount() -> Int {
+        var count = 0
+        for index in 0..FORMATION_CELLS {
+            let state = self.aliens[index].state
+            if state == ALIEN_STATE_PEEL || state == ALIEN_STATE_DIVE {
+                count = count + 1
+            }
+        }
+        return count
+    }
+
+    func diveSpeed() -> Float32 {
+        return Math.min(BASE_DIVE_SPEED + Float32(self.wave - 1) * DIVE_SPEED_PER_WAVE, MAX_DIVE_SPEED)
+    }
+
+    func bombSpeed() -> Float32 {
+        return BASE_BOMB_SPEED + Float32(self.wave - 1) * BOMB_SPEED_PER_WAVE
+    }
+
+    func maxConcurrentDivers() -> Int {
+        return Math.min(1 + self.wave / 2, 5)
+    }
+
+    func peelSide(col: Int) -> Float32 {
+        return col < FORMATION_COLS / 2 ? -1.0 : 1.0
+    }
+
+    // Escorts for a flagship: the up to two alive reds still parked directly
+    // beneath it.
+    mutating func launchEscortsFor(flagshipSlot: Int, flagCol: Int) {
+        var launched = 0
+        for offset in 0..2 {
+            let escortCol = offset == 0 ? flagCol : flagCol + 1
+            if escortCol < 0 || escortCol >= FORMATION_COLS {
+                continue
+            }
+            let escortIndex = slotIndex(escortCol, 1)
+            if self.aliens[escortIndex].kind != KIND_RED {
+                continue
+            }
+            if self.aliens[escortIndex].state != ALIEN_STATE_FORMATION {
+                continue
+            }
+            let startX = slotX(self.aliens[escortIndex].homeCol, swayOffset(self.swayTimer))
+            let startY = slotY(self.aliens[escortIndex].homeRow)
+            launchAlienDive(&self.aliens[escortIndex], startX, startY, self.peelSide(escortCol))
+            self.aliens[escortIndex].isEscort = true
+            self.aliens[escortIndex].flagshipSlot = flagshipSlot
+            launched = launched + 1
+        }
+    }
+
+    mutating func launchDiver() {
+        // Collect parked attackers, mildly favouring the front ranks by scanning
+        // top rows first and taking the first random pick found.
+        var candidates: [Int] = []
+        for index in 0..FORMATION_CELLS {
+            if self.aliens[index].kind != KIND_EMPTY && self.aliens[index].state == ALIEN_STATE_FORMATION {
+                candidates.append(index)
+            }
+        }
+        if candidates.count == 0 {
+            return
+        }
+
+        let pick = candidates[randInt(&self.rng, candidates.count)]
+        let col = self.aliens[pick].homeCol
+        let startX = slotX(self.aliens[pick].homeCol, swayOffset(self.swayTimer))
+        let startY = slotY(self.aliens[pick].homeRow)
+        launchAlienDive(&self.aliens[pick], startX, startY, self.peelSide(col))
+
+        if self.aliens[pick].kind == KIND_FLAGSHIP {
+            self.launchEscortsFor(pick, col)
+        }
+    }
+
+    mutating func maybeDropBomb(alienIndex: Int, dt: Float32) {
+        self.aliens[alienIndex].bombTimer = self.aliens[alienIndex].bombTimer - dt
+        if self.aliens[alienIndex].bombTimer > 0.0 {
+            return
+        }
+        self.aliens[alienIndex].bombTimer = randRange(&self.rng, 0.55, 1.4)
+
+        let ay = self.aliens[alienIndex].y
+        if ay < 90.0 || ay > Float32(HEIGHT) - 90.0 {
+            return
+        }
+
+        for bombIndex in 0..MAX_BOMBS {
+            if self.bombs[bombIndex].active {
+                continue
+            }
+            let ax = self.aliens[alienIndex].x
+            let toward = self.player.x - ax
+            let sway = Math.clamp(toward * 0.35, -70.0, 70.0)
+            self.bombs[bombIndex] = Bomb(
+                x: ax,
+                y: ay + 8.0,
+                vx: sway,
+                vy: self.bombSpeed(),
+                active: true)
+            return
+        }
+    }
+
+    mutating func awardExtraLife() {
+        if !self.extraLifeAwarded && self.score >= EXTRA_LIFE_SCORE {
+            self.extraLifeAwarded = true
+            self.lives = self.lives + 1
+        }
+    }
+
+    // Score a destroyed alien. Escort kills feed the parent flagship's convoy
+    // counter so a later flagship hit pays the escalating bonus.
+    mutating func scoreKill(alienIndex: Int) {
+        let kind = self.aliens[alienIndex].kind
+        let diving = alienIsDiving(&self.aliens[alienIndex])
+        var gained: Int32 = 0
+
+        if kind == KIND_BLUE {
+            gained = diving ? SCORE_BLUE_DIVE : SCORE_BLUE_FORM
+        } else if kind == KIND_PURPLE {
+            gained = diving ? SCORE_PURPLE_DIVE : SCORE_PURPLE_FORM
+        } else if kind == KIND_RED {
+            gained = diving ? SCORE_RED_DIVE : SCORE_RED_FORM
+        } else if kind == KIND_FLAGSHIP {
+            if diving {
+                var tier = self.aliens[alienIndex].escortsKilledThisDive
+                tier = Math.clamp(tier, 0, 2)
+                gained = SCORE_FLAGSHIP_DIVE[tier]
+            } else {
+                gained = SCORE_FLAGSHIP_FORM
+            }
+        }
+
+        if self.aliens[alienIndex].isEscort && diving {
+            let flagshipSlot = self.aliens[alienIndex].flagshipSlot
+            if flagshipSlot >= 0 && flagshipSlot < FORMATION_CELLS {
+                if alienIsDiving(&self.aliens[flagshipSlot]) && self.aliens[flagshipSlot].escortsKilledThisDive < 2 {
+                    self.aliens[flagshipSlot].escortsKilledThisDive = self.aliens[flagshipSlot].escortsKilledThisDive + 1
+                }
+            }
+        }
+
+        self.score = self.score + gained
+        self.aliens[alienIndex].state = ALIEN_STATE_DEAD
+        self.aliens[alienIndex].isEscort = false
+        self.awardExtraLife()
+    }
+
+    mutating func killPlayer() {
+        self.player.alive = false
+        self.phase = PHASE_PLAYER_DYING
+        self.phaseTimer = DEATH_DURATION
+        self.lives = self.lives - 1
+        if self.lives < 0 {
+            self.lives = 0
+        }
+        for bombIndex in 0..MAX_BOMBS {
+            self.bombs[bombIndex].active = false
+        }
+    }
+
+    mutating func stepAliens(dt: Float32) {
+        let sway = swayOffset(self.swayTimer)
+        let speed = self.diveSpeed()
+        for index in 0..FORMATION_CELLS {
+            let state = self.aliens[index].state
+            if state == ALIEN_STATE_PEEL {
+                let side = self.peelSide(self.aliens[index].homeCol)
+                stepAlienPeel(&self.aliens[index], dt, side, speed)
+                self.maybeDropBomb(index, dt)
+            } else if state == ALIEN_STATE_DIVE {
+                stepAlienDive(&self.aliens[index], dt, self.player.x, speed)
+                self.maybeDropBomb(index, dt)
+                if self.aliens[index].y > Float32(HEIGHT) + 20.0 {
+                    self.aliens[index].state = ALIEN_STATE_RETURN
+                    self.aliens[index].y = -24.0
+                    self.aliens[index].x = slotX(self.aliens[index].homeCol, sway)
+                    self.aliens[index].isEscort = false
+                }
+            } else if state == ALIEN_STATE_RETURN {
+                let parked = stepAlienReturn(&self.aliens[index], dt, sway)
+                if parked {
+                    self.aliens[index].isEscort = false
+                }
+            }
+        }
+    }
+
+    mutating func checkShotHits() {
+        if !self.shot.active {
+            return
+        }
+        let sway = swayOffset(self.swayTimer)
+        let sx = self.shot.x
+        let sy = self.shot.y
+        for index in 0..FORMATION_CELLS {
+            if self.aliens[index].kind == KIND_EMPTY || self.aliens[index].state == ALIEN_STATE_DEAD {
+                continue
+            }
+            if self.aliens[index].state == ALIEN_STATE_RETURN {
+                continue
+            }
+            let ax = alienX(&self.aliens[index], sway)
+            let ay = alienY(&self.aliens[index], sway)
+            if Math.abs(sx - ax) <= 12.0 && Math.abs(sy - ay) <= 12.0 {
+                self.scoreKill(index)
+                self.shot.active = false
+                return
+            }
+        }
+    }
+
+    mutating func checkPlayerHit() {
+        if !self.player.alive {
+            return
+        }
+
+        for bombIndex in 0..MAX_BOMBS {
+            if !self.bombs[bombIndex].active {
+                continue
+            }
+            if Math.abs(self.bombs[bombIndex].x - self.player.x) <= 13.0 && Math.abs(self.bombs[bombIndex].y - PLAYER_Y) <= 11.0 {
+                self.killPlayer()
+                return
+            }
+        }
+
+        let sway = swayOffset(self.swayTimer)
+        for index in 0..FORMATION_CELLS {
+            if !alienIsDiving(&self.aliens[index]) {
+                continue
+            }
+            let ax = alienX(&self.aliens[index], sway)
+            let ay = alienY(&self.aliens[index], sway)
+            if Math.abs(ax - self.player.x) <= 16.0 && Math.abs(ay - PLAYER_Y) <= 14.0 {
+                self.aliens[index].state = ALIEN_STATE_DEAD
+                self.killPlayer()
+                return
+            }
+        }
+    }
+
+    mutating func stepPlaying(edge: InputEdge, dt: Float32) {
+        self.swayTimer = self.swayTimer + dt
+
+        var dir: Float32 = 0.0
+        if edge.moveLeft {
+            dir = dir - 1.0
+        }
+        if edge.moveRight {
+            dir = dir + 1.0
+        }
+        movePlayer(&self.player, dir, dt, PLAYER_SPEED)
+
+        if edge.fire {
+            fireShot(&self.shot, self.player.x, PLAYER_Y - 16.0)
+        }
+        stepShot(&self.shot, dt, SHOT_SPEED)
+
+        for bombIndex in 0..MAX_BOMBS {
+            stepBomb(&self.bombs[bombIndex], dt)
+        }
+
+        // Dive scheduler.
+        self.diveCooldown = self.diveCooldown - dt
+        if self.diveCooldown <= 0.0 {
+            if self.divingCount() < self.maxConcurrentDivers() {
+                self.launchDiver()
+            }
+            self.diveCooldown = self.nextDiveDelay()
+        }
+
+        self.stepAliens(dt)
+        self.checkShotHits()
+        self.checkPlayerHit()
+
+        if self.score > self.highScore {
+            self.highScore = self.score
+        }
+
+        if self.aliveCount() == 0 {
+            self.phase = PHASE_WAVE_CLEAR
+            self.phaseTimer = WAVE_CLEAR_DURATION
+        }
+    }
+
+    func nextDiveDelay() -> Float32 {
+        return Math.max(DIVE_DELAY_BASE - Float32(self.wave - 1) * DIVE_DELAY_STEP, DIVE_DELAY_MIN)
+    }
+
+    mutating func update(edge: InputEdge, dt: Float32) {
+        self.starScroll = self.starScroll + dt
+
+        if edge.pause && (self.phase == PHASE_PLAYING || self.paused) {
+            self.paused = !self.paused
+        }
+
+        if self.phase == PHASE_GAME_OVER {
+            if edge.restart {
+                self.fullReset()
+            }
+            return
+        }
+
+        if self.paused {
+            return
+        }
+
+        if self.phase == PHASE_READY {
+            self.swayTimer = self.swayTimer + dt
+            self.phaseTimer = self.phaseTimer - dt
+            if self.phaseTimer <= 0.0 {
+                self.phase = PHASE_PLAYING
+            }
+            return
+        }
+
+        if self.phase == PHASE_PLAYER_DYING {
+            // Let survivors keep flying so the board stays lively during the pause.
+            self.swayTimer = self.swayTimer + dt
+            self.stepAliens(dt)
+            for bombIndex in 0..MAX_BOMBS {
+                stepBomb(&self.bombs[bombIndex], dt)
+            }
+            self.phaseTimer = self.phaseTimer - dt
+            if self.phaseTimer <= 0.0 {
+                if self.lives <= 0 {
+                    if self.score > self.highScore {
+                        self.highScore = self.score
+                    }
+                    self.phase = PHASE_GAME_OVER
+                } else {
+                    self.recallDivers()
+                    self.player = makePlayer()
+                    self.shot = makeShot()
+                    self.phase = PHASE_READY
+                    self.phaseTimer = READY_DURATION
+                    self.diveCooldown = firstDiveDelay()
+                }
+            }
+            return
+        }
+
+        if self.phase == PHASE_WAVE_CLEAR {
+            self.phaseTimer = self.phaseTimer - dt
+            if self.phaseTimer <= 0.0 {
+                self.wave = self.wave + 1
+                self.resetForWave()
+            }
+            return
+        }
+
+        self.stepPlaying(edge, dt)
+    }
+
+    // Send any mid-dive attackers home before the player respawns.
+    mutating func recallDivers() {
+        for index in 0..FORMATION_CELLS {
+            let state = self.aliens[index].state
+            if state == ALIEN_STATE_PEEL || state == ALIEN_STATE_DIVE {
+                self.aliens[index].state = ALIEN_STATE_RETURN
+                self.aliens[index].y = -24.0
+                self.aliens[index].isEscort = false
+            }
+        }
+    }
+}
+
+func firstDiveDelay() -> Float32 {
+    return 1.4
+}
+
+func makeGame() -> Game {
+    var aliens: [Alien, FORMATION_CELLS] = []
+    var bombs: [Bomb, MAX_BOMBS] = []
+    var game = Game(
+        aliens: aliens,
+        player: makePlayer(),
+        shot: makeShot(),
+        bombs: bombs,
+        rng: makeRng(0x9E3779B9),
+        score: 0,
+        highScore: 0,
+        lives: START_LIVES,
+        wave: 1,
+        phase: PHASE_READY,
+        phaseTimer: READY_DURATION,
+        swayTimer: 0.0,
+        diveCooldown: firstDiveDelay(),
+        starScroll: 0.0,
+        extraLifeAwarded: false,
+        paused: false)
+    game.fullReset()
+    return game
+}

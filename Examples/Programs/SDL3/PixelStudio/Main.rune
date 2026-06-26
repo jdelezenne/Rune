@@ -1,0 +1,159 @@
+import Standard.*
+import SDL3
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var document = makeDocument()
+var running = true
+var drawing = false
+var panning = false
+var shiftDown = false
+var panningWithShift = false
+var shapeStart = -1
+
+func handleMouseDown(mouse: &SDL3.MouseButtonEvent) {
+    if mouse.button == SDL3.MouseButtonId.middle {
+        panning = true
+        return
+    }
+    if mouse.button != SDL3.MouseButtonId.left {
+        return
+    }
+
+    if shiftDown {
+        panning = true
+        panningWithShift = true
+        return
+    }
+
+    if mouse.x < LEFT_W && mouse.y >= TOP_H {
+        let tool = Int((mouse.y - TOP_H - 18.0) / 62.0)
+        if tool >= 0 && tool < TOOLBAR_TOOLS.count {
+            document.tool = TOOLBAR_TOOLS[tool]
+            shapeStart = -1
+        }
+        return
+    }
+
+    let panelX = Float32(WINDOW_W) - RIGHT_W
+    if mouse.x >= panelX + 20.0 && mouse.x < panelX + 196.0 && mouse.y >= TOP_H + 52.0 && mouse.y < TOP_H + 228.0 {
+        let col = Int((mouse.x - panelX - 20.0) / 44.0)
+        let row = Int((mouse.y - TOP_H - 52.0) / 44.0)
+        if col >= 0 && col < 4 && row >= 0 && row < 4 {
+            document.colorIndex = row * 4 + col
+        }
+        return
+    }
+
+    let index = pixelAtPoint(&document, mouse.x, mouse.y)
+    if index >= 0 {
+        if document.tool == Tool.rectangle || document.tool == Tool.circle {
+            shapeStart = index
+        } else {
+            document.useToolAt(index)
+            drawing = document.tool == Tool.pencil || document.tool == Tool.eraser
+        }
+    }
+}
+
+func handleEvent(event: &SDL3.Event) {
+    if event.type == SDL3.EventType.quit || event.type == SDL3.EventType.windowCloseRequested {
+        running = false
+    } else if event.type == SDL3.EventType.keyDown && event.down {
+        if event.scancode == SDL3.Scancode.escape {
+            running = false
+        } else if event.scancode == SDL3.Scancode.lshift || event.scancode == SDL3.Scancode.rshift {
+            shiftDown = true
+        }
+    } else if event.type == SDL3.EventType.keyUp {
+        if event.scancode == SDL3.Scancode.lshift || event.scancode == SDL3.Scancode.rshift {
+            shiftDown = false
+            if panningWithShift {
+                panning = false
+                panningWithShift = false
+            }
+        }
+    } else if event.type == SDL3.EventType.mouseButtonDown {
+        handleMouseDown(SDL3.mouseButtonEvent(event))
+    } else if event.type == SDL3.EventType.mouseButtonUp {
+        let mouse = SDL3.mouseButtonEvent(event)
+        if mouse.button == SDL3.MouseButtonId.left {
+            if shapeStart >= 0 {
+                document.drawShape(
+                    start: shapeStart,
+                    end: pixelAtPoint(&document, mouse.x, mouse.y))
+                shapeStart = -1
+            }
+            drawing = false
+            if panningWithShift {
+                panning = false
+                panningWithShift = false
+            }
+        }
+        if mouse.button == SDL3.MouseButtonId.middle {
+            panning = false
+        }
+    } else if event.type == SDL3.EventType.mouseMotion {
+        let motion = SDL3.mouseMotionEvent(event)
+        if panning {
+            document.panX += motion.xrel
+            document.panY += motion.yrel
+        } else if drawing {
+            document.useToolAt(pixelAtPoint(&document, motion.x, motion.y))
+        }
+    } else if event.type == SDL3.EventType.mouseWheel {
+        let wheel = SDL3.mouseWheelEvent(event)
+        if wheel.mouseX >= LEFT_W && wheel.mouseX < Float32(WINDOW_W) - RIGHT_W && wheel.mouseY >= TOP_H {
+            document.zoomAt(wheel.mouseX, wheel.mouseY, if wheel.y > 0.0 {
+                1.2
+            } else {
+                0.833333
+            }
+            )
+        }
+    }
+}
+
+func shutdown() {
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+}
+
+func mainLoop() {
+    var event = SDL3.Event()
+    while SDL3.pollEvent(&event) {
+        handleEvent(&event)
+    }
+    if !running {
+        shutdown()
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+    drawEditor(renderer, *document)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+    if !SDL3.createWindowAndRenderer("Rune Pixel Studio", WINDOW_W, WINDOW_H, 0, &window, &renderer) {
+        Console.printLine("SDL_CreateWindowAndRenderer failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+    SDL3.setRenderVSync(renderer, 1)
+    document = makeDocument()
+    Console.printLine("Pixel Studio: draw with left mouse, zoom with wheel, pan with middle mouse or Shift-drag.")
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

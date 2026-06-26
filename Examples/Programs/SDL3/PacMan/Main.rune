@@ -1,0 +1,150 @@
+// PacMan - a faithful-to-the-documented-design recreation of the classic
+// arcade maze chase: real maze topology (border, comb corridors, center
+// ghost house, mid-board tunnel, four power pellets), the four ghost
+// personalities (Blinky/Pinky/Inky/Clyde) with their own targeting rules,
+// scatter/chase timing, frightened mode, and combo scoring.
+//
+// Controls:
+//   Arrows / WASD      - turn
+//   Space / P          - pause / resume
+//   R                  - restart after game over
+//   Escape / close     - quit
+
+import Standard.*
+import SDL3
+
+func clearInputEdge(edge: &InputEdge) {
+    edge.turnUp = false
+    edge.turnRight = false
+    edge.turnDown = false
+    edge.turnLeft = false
+    edge.pause = false
+    edge.restart = false
+    edge.quit = false
+}
+
+func keyDown(edge: &InputEdge, scancode: SDL3.Scancode) {
+    if scancode == SDL3.Scancode.up || scancode == SDL3.Scancode.w {
+        edge.turnUp = true
+    } else if scancode == SDL3.Scancode.right || scancode == SDL3.Scancode.d {
+        edge.turnRight = true
+    } else if scancode == SDL3.Scancode.down || scancode == SDL3.Scancode.s {
+        edge.turnDown = true
+    } else if scancode == SDL3.Scancode.left || scancode == SDL3.Scancode.a {
+        edge.turnLeft = true
+    } else if scancode == SDL3.Scancode.space || scancode == SDL3.Scancode.p {
+        edge.pause = true
+    } else if scancode == SDL3.Scancode.r {
+        edge.restart = true
+    } else if scancode == SDL3.Scancode.escape {
+        edge.quit = true
+    }
+}
+
+func handleEvent(event: SDL3.Event, edge: &InputEdge) -> Bool {
+    if event.type == SDL3.EventType.quit {
+        return false
+    }
+
+    if event.type == SDL3.EventType.keyDown && event.down {
+        keyDown(edge, event.scancode)
+        if event.scancode == SDL3.Scancode.escape {
+            return false
+        }
+    }
+
+    return true
+}
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var game = makeGame()
+var running = true
+var totalTime: Float32 = 0.0
+var perfFreq: UInt64 = 1
+var lastCounter: UInt64 = 0
+
+func shutdown() {
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    Console.printLine("PacMan finished.")
+}
+
+func mainLoop() {
+    var edge = InputEdge(
+        turnUp: false,
+        turnRight: false,
+        turnDown: false,
+        turnLeft: false,
+        pause: false,
+        restart: false,
+        quit: false)
+
+    var event = SDL3.Event()
+    while SDL3.pollEvent(&event) {
+        if !handleEvent(event, &edge) {
+            running = false
+        }
+    }
+
+    let counter = SDL3.getPerformanceCounter()
+    var deltaTime = Float32(counter - lastCounter) / Float32(perfFreq)
+    lastCounter = counter
+    if deltaTime > 0.05 {
+        deltaTime = 0.05
+    }
+
+    if edge.quit {
+        running = false
+    }
+
+    if !running {
+        shutdown()
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    totalTime = totalTime + deltaTime
+    game.update(edge, deltaTime)
+
+    let pelletPulse = Math.sin(totalTime * 6.0) * 1.6
+    drawGame(renderer, *game, pelletPulse)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune SDL3 - PacMan", WIDTH, HEIGHT, 0, &window, &renderer) {
+        Console.printLine("SDL_CreateWindowAndRenderer failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.setRenderVSync(renderer, 1) {
+        Console.printLine("SDL_SetRenderVSync failed: ${SDL3.getError()!}")
+    }
+
+    game = makeGame()
+    running = true
+    totalTime = 0.0
+    perfFreq = SDL3.getPerformanceFrequency()
+    lastCounter = SDL3.getPerformanceCounter()
+
+    Console.printLine("PacMan - Arrows/WASD turn, Space/P pause, R restart.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+
+    return 0
+}

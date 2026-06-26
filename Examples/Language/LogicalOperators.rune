@@ -1,0 +1,16 @@
+func main() -> Int {
+    let t = true
+    let f = false
+
+    let andKeyword = t and not f
+    let andSymbol = t && not f
+    let orKeyword = f or t
+    let orSymbol = f || t
+    let notResult = not f
+
+    if not (andKeyword && andSymbol && orKeyword && orSymbol && notResult) {
+        return 1
+    }
+
+    return 0
+}

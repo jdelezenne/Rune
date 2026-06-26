@@ -1,0 +1,129 @@
+import Standard.*
+import SDL3
+
+const AUDIO_RATE: Int32 = 24000
+const AUDIO_TAU: Float32 = 6.28318530718
+
+struct GameAudio {
+    var device: UInt32
+    var shot: &SDL3.AudioStream?
+    var rock: &SDL3.AudioStream?
+    var ship: &SDL3.AudioStream?
+    var thrust: &SDL3.AudioStream?
+    var noiseState: UInt32
+    var thrustTimer: Float32
+}
+
+func createBoundStream(device: UInt32, spec: &SDL3.AudioSpec) -> &SDL3.AudioStream? {
+    if device == 0 { return nil }
+    let stream = SDL3.createAudioStream(spec, spec)
+    if stream == nil { return nil }
+    if !SDL3.bindAudioStream(device, stream) {
+        SDL3.destroyAudioStream(stream)
+        return nil
+    }
+    return stream
+}
+
+func buildGameAudio() -> GameAudio {
+    var spec = SDL3.AudioSpec(format: SDL3.AudioFormat.s16, channels: 1, freq: AUDIO_RATE)
+    let device = SDL3.openAudioDevice(SDL3.defaultPlaybackDevice, &spec)
+    if device == 0 {
+        Console.printLine("Audio unavailable; continuing silently: ${SDL3.getError()!}")
+        return GameAudio(device: 0, shot: nil, rock: nil, ship: nil, thrust: nil,
+            noiseState: 0x91E10DA5, thrustTimer: 0.0)
+    }
+    let shot = createBoundStream(device, &spec)
+    let rock = createBoundStream(device, &spec)
+    let ship = createBoundStream(device, &spec)
+    let thrust = createBoundStream(device, &spec)
+    if shot == nil || rock == nil || ship == nil || thrust == nil {
+        Console.printLine("Some game audio voices are unavailable: ${SDL3.getError()!}")
+    }
+    _ = SDL3.resumeAudioDevice(device)
+    return GameAudio(device: device, shot: shot, rock: rock, ship: ship, thrust: thrust,
+        noiseState: 0x91E10DA5, thrustTimer: 0.0)
+}
+
+func destroyGameAudio(audio: &GameAudio) {
+    if audio.shot != nil { SDL3.destroyAudioStream(audio.shot) }
+    if audio.rock != nil { SDL3.destroyAudioStream(audio.rock) }
+    if audio.ship != nil { SDL3.destroyAudioStream(audio.ship) }
+    if audio.thrust != nil { SDL3.destroyAudioStream(audio.thrust) }
+    if audio.device != 0 { SDL3.closeAudioDevice(audio.device) }
+    audio.device = 0
+}
+
+func audioNoise(audio: &GameAudio) -> Float32 {
+    audio.noiseState = audio.noiseState * 1664525 + 1013904223
+    return Float32(Int32(audio.noiseState % 2001) - 1000) / 1000.0
+}
+
+func queueShotSound(audio: &GameAudio) {
+    if audio.shot == nil { return }
+    var samples: [Int16, 1152] = []
+    var phase: Float32 = 0.0
+    for index in 0..1152 {
+        let progress = Float32(index) / 1152.0
+        let frequency = 980.0 - progress * 520.0
+        phase = phase + AUDIO_TAU * frequency / Float32(AUDIO_RATE)
+        let envelope = (1.0 - progress) * Math.min(1.0, Float32(index) / 48.0)
+        let pulse: Float32 = if Math.sin(phase) >= 0.0 { 1.0 } else { -1.0 }
+        samples[index] = Int16((Math.sin(phase) * 0.72 + pulse * 0.28) * envelope * 8800.0)
+    }
+    _ = SDL3.putAudioStreamData(audio.shot, samples.bytes, 2304)
+}
+
+func queueRockSound(audio: &GameAudio) {
+    if audio.rock == nil { return }
+    var samples: [Int16, 3600] = []
+    var phase: Float32 = 0.0
+    for index in 0..3600 {
+        let progress = Float32(index) / 3600.0
+        phase = phase + AUDIO_TAU * (92.0 - progress * 38.0) / Float32(AUDIO_RATE)
+        let envelope = (1.0 - progress) * (1.0 - progress)
+        let value = audioNoise(audio) * 0.68 + Math.sin(phase) * 0.32
+        samples[index] = Int16(value * envelope * 12500.0)
+    }
+    _ = SDL3.putAudioStreamData(audio.rock, samples.bytes, 7200)
+}
+
+func queueShipSound(audio: &GameAudio) {
+    if audio.ship == nil { return }
+    var samples: [Int16, 4096] = []
+    var phase: Float32 = 0.0
+    for index in 0..4096 {
+        let progress = Float32(index) / 4096.0
+        phase = phase + AUDIO_TAU * (145.0 - progress * 105.0) / Float32(AUDIO_RATE)
+        let envelope = Math.min(1.0, Float32(index) / 70.0) * (1.0 - progress)
+        let value = audioNoise(audio) * (0.45 + progress * 0.4) + Math.sin(phase) * 0.55
+        samples[index] = Int16(value * envelope * 14500.0)
+    }
+    _ = SDL3.putAudioStreamData(audio.ship, samples.bytes, 8192)
+}
+
+func queueThrustSound(audio: &GameAudio) {
+    if audio.thrust == nil || SDL3.getAudioStreamQueued(audio.thrust) > 2400 { return }
+    var samples: [Int16, 720] = []
+    var phase: Float32 = 0.0
+    for index in 0..720 {
+        let edge = Math.min(Float32(index) / 80.0, Float32(720 - index) / 80.0)
+        phase = phase + AUDIO_TAU * 74.0 / Float32(AUDIO_RATE)
+        let value = Math.sin(phase) * 0.55 + audioNoise(audio) * 0.45
+        samples[index] = Int16(value * Math.min(1.0, edge) * 3900.0)
+    }
+    _ = SDL3.putAudioStreamData(audio.thrust, samples.bytes, 1440)
+}
+
+func playFrameAudio(audio: &GameAudio, events: FrameEvents, dt: Float32) {
+    for _ in 0..Int(events.shotsFired) { queueShotSound(audio) }
+    for _ in 0..Int(events.rocksDestroyed) { queueRockSound(audio) }
+    for _ in 0..Int(events.shipDestroyed) { queueShipSound(audio) }
+    if events.thrusting {
+        audio.thrustTimer = audio.thrustTimer - dt
+        if audio.thrustTimer <= 0.0 {
+            queueThrustSound(audio)
+            audio.thrustTimer = 0.024
+        }
+    } else { audio.thrustTimer = 0.0 }
+}

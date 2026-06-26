@@ -1,0 +1,7 @@
+func includedValue() -> Int {
+    return 42
+}
+
+func includedLabel() -> String {
+    return "shared source"
+}

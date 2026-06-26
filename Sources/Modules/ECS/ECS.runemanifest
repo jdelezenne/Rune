@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "name": "ECS",
+  "kind": "library",
+  "sources": [
+    "ComponentStore.rune",
+    "Entity.rune",
+    "World.rune"
+  ],
+  "dependencies": [
+    "../Rune/Rune.runemanifest"
+  ]
+}

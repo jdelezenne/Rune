@@ -1,0 +1,46 @@
+public extension Surface {
+    public static func fromHandle(handle: &SurfaceHandle?) -> Surface {
+        return Surface(handle: handle)
+    }
+
+    public rawHandle: &SurfaceHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func getCapabilities(
+        adapter: Adapter,
+        capabilities: *SurfaceCapabilities) -> Status
+    {
+        return surfaceGetCapabilities(handle, adapter.handle, capabilities)
+    }
+
+    public func configure(configuration: *SurfaceConfiguration) {
+        surfaceConfigure(handle, configuration)
+    }
+
+    public func getCurrentTexture(surfaceTexture: *SurfaceTexture) {
+        surfaceGetCurrentTexture(handle, surfaceTexture)
+    }
+
+    public func present() -> Status {
+        return surfacePresent(handle)
+    }
+
+    public func unconfigure() {
+        surfaceUnconfigure(handle)
+    }
+
+    public func release() {
+        surfaceRelease(handle)
+    }
+}
+
+public extension SurfaceCapabilities {
+    public mutating func freeMembers() {
+        surfaceCapabilitiesFreeMembers(self)
+    }
+}

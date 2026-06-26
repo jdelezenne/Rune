@@ -1,0 +1,286 @@
+// Actors: the moving pieces - the player's cannon, the alien drones with their
+// peel-and-swoop dive behaviour, the single player shot, and the falling bombs.
+//
+// A diving alien is driven by a small state machine: it first loops out of the
+// formation (the "peel"), then descends in a homing sine sweep while dropping
+// bombs, and finally - if it survives past the bottom - wraps to the top and
+// slides back into its formation slot.
+
+import Standard.*
+
+const TAU_F: Float32 = 6.2831855
+const PI_F: Float32 = 3.1415927
+const HALF_PI_F: Float32 = 1.5707964
+
+// MARK: - Deterministic RNG (xorshift, same pattern as Sudoku/Fireworks)
+
+struct Rng {
+    var state: UInt32
+}
+
+func makeRng(seed: UInt32) -> Rng {
+    var s = seed
+    if s == 0 {
+        s = 0x1234567
+    }
+    return Rng(state: s)
+}
+
+func randU32(rng: &Rng) -> UInt32 {
+    var x = rng.state
+    x = x ^ (x << 13)
+    x = x ^ (x >> 17)
+    x = x ^ (x << 5)
+    rng.state = x
+    return x
+}
+
+func randInt(rng: &Rng, n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    return Int(randU32(rng) % UInt32(n))
+}
+
+func randUnit(rng: &Rng) -> Float32 {
+    return Float32(randU32(rng) % 10000) / 10000.0
+}
+
+func randRange(rng: &Rng, low: Float32, high: Float32) -> Float32 {
+    return low + randUnit(rng) * (high - low)
+}
+
+// MARK: - Player cannon
+
+struct Player {
+    var x: Float32
+    var alive: Bool
+}
+
+func makePlayer() -> Player {
+    return Player(
+        x: Float32(WIDTH) * 0.5,
+        alive: true)
+}
+
+func movePlayer(player: &Player, dir: Float32, dt: Float32, speed: Float32) {
+    player.x = player.x + dir * speed * dt
+    player.x = Math.clamp(player.x, playerMinX(), playerMaxX())
+}
+
+// MARK: - Player shot (single shot on screen, classic Galaxian rule)
+
+struct Shot {
+    var x: Float32
+    var y: Float32
+    var active: Bool
+}
+
+func makeShot() -> Shot {
+    return Shot(x: 0.0, y: 0.0, active: false)
+}
+
+func fireShot(shot: &Shot, x: Float32, y: Float32) {
+    if shot.active {
+        return
+    }
+    shot.x = x
+    shot.y = y
+    shot.active = true
+}
+
+func stepShot(shot: &Shot, dt: Float32, speed: Float32) {
+    if !shot.active {
+        return
+    }
+    shot.y = shot.y - speed * dt
+    if shot.y < -8.0 {
+        shot.active = false
+    }
+}
+
+// MARK: - Bombs (enemy fire)
+
+const MAX_BOMBS: Int = 24
+
+struct Bomb {
+    var x: Float32
+    var y: Float32
+    var vx: Float32
+    var vy: Float32
+    var active: Bool
+}
+
+func makeBomb() -> Bomb {
+    return Bomb(x: 0.0, y: 0.0, vx: 0.0, vy: 0.0, active: false)
+}
+
+func stepBomb(bomb: &Bomb, dt: Float32) {
+    if !bomb.active {
+        return
+    }
+    bomb.x = bomb.x + bomb.vx * dt
+    bomb.y = bomb.y + bomb.vy * dt
+    if bomb.y > Float32(HEIGHT) + 12.0 || bomb.x < -12.0 || bomb.x > Float32(WIDTH) + 12.0 {
+        bomb.active = false
+    }
+}
+
+// MARK: - Aliens
+
+const ALIEN_STATE_DEAD: Int32 = 0
+const ALIEN_STATE_FORMATION: Int32 = 1
+const ALIEN_STATE_PEEL: Int32 = 2
+const ALIEN_STATE_DIVE: Int32 = 3
+const ALIEN_STATE_RETURN: Int32 = 4
+
+struct Alien {
+    var kind: UInt8
+    var state: Int32
+    var homeCol: Int
+    var homeRow: Int
+    var x: Float32
+    var y: Float32
+    var angle: Float32
+    var diveTimer: Float32
+    var peelTurn: Float32
+    var wigglePhase: Float32
+    var bombTimer: Float32
+    var isEscort: Bool
+    var flagshipSlot: Int
+    var escortsKilledThisDive: Int
+}
+
+func makeEmptyAlien() -> Alien {
+    return Alien(
+        kind: KIND_EMPTY,
+        state: ALIEN_STATE_DEAD,
+        homeCol: 0,
+        homeRow: 0,
+        x: 0.0,
+        y: 0.0,
+        angle: HALF_PI_F,
+        diveTimer: 0.0,
+        peelTurn: 0.0,
+        wigglePhase: 0.0,
+        bombTimer: 0.0,
+        isEscort: false,
+        flagshipSlot: -1,
+        escortsKilledThisDive: 0)
+}
+
+func alienIsAlive(alien: *Alien) -> Bool {
+    return alien.state != ALIEN_STATE_DEAD
+}
+
+func alienInFormation(alien: *Alien) -> Bool {
+    return alien.state == ALIEN_STATE_FORMATION
+}
+
+func alienIsDiving(alien: *Alien) -> Bool {
+    return alien.state == ALIEN_STATE_PEEL || alien.state == ALIEN_STATE_DIVE
+}
+
+// Current draw position: formation slot when parked, free position otherwise.
+func alienX(alien: *Alien, sway: Float32) -> Float32 {
+    if alien.state == ALIEN_STATE_FORMATION {
+        return slotX(alien.homeCol, sway)
+    }
+    return alien.x
+}
+
+func alienY(alien: *Alien, sway: Float32) -> Float32 {
+    if alien.state == ALIEN_STATE_FORMATION {
+        return slotY(alien.homeRow)
+    }
+    return alien.y
+}
+
+// MARK: - Dive kinematics
+
+const PEEL_TURN_RATE: Float32 = 3.6
+const DIVE_WIGGLE_FREQ: Float32 = 4.2
+const DIVE_WIGGLE_AMPL: Float32 = 0.55
+const DIVE_HOME_RATE: Float32 = 1.7
+const RETURN_SPEED: Float32 = 150.0
+
+// Launch an alien out of formation into a dive. `side` (-1/+1) picks which way
+// it loops off, so divers fan out to both edges of the screen.
+func launchAlienDive(alien: &Alien, startX: Float32, startY: Float32, side: Float32) {
+    alien.state = ALIEN_STATE_PEEL
+    alien.x = startX
+    alien.y = startY
+    alien.angle = -HALF_PI_F
+    alien.peelTurn = 0.0
+    alien.diveTimer = 0.0
+    alien.wigglePhase = randUnitFromXY(startX, startY)
+    alien.bombTimer = 0.35
+    alien.escortsKilledThisDive = 0
+    // Peel loops toward the chosen side; store the signed turn direction in angle
+    // bookkeeping by biasing the initial heading.
+    alien.angle = -HALF_PI_F + side * 0.15
+}
+
+// Cheap deterministic phase seed from a position so wiggle isn't all in sync.
+func randUnitFromXY(x: Float32, y: Float32) -> Float32 {
+    let v = Math.fmod(Math.abs(x * 12.9898 + y * 78.233), TAU_F)
+    return v
+}
+
+func stepAlienPeel(alien: &Alien, dt: Float32, side: Float32, diveSpeed: Float32) {
+    // Rotate the heading through roughly a half loop until it points downward.
+    alien.peelTurn = alien.peelTurn + PEEL_TURN_RATE * dt
+    alien.angle = alien.angle + side * PEEL_TURN_RATE * dt
+
+    alien.x = alien.x + Math.cos(alien.angle) * diveSpeed * dt
+    alien.y = alien.y + Math.sin(alien.angle) * diveSpeed * dt
+
+    if alien.peelTurn >= PI_F {
+        alien.state = ALIEN_STATE_DIVE
+        alien.angle = HALF_PI_F
+    }
+}
+
+func stepAlienDive(alien: &Alien, dt: Float32, playerX: Float32, diveSpeed: Float32) {
+    alien.diveTimer = alien.diveTimer + dt
+
+    // Sine sweep plus a gentle horizontal pull toward the player's column.
+    let wiggle = Math.sin(alien.diveTimer * DIVE_WIGGLE_FREQ + alien.wigglePhase) * DIVE_WIGGLE_AMPL
+    var desired = HALF_PI_F + wiggle
+    let toward = playerX - alien.x
+    desired = desired + Math.clamp(toward * 0.004, -DIVE_HOME_RATE, DIVE_HOME_RATE) * 0.2
+
+    // Ease the current heading toward the desired one, but always keep a
+    // downward component so a diver never stalls or climbs back up.
+    alien.angle = alien.angle + (desired - alien.angle) * Math.clamp(dt * 4.0, 0.0, 1.0)
+    alien.angle = Math.clamp(alien.angle, HALF_PI_F - 1.1, HALF_PI_F + 1.1)
+
+    alien.x = alien.x + Math.cos(alien.angle) * diveSpeed * dt
+    alien.y = alien.y + Math.sin(alien.angle) * diveSpeed * dt
+}
+
+// Slide a survived diver back down from the top edge into its formation slot.
+// Returns true once it has re-parked.
+func stepAlienReturn(alien: &Alien, dt: Float32, sway: Float32) -> Bool {
+    let targetX = slotX(alien.homeCol, sway)
+    let targetY = slotY(alien.homeRow)
+
+    let dx = targetX - alien.x
+    let dy = targetY - alien.y
+    let dist = Math.sqrt(dx * dx + dy * dy)
+
+    if dist < 3.0 {
+        alien.state = ALIEN_STATE_FORMATION
+        return true
+    }
+
+    let step = RETURN_SPEED * dt
+    if step >= dist {
+        alien.state = ALIEN_STATE_FORMATION
+        return true
+    }
+
+    alien.x = alien.x + dx / dist * step
+    alien.y = alien.y + dy / dist * step
+    return false
+}

@@ -1,0 +1,27 @@
+struct Counter {
+    var value: Int
+
+    mutating func increment() {
+        value = value + 1
+    }
+
+    mutating func reset() {
+        value = 0
+    }
+}
+
+func main() -> Int {
+    var counter = Counter(value: 1)
+    counter.increment()
+
+    if counter.value != 2 {
+        return 1
+    }
+
+    counter.reset()
+    if counter.value != 0 {
+        return 2
+    }
+
+    return 0
+}

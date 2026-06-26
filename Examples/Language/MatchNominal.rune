@@ -1,0 +1,81 @@
+enum Status: Int {
+    ok = 0
+    err = 1
+    pending = 2
+}
+
+union Shape {
+    circle(Int)
+    rect(Int, Int)
+    dot
+}
+
+@flags
+
+enum FilePermissions: UInt8 {
+    read
+    write
+    execute
+}
+
+func classify(s: Status) -> Int {
+    match s {
+        .ok => return 1
+        .err => return 2
+        .pending => return 3
+    }
+}
+
+func area(shape: Shape) -> Int {
+    match shape {
+        .circle(r) => return r * r
+        .rect(w, h) => return w * h
+        .dot => return 0
+    }
+}
+
+func permissionScore(permissions: FilePermissions) -> Int {
+    match permissions {
+        .read => return 1
+        .write => return 2
+        .execute => return 4
+        _ => return 8
+    }
+}
+
+func main() -> Int {
+    let statusScore = classify(.ok) + classify(.err) + classify(.pending)
+    let circleArea: Int = area(.circle(4))
+    let rectArea: Int = area(.rect(3, 5))
+    let dotArea: Int = area(.dot)
+    let readOnly: FilePermissions = FilePermissions.read
+    let readWrite: FilePermissions = FilePermissions.read | FilePermissions.write
+    let readOnlyScore = permissionScore(readOnly)
+    let readWriteScore = permissionScore(readWrite)
+
+    if statusScore != 6 {
+        return 1
+    }
+
+    if circleArea != 16 {
+        return 2
+    }
+
+    if rectArea != 15 {
+        return 3
+    }
+
+    if readOnlyScore != 1 {
+        return 4
+    }
+    // Combined flags do not equal a single declared case, so default is used.
+    if readWriteScore != 8 {
+        return 5
+    }
+
+    if statusScore + circleArea + rectArea + dotArea + readOnlyScore + readWriteScore != 46 {
+        return 6
+    }
+
+    return 0
+}

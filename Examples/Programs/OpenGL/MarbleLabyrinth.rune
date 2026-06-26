@@ -1,0 +1,648 @@
+// Procedural marble maze with generated geometry and fixed-step sphere physics.
+
+import Standard.*
+import SDL3
+import OpenGL
+
+const WIDTH: Int32 = 1100
+const HEIGHT: Int32 = 800
+const MAZE_W: Int = 11
+const MAZE_H: Int = 11
+const CELL_COUNT: Int = MAZE_W * MAZE_H
+const NORTH: Int = 1
+const EAST: Int = 2
+const SOUTH: Int = 4
+const WEST: Int = 8
+const ALL_WALLS: Int = NORTH | EAST | SOUTH | WEST
+// A perfect 11x11 maze has at most 5,910 generated vertices with this mesh
+// layout; keep fixed buffers tight so native entry does not waste stack.
+const MAX_MAZE_VERTICES: Int = 6200
+const MAX_SPHERE_VERTICES: Int = 1500
+const WALL_THICKNESS: Float32 = 0.10
+const WALL_HEIGHT: Float32 = 0.48
+const BALL_RADIUS: Float32 = 0.25
+const FIXED_STEP: Float32 = 1.0 / 120.0
+
+@layout(kind: c)
+struct Vertex {
+    var x: Float32
+    var y: Float32
+    var z: Float32
+    var nx: Float32
+    var ny: Float32
+    var nz: Float32
+    var r: Float32
+    var g: Float32
+    var b: Float32
+}
+
+struct Rng {
+    var state: UInt32
+}
+
+func nextRandom(rng: &Rng) -> UInt32 {
+    var x = rng.state
+    x = x ^ (x << 13)
+    x = x ^ (x >> 17)
+    x = x ^ (x << 5)
+    rng.state = x
+    return x
+}
+
+let glsl150Header: String = "#version 150 core\n"
+let glsl300ESHeader: String = "#version 300 es\n"
+
+let vertexShaderBody: String = """
+#ifdef GL_ES
+precision highp float;
+#endif
+in vec3 position;
+in vec3 normal;
+in vec3 vertexColor;
+uniform mat4 viewProjection;
+uniform mat4 model;
+out vec3 worldNormal;
+out vec3 worldPosition;
+out vec3 surfaceColor;
+void main() {
+    vec4 world = model * vec4(position, 1.0);
+    worldPosition = world.xyz;
+    worldNormal = normalize(mat3(model) * normal);
+    surfaceColor = vertexColor;
+    gl_Position = viewProjection * world;
+}
+"""
+
+let fragmentShaderBody: String = """
+#ifdef GL_ES
+precision mediump float;
+#endif
+in vec3 worldNormal;
+in vec3 worldPosition;
+in vec3 surfaceColor;
+uniform float completion;
+out vec4 fragmentColor;
+void main() {
+    vec3 lightDirection = normalize(vec3(-0.45, 0.85, 0.35));
+    float diffuse = max(dot(normalize(worldNormal), lightDirection), 0.0);
+    float floorPattern = 0.94 + 0.06 * sin(worldPosition.x * 5.0) * sin(worldPosition.z * 5.0);
+    vec3 lit = surfaceColor * floorPattern * (0.28 + diffuse * 0.72);
+    lit = mix(lit, lit + vec3(0.18, 0.72, 0.30), completion * 0.55);
+    fragmentColor = vec4(lit, 1.0);
+}
+"""
+
+func resolveOpenGLFunction(name: CStringSlice) -> &Byte? {
+    return SDL3.glGetProcAddress(name)
+}
+
+func compileShader(kind: OpenGL.GLenum, source: String) -> OpenGL.GLuint {
+    let shader = OpenGL.createShader(kind)
+    var buffer: [Byte, 4096] = []
+    let length = source.copyBytes(destination: buffer.bytes as &Byte, maxLength: 4096)
+    var pointer = buffer.bytes as *Int8
+    var sourceLength: OpenGL.GLint = length as! OpenGL.GLint
+    OpenGL.shaderSource(shader, 1, &pointer, &sourceLength)
+    OpenGL.compileShader(shader)
+    return shader
+}
+
+func shaderCompiled(shader: OpenGL.GLuint) -> Bool {
+    var status: OpenGL.GLint = 0
+    OpenGL.getShaderiv(shader, OpenGL.COMPILE_STATUS, &status)
+    return status != 0
+}
+
+func programLinked(program: OpenGL.GLuint) -> Bool {
+    var status: OpenGL.GLint = 0
+    OpenGL.getProgramiv(program, OpenGL.LINK_STATUS, &status)
+    return status != 0
+}
+
+func buildProgram(header: String) -> OpenGL.GLuint {
+    let vertexShader = compileShader(OpenGL.VERTEX_SHADER, header + vertexShaderBody)
+    let fragmentShader = compileShader(OpenGL.FRAGMENT_SHADER, header + fragmentShaderBody)
+    let result = OpenGL.createProgram()
+    OpenGL.attachShader(result, vertexShader)
+    OpenGL.attachShader(result, fragmentShader)
+    if shaderCompiled(vertexShader) && shaderCompiled(fragmentShader) {
+        OpenGL.linkProgram(result)
+    }
+    OpenGL.deleteShader(vertexShader)
+    OpenGL.deleteShader(fragmentShader)
+    return result
+}
+
+func createProgram() -> OpenGL.GLuint {
+    let glsl150Program = buildProgram(glsl150Header)
+    if programLinked(glsl150Program) {
+        return glsl150Program
+    }
+    OpenGL.deleteProgram(glsl150Program)
+
+    let glsl300ESProgram = buildProgram(glsl300ESHeader)
+    if !programLinked(glsl300ESProgram) {
+        Console.printLine("Marble Labyrinth shader program creation failed.")
+        OpenGL.deleteProgram(glsl300ESProgram)
+        return 0
+    }
+    return glsl300ESProgram
+}
+
+func generateMaze(result: &[Int, CELL_COUNT], seed: UInt32) {
+    var rng = Rng(state: if seed == 0 {
+        0xA341316C
+    } else {
+        seed
+    })
+    for index in 0..CELL_COUNT {
+        result[index] = ALL_WALLS
+    }
+
+    // Each non-goal cell opens either east or south. Following openings must
+    // reach the goal, and CELL_COUNT - 1 openings make the result a tree.
+    for y in 0..MAZE_H {
+        for x in 0..MAZE_W {
+            if x != MAZE_W - 1 || y != MAZE_H - 1 {
+                let current = y * MAZE_W + x
+                var openEast = false
+                if y == MAZE_H - 1 {
+                    openEast = true
+                } else if x != MAZE_W - 1 {
+                    openEast = (nextRandom(&rng) & 1) == 0
+                }
+                if openEast {
+                    result[current] = result[current] - EAST
+                    result[current + 1] = result[current + 1] - WEST
+                } else {
+                    result[current] = result[current] - SOUTH
+                    result[current + MAZE_W] = result[current + MAZE_W] - NORTH
+                }
+            }
+        }
+    }
+}
+
+struct Maze {
+    var walls: [Int, CELL_COUNT] = []
+}
+var maze = Maze()
+var mazeVertices: [Vertex, MAX_MAZE_VERTICES] = []
+var mazeBuildCount = 0
+
+func putVertex(
+    x: Float32, y: Float32, z: Float32, nx: Float32, ny: Float32, nz: Float32,
+    r: Float32, g: Float32, b: Float32) {
+    mazeVertices[mazeBuildCount] = Vertex(x: x, y: y, z: z, nx: nx, ny: ny, nz: nz, r: r, g: g, b: b)
+    mazeBuildCount = mazeBuildCount + 1
+}
+
+func addQuad(
+    ax: Float32, ay: Float32, az: Float32, bx: Float32, by: Float32, bz: Float32,
+    cx: Float32, cy: Float32, cz: Float32, dx: Float32, dy: Float32, dz: Float32,
+    nx: Float32, ny: Float32, nz: Float32, r: Float32, g: Float32, b: Float32) {
+    putVertex(ax, ay, az, nx, ny, nz, r, g, b)
+    putVertex(bx, by, bz, nx, ny, nz, r, g, b)
+    putVertex(cx, cy, cz, nx, ny, nz, r, g, b)
+    putVertex(ax, ay, az, nx, ny, nz, r, g, b)
+    putVertex(cx, cy, cz, nx, ny, nz, r, g, b)
+    putVertex(dx, dy, dz, nx, ny, nz, r, g, b)
+}
+
+func addBox(
+    minX: Float32, minY: Float32, minZ: Float32, maxX: Float32, maxY: Float32, maxZ: Float32,
+    r: Float32, g: Float32, b: Float32) {
+    addQuad(minX,maxY,minZ,maxX,maxY,minZ,maxX,maxY,maxZ,minX,maxY,maxZ,0.0,1.0,0.0,r,g,b)
+    addQuad(maxX,minY,minZ,minX,minY,minZ,minX,minY,maxZ,maxX,minY,maxZ,0.0,-1.0,0.0,r,g,b)
+    addQuad(minX,minY,minZ,maxX,minY,minZ,maxX,maxY,minZ,minX,maxY,minZ,0.0,0.0,-1.0,r,g,b)
+    addQuad(maxX,minY,maxZ,minX,minY,maxZ,minX,maxY,maxZ,maxX,maxY,maxZ,0.0,0.0,1.0,r,g,b)
+    addQuad(minX,minY,maxZ,minX,minY,minZ,minX,maxY,minZ,minX,maxY,maxZ,-1.0,0.0,0.0,r,g,b)
+    addQuad(maxX,minY,minZ,maxX,minY,maxZ,maxX,maxY,maxZ,maxX,maxY,minZ,1.0,0.0,0.0,r,g,b)
+}
+
+func buildMazeMesh() -> Int {
+    mazeBuildCount = 0
+    for y in 0..MAZE_H {
+        for x in 0..MAZE_W {
+            let fx = Float32(x)
+            let fz = Float32(y)
+            var floorR: Float32 = 0.08
+            var floorG: Float32 = 0.12
+            var floorB: Float32 = 0.18
+            if x == MAZE_W - 1 && y == MAZE_H - 1 {
+                floorR = 0.10
+                floorG = 0.65
+                floorB = 0.30
+            }
+            addQuad(fx,0.0,fz,fx,0.0,fz+1.0,fx+1.0,0.0,fz+1.0,fx+1.0,0.0,fz,0.0,1.0,0.0,floorR,floorG,floorB)
+            let cellWalls = maze.walls[y * MAZE_W + x]
+            if (cellWalls & NORTH) != 0 {
+                addBox(
+                    fx - WALL_THICKNESS,
+                    0.0,
+                    fz - WALL_THICKNESS,
+                    fx + 1.0 + WALL_THICKNESS,
+                    WALL_HEIGHT,
+                    fz + WALL_THICKNESS,
+                    0.12,
+                    0.55,
+                    0.78)
+            }
+            if (cellWalls & WEST) != 0 {
+                addBox(
+                    fx - WALL_THICKNESS,
+                    0.0,
+                    fz - WALL_THICKNESS,
+                    fx + WALL_THICKNESS,
+                    WALL_HEIGHT,
+                    fz + 1.0 + WALL_THICKNESS,
+                    0.12,
+                    0.55,
+                    0.78)
+            }
+            if y == MAZE_H - 1 && (cellWalls & SOUTH) != 0 {
+                addBox(
+                    fx - WALL_THICKNESS,
+                    0.0,
+                    fz + 1.0 - WALL_THICKNESS,
+                    fx + 1.0 + WALL_THICKNESS,
+                    WALL_HEIGHT,
+                    fz + 1.0 + WALL_THICKNESS,
+                    0.12,
+                    0.55,
+                    0.78)
+            }
+            if x == MAZE_W - 1 && (cellWalls & EAST) != 0 {
+                addBox(
+                    fx + 1.0 - WALL_THICKNESS,
+                    0.0,
+                    fz - WALL_THICKNESS,
+                    fx + 1.0 + WALL_THICKNESS,
+                    WALL_HEIGHT,
+                    fz + 1.0 + WALL_THICKNESS,
+                    0.12,
+                    0.55,
+                    0.78)
+            }
+        }
+    }
+    return mazeBuildCount
+}
+
+var sphereVertices: [Vertex, MAX_SPHERE_VERTICES] = []
+var sphereBuildCount = 0
+
+func putSphereVertex(theta: Float32, phi: Float32) {
+    let nx = Math.sin(theta) * Math.cos(phi)
+    let ny = Math.cos(theta)
+    let nz = Math.sin(theta) * Math.sin(phi)
+    let stripe: Float32 = if Math.sin(phi * 2.0) > 0.0 {
+        1.0
+    } else {
+        0.35
+    }
+    sphereVertices[sphereBuildCount] = Vertex(x:nx*BALL_RADIUS, y:ny*BALL_RADIUS, z:nz*BALL_RADIUS,
+        nx:nx, ny:ny, nz:nz, r:0.95, g:0.35+stripe*0.35, b:0.08)
+    sphereBuildCount = sphereBuildCount + 1
+}
+
+func buildSphereMesh() -> Int {
+    sphereBuildCount = 0
+    let latitudes = 12
+    let longitudes = 20
+    for latitude in 0..latitudes {
+        let t0 = Float32(latitude) * 3.14159265 / Float32(latitudes)
+        let t1 = Float32(latitude + 1) * 3.14159265 / Float32(latitudes)
+        for longitude in 0..longitudes {
+            let p0 = Float32(longitude) * 2.0 * 3.14159265 / Float32(longitudes)
+            let p1 = Float32(longitude + 1) * 2.0 * 3.14159265 / Float32(longitudes)
+            putSphereVertex(t0, p0)
+            putSphereVertex(t1, p0)
+            putSphereVertex(t1, p1)
+            putSphereVertex(t0, p0)
+            putSphereVertex(t1, p1)
+            putSphereVertex(t0, p1)
+        }
+    }
+    return sphereBuildCount
+}
+
+func keyboardDown(state: *Bool?, scancode: SDL3.Scancode) -> Bool {
+    if state == nil {
+        return false
+    }
+    return ((Int(state!) + Int(scancode as Int32)) as *Bool)^
+}
+
+var ballX: Float32 = 0.5
+var ballZ: Float32 = 0.5
+var velocityX: Float32 = 0.0
+var velocityZ: Float32 = 0.0
+var accumulator: Float32 = 0.0
+var won = false
+var completionTimer: Float32 = 0.0
+var boardTiltX: Float32 = 0.0
+var boardTiltZ: Float32 = 0.0
+var ballRotation: Matrix4 = Matrix4.identity()
+
+func updateBallRotation(deltaX: Float32, deltaZ: Float32) {
+    let distance = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ)
+    if distance <= 0.000001 {
+        return
+    }
+
+    // A sphere rolling in the board's XZ plane rotates about an axis
+    // perpendicular to its direction of travel. Pre-multiplication keeps that
+    // axis in board space as the accumulated orientation changes.
+    let axis = Vector3(x: -deltaZ / distance, y: 0.0, z: deltaX / distance)
+    let increment = Matrix4.rotation(axis: axis, angle: distance / BALL_RADIUS)
+    ballRotation = increment * ballRotation
+}
+
+func resetBall() {
+    ballX = 0.5
+    ballZ = 0.5
+    velocityX = 0.0
+    velocityZ = 0.0
+    ballRotation = Matrix4.identity()
+    won = false
+    completionTimer = 0.0
+}
+
+func simulate(dt: Float32) {
+    let previousBallX = ballX
+    let previousBallZ = ballZ
+    let keys = SDL3.getKeyboardState(nil)
+    var tiltX: Float32 = 0.0
+    var tiltZ: Float32 = 0.0
+    if keyboardDown(keys, SDL3.Scancode.left) || keyboardDown(keys, SDL3.Scancode.a) {
+        tiltX = tiltX - 1.0
+    }
+    if keyboardDown(keys, SDL3.Scancode.right) || keyboardDown(keys, SDL3.Scancode.d) {
+        tiltX = tiltX + 1.0
+    }
+    if keyboardDown(keys, SDL3.Scancode.up) || keyboardDown(keys, SDL3.Scancode.w) {
+        tiltZ = tiltZ - 1.0
+    }
+    if keyboardDown(keys, SDL3.Scancode.down) || keyboardDown(keys, SDL3.Scancode.s) {
+        tiltZ = tiltZ + 1.0
+    }
+    let targetTiltX = tiltX * -0.14
+    let targetTiltZ = tiltZ * 0.14
+    let tiltResponse = 1.0 - Math.pow(0.0008, dt)
+    boardTiltX = boardTiltX + (targetTiltX - boardTiltX) * tiltResponse
+    boardTiltZ = boardTiltZ + (targetTiltZ - boardTiltZ) * tiltResponse
+    velocityX = (velocityX + tiltX * 6.5 * dt) * Math.pow(0.30, dt)
+    velocityZ = (velocityZ + tiltZ * 6.5 * dt) * Math.pow(0.30, dt)
+    ballX = ballX + velocityX * dt
+    ballZ = ballZ + velocityZ * dt
+
+    var cellX = Int(Math.floor(ballX))
+    var cellY = Int(Math.floor(ballZ))
+    if cellX < 0 {
+        cellX = 0
+    }
+    if cellX >= MAZE_W {
+        cellX = MAZE_W - 1
+    }
+    if cellY < 0 {
+        cellY = 0
+    }
+    if cellY >= MAZE_H {
+        cellY = MAZE_H - 1
+    }
+
+    let cellWalls = maze.walls[cellY * MAZE_W + cellX]
+    if (cellWalls & WEST) != 0 && ballX - BALL_RADIUS < Float32(cellX) {
+        ballX = Float32(cellX) + BALL_RADIUS
+        velocityX = Math.abs(velocityX) * 0.42
+    }
+    if (cellWalls & EAST) != 0 && ballX + BALL_RADIUS > Float32(cellX + 1) {
+        ballX = Float32(cellX + 1) - BALL_RADIUS
+        velocityX = -Math.abs(velocityX) * 0.42
+    }
+    if (cellWalls & NORTH) != 0 && ballZ - BALL_RADIUS < Float32(cellY) {
+        ballZ = Float32(cellY) + BALL_RADIUS
+        velocityZ = Math.abs(velocityZ) * 0.42
+    }
+    if (cellWalls & SOUTH) != 0 && ballZ + BALL_RADIUS > Float32(cellY + 1) {
+        ballZ = Float32(cellY + 1) - BALL_RADIUS
+        velocityZ = -Math.abs(velocityZ) * 0.42
+    }
+
+    updateBallRotation(ballX - previousBallX, ballZ - previousBallZ)
+
+    if ballX > Float32(MAZE_W) - 0.75 && ballZ > Float32(MAZE_H) - 0.75 && !won {
+        won = true
+        completionTimer = 2.0
+        velocityX = 0.0
+        velocityZ = 0.0
+        Console.printLine("Maze completed! Generating the next maze...")
+    }
+}
+
+var window: &SDL3.Window? = nil
+var context: &SDL3.GLContext? = nil
+var event = SDL3.Event()
+var running = true
+var program: OpenGL.GLuint = 0
+var mazeVao: OpenGL.GLuint = 0
+var mazeVbo: OpenGL.GLuint = 0
+var sphereVao: OpenGL.GLuint = 0
+var sphereVbo: OpenGL.GLuint = 0
+var positionAttribute: OpenGL.GLuint = 0
+var normalAttribute: OpenGL.GLuint = 0
+var colorAttribute: OpenGL.GLuint = 0
+var mazeVertexCount: Int32 = 0
+var sphereVertexCount: Int32 = 0
+var viewProjection: Matrix4 = Matrix4.identity()
+var lastCounter: UInt64 = 0
+var frequency: UInt64 = 1
+
+func boardModelMatrix() -> Matrix4 {
+    let toOrigin = Matrix4.translation(x: -5.5, y: 0.0, z: -5.5)
+    let tilt = Matrix4.rotation(axis: Vector3(x: 0.0, y: 0.0, z: 1.0), angle: boardTiltX) *
+        Matrix4.rotation(axis: Vector3(x: 1.0, y: 0.0, z: 0.0), angle: boardTiltZ)
+    let fromOrigin = Matrix4.translation(x: 5.5, y: 0.0, z: 5.5)
+    return fromOrigin * (tilt * toOrigin)
+}
+
+func regenerateMaze(seed: UInt32) {
+    generateMaze(&maze.walls, seed | 1)
+    mazeVertexCount = Int32(buildMazeMesh())
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, mazeVbo)
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, Int(mazeVertexCount) * 36,
+        mazeVertices.bytes as *Byte, OpenGL.STATIC_DRAW)
+    resetBall()
+}
+
+func render() {
+    OpenGL.clearColor(0.018,0.025,0.045,1.0)
+    OpenGL.clear(OpenGL.COLOR_BUFFER_BIT | OpenGL.DEPTH_BUFFER_BIT)
+    OpenGL.useProgram(program)
+    var vp = viewProjection
+    var boardModel = boardModelMatrix()
+    let vpLocation = OpenGL.getUniformLocation(program,"viewProjection")
+    let modelLocation = OpenGL.getUniformLocation(program,"model")
+    let completionLocation = OpenGL.getUniformLocation(program,"completion")
+    let completionPulse: Float32 = if won {
+        0.55 + Math.sin(completionTimer * 12.0) * 0.45
+    } else {
+        0.0
+    }
+    OpenGL.uniform1f(completionLocation, completionPulse)
+    OpenGL.uniformMatrix4fv(vpLocation,1,OpenGL.FALSE,vp.m.bytes as *OpenGL.GLfloat)
+    OpenGL.uniformMatrix4fv(modelLocation,1,OpenGL.FALSE,boardModel.m.bytes as *OpenGL.GLfloat)
+    OpenGL.bindVertexArray(mazeVao)
+    OpenGL.drawArrays(OpenGL.TRIANGLES,0,mazeVertexCount)
+    let victoryLift: Float32 = if won {
+        Math.abs(Math.sin(completionTimer * 7.0)) * 0.42
+    } else {
+        0.0
+    }
+    let ballPlacement = Matrix4.translation(x: ballX, y: BALL_RADIUS + 0.02 + victoryLift, z: ballZ)
+    var ballModel = boardModel * (ballPlacement * ballRotation)
+    OpenGL.uniformMatrix4fv(modelLocation,1,OpenGL.FALSE,ballModel.m.bytes as *OpenGL.GLfloat)
+    OpenGL.bindVertexArray(sphereVao)
+    OpenGL.drawArrays(OpenGL.TRIANGLES,0,sphereVertexCount)
+    SDL3.glSwapWindow(window)
+}
+
+func destroyGame() {
+    OpenGL.deleteProgram(program)
+    OpenGL.deleteBuffers(1, &mazeVbo)
+    OpenGL.deleteBuffers(1, &sphereVbo)
+    OpenGL.deleteVertexArrays(1, &mazeVao)
+    OpenGL.deleteVertexArrays(1, &sphereVao)
+    SDL3.glDestroyContext(context)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+}
+
+func mainLoop() {
+    while SDL3.pollEvent(&event) {
+        if event.type == SDL3.EventType.quit {
+            running = false
+        }
+        else if event.type == SDL3.EventType.keyDown && event.down {
+            if event.scancode == SDL3.Scancode.escape {
+                running = false
+            } else if event.scancode == SDL3.Scancode.r {
+                resetBall()
+            } else if event.scancode == SDL3.Scancode.n {
+                regenerateMaze(UInt32(SDL3.getPerformanceCounter() % 0xFFFFFFFF) ^ UInt32(SDL3.getTicks()))
+            }
+        }
+    }
+    if !running {
+        destroyGame()
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    let counter = SDL3.getPerformanceCounter()
+    var frameTime = Float32(counter-lastCounter)/Float32(frequency)
+    lastCounter=counter
+    if frameTime > 0.05 {
+        frameTime = 0.05
+    }
+
+    accumulator = accumulator + frameTime
+    while accumulator >= FIXED_STEP {
+        simulate(FIXED_STEP)
+        accumulator = accumulator - FIXED_STEP
+    }
+
+    if won {
+        completionTimer = completionTimer - frameTime
+        if completionTimer <= 0.0 {
+            regenerateMaze(UInt32(SDL3.getPerformanceCounter() % 0xFFFFFFFF) ^ UInt32(SDL3.getTicks()))
+        }
+    }
+    render()
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        return 1
+    }
+    SDL3.glResetAttributes()
+    SDL3.glSetAttribute(SDL3.GLAttribute.contextMajorVersion,3)
+    SDL3.glSetAttribute(SDL3.GLAttribute.contextMinorVersion,2)
+    SDL3.glSetAttribute(SDL3.GLAttribute.contextProfileMask,1)
+    SDL3.glSetAttribute(SDL3.GLAttribute.contextFlags,2)
+    SDL3.glSetAttribute(SDL3.GLAttribute.doubleBuffer,1)
+    SDL3.glSetAttribute(SDL3.GLAttribute.depthSize,24)
+    window = SDL3.createWindow("Rune OpenGL: Marble Labyrinth",WIDTH,HEIGHT,SDL3.WindowFlags.opengl)
+    context = SDL3.glCreateContext(window)
+    if window == nil || context == nil {
+        Console.printLine("OpenGL window creation failed.")
+        return 1
+    }
+    SDL3.glMakeCurrent(window, context)
+    SDL3.glSetSwapInterval(1)
+    OpenGL.loadFunctions(resolveOpenGLFunction)
+    OpenGL.viewport(0, 0, WIDTH, HEIGHT)
+    OpenGL.enable(OpenGL.DEPTH_TEST)
+    OpenGL.depthFunc(OpenGL.LEQUAL)
+    program = createProgram()
+    if program == 0 {
+        SDL3.glDestroyContext(context)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        return 1
+    }
+
+    let initialSeed = UInt32(SDL3.getPerformanceCounter() % 0xFFFFFFFF) ^ UInt32(SDL3.getTicks())
+    generateMaze(&maze.walls, initialSeed | 1)
+    mazeVertexCount = Int32(buildMazeMesh())
+    sphereVertexCount = Int32(buildSphereMesh())
+    OpenGL.genVertexArrays(1, &mazeVao)
+    OpenGL.bindVertexArray(mazeVao)
+    OpenGL.genBuffers(1, &mazeVbo)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, mazeVbo)
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, Int(mazeVertexCount) * 36,
+        mazeVertices.bytes as *Byte, OpenGL.STATIC_DRAW)
+    positionAttribute = OpenGL.getAttribLocation(program, "position") as! UInt32
+    normalAttribute = OpenGL.getAttribLocation(program, "normal") as! UInt32
+    colorAttribute = OpenGL.getAttribLocation(program, "vertexColor") as! UInt32
+    OpenGL.enableVertexAttribArray(positionAttribute)
+    OpenGL.vertexAttribPointer(positionAttribute, 3, OpenGL.FLOAT, OpenGL.FALSE, 36, 0 as *Byte)
+    OpenGL.enableVertexAttribArray(normalAttribute)
+    OpenGL.vertexAttribPointer(normalAttribute, 3, OpenGL.FLOAT, OpenGL.FALSE, 36, 12 as *Byte)
+    OpenGL.enableVertexAttribArray(colorAttribute)
+    OpenGL.vertexAttribPointer(colorAttribute, 3, OpenGL.FLOAT, OpenGL.FALSE, 36, 24 as *Byte)
+
+    OpenGL.genVertexArrays(1, &sphereVao)
+    OpenGL.bindVertexArray(sphereVao)
+    OpenGL.genBuffers(1, &sphereVbo)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, sphereVbo)
+    OpenGL.bufferData(OpenGL.ARRAY_BUFFER, Int(sphereVertexCount) * 36,
+        sphereVertices.bytes as *Byte, OpenGL.STATIC_DRAW)
+    OpenGL.enableVertexAttribArray(positionAttribute)
+    OpenGL.vertexAttribPointer(positionAttribute, 3, OpenGL.FLOAT, OpenGL.FALSE, 36, 0 as *Byte)
+    OpenGL.enableVertexAttribArray(normalAttribute)
+    OpenGL.vertexAttribPointer(normalAttribute, 3, OpenGL.FLOAT, OpenGL.FALSE, 36, 12 as *Byte)
+    OpenGL.enableVertexAttribArray(colorAttribute)
+    OpenGL.vertexAttribPointer(colorAttribute, 3, OpenGL.FLOAT, OpenGL.FALSE, 36, 24 as *Byte)
+
+    let projection = Matrix4.perspective(48.0,Float32(WIDTH)/Float32(HEIGHT),0.1,50.0)
+    let view = Matrix4.lookAt(
+        eye: Vector3(x: 5.5, y: 15.0, z: 5.5),
+        target: Vector3(x: 5.5, y: 0.0, z: 5.5),
+        up: Vector3(x: 0.0, y: 0.0, z: -1.0))
+    viewProjection = projection * view
+    frequency = SDL3.getPerformanceFrequency()
+    lastCounter = SDL3.getPerformanceCounter()
+    Console.printLine("Marble Labyrinth: tilt with WASD/arrows, N generates a maze, R resets, Escape quits.")
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

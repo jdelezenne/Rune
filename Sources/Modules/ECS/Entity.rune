@@ -1,0 +1,7 @@
+public struct Entity {
+    public var id: UInt64
+
+    public init(id: UInt64) {
+        self.id = id
+    }
+}

@@ -1,0 +1,23 @@
+import Standard.*
+
+func buildStack() -> Stack<Int> {
+    return [10, 20, 30]
+}
+
+func buildQueue() -> Queue<Int> {
+    return [10, 20, 30]
+}
+
+func main() -> Int {
+    const stack = eval buildStack()
+    if stack.count != 3 || stack.peek() != 30 {
+        return 1
+    }
+
+    const queue = eval buildQueue()
+    if queue.count != 3 || queue.peek() != 10 {
+        return 2
+    }
+
+    return 0
+}

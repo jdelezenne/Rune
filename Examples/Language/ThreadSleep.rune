@@ -1,0 +1,19 @@
+// Current-thread scheduler helpers: sleep for a duration, sleep until a
+// monotonic deadline, and yield to the platform scheduler.
+
+import Standard.*
+
+func main() -> Int {
+    let duration = Duration.fromMilliseconds(value: 1)
+
+    Thread.sleep(duration: duration)
+    Thread.sleepUntil(deadline: Instant(nanoseconds: 0))
+    Thread.yield()
+
+    if duration.nanoseconds != 1000000 {
+        return 1
+    }
+
+    #printLn("thread sleep smoke: duration=${duration.nanoseconds} ns")
+    return 0
+}

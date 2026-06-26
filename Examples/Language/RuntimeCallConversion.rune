@@ -1,0 +1,45 @@
+// Regression: a scalar value multiplied directly by the result of a @runtime
+// call whose natural return type differs in width (e.g. Float32 * Math.sqrt of a
+// Float64) must convert the call result, not stamp the narrowed type onto the
+// runtime call itself. The RIL builder used to emit the Float64-returning
+// rune_math_sqrt as if it returned Float32 and skip the cast, so the VM read a
+// 4-byte float out of the 8-byte double return and produced garbage (e.g. 0 or
+// millions instead of the real product). This is exactly what corrupted the
+// SDL3 Eyes/Clock scanline fillCircle math.
+
+import Standard.*
+
+func main() -> Int {
+    let radius: Float32 = 92.0
+    let b: Float64 = 1.0
+
+    // Direct: Float32 * (Float64-returning runtime call). Want 92.
+    let direct = radius * Math.sqrt(b)
+    if direct < 91.9 || direct > 92.1 {
+        return 1
+    }
+
+    // The exact nested shape from the circle-fill scanline math at the disk's
+    // mid-row (t == 0 => sqrt(max(0, 1 - 0)) == 1 => dx == radius == 92).
+    let t: Float32 = 0.0
+    let dx = radius * Math.sqrt(Math.max(0.0, 1.0 - t * t))
+    if dx < 91.9 || dx > 92.1 {
+        return 2
+    }
+
+    // A near-edge row (t == 1 => 1 - 1 == 0 => dx == 0), the boundary case.
+    let tEdge: Float32 = 1.0
+    let dxEdge = radius * Math.sqrt(Math.max(0.0, 1.0 - tEdge * tEdge))
+    if dxEdge < -0.1 || dxEdge > 0.1 {
+        return 3
+    }
+
+    // Spilling to a temp always worked; it must still agree with the direct form.
+    let root = Math.sqrt(b)
+    let viaTemp = radius * root
+    if Int(viaTemp) != Int(direct) {
+        return 4
+    }
+
+    return 0
+}

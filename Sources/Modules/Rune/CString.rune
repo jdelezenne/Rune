@@ -1,0 +1,38 @@
+/// CString represents a null-terminated sequence of UTF-8 bytes for C interoperability.
+@builtin
+public struct CString {
+    /// Allocates a null-terminated copy of the String's UTF-8 bytes.
+    @runtime("rune_cstring_from_string")
+    public init(value: String)
+
+    /// Allocates a null-terminated copy of the StringSlice's UTF-8 bytes.
+    @runtime("rune_cstring_from_string_slice")
+    public init(value: StringSlice)
+
+    /// Returns a non-owning view over this CString's UTF-8 bytes. Zero-copy.
+    @runtime("rune_cstring_as_string_slice")
+    public func asSlice() -> StringSlice
+
+    /// Returns a non-owning C string view over this CString's UTF-8 bytes. Zero-copy.
+    @runtime("rune_cstring_as_cstring_slice")
+    public func asCStringSlice() -> CStringSlice
+
+    /// Replaces `self` with a copy of the null-terminated bytes at `data`.
+    @runtime("rune_cstring_assign_data")
+    public func assignData(data: *Byte)
+
+    /// Replaces this CString's contents with a copy of `source`.
+    @runtime("rune_cstring_copy")
+    public mutating func copyFrom(source: CString)
+}
+
+public extension CString implements Equatable {
+    /// Returns whether two C strings are byte-equal.
+    @runtime("rune_cstring_storage_equal")
+    public static operator ==(lhs: CString, rhs: CString) -> Bool
+}
+
+public extension CString implements CustomStringConvertible {
+    @runtime("rune_runtime_string_from_cstring")
+    public func toString() -> String
+}

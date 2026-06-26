@@ -1,0 +1,55 @@
+/// A half-line in 3D defined by an `origin` and a (conventionally unit-length)
+/// `direction`. Used for picking, ray casting, and intersection queries. The
+/// intersection helpers assume `direction` is normalized.
+@layout(kind: c)
+public struct Ray {
+    public var origin: Vector3
+    public var direction: Vector3
+
+    /// Builds a ray, normalizing `direction`.
+    public static func fromDirection(origin: Vector3, direction: Vector3) -> Ray {
+        return Ray(origin: origin, direction: direction.normalized())
+    }
+
+    /// Builds a ray from `origin` pointing towards `target`.
+    public static func fromTo(origin: Vector3, target: Vector3) -> Ray {
+        return Ray(origin: origin, direction: (target - origin).normalized())
+    }
+
+    /// The point at parametric distance `t` along the ray.
+    public func pointAt(t: Float32) -> Vector3 {
+        return origin + direction * t
+    }
+
+    /// Distance along the ray to its intersection with `plane`, or nil when the
+    /// ray is parallel to the plane or the hit is behind the origin.
+    public func intersect(plane: Plane) -> Float32? {
+        return Intersection.rayPlane(ray: self, plane: plane)
+    }
+
+    /// Nearest distance along the ray to its intersection with `sphere`, or nil
+    /// when the ray misses. Assumes a unit-length `direction`.
+    public func intersect(sphere: Sphere) -> Float32? {
+        return Intersection.raySphere(ray: self, sphere: sphere)
+    }
+
+    /// Nearest distance along the ray to its intersection with `box`, or nil.
+    public func intersect(box: Box) -> Float32? {
+        return Intersection.rayBox(ray: self, box: box)
+    }
+
+    /// Nearest distance along the ray to its intersection with `box`, or nil.
+    public func intersect(orientedBox: OrientedBox) -> Float32? {
+        return Intersection.rayOrientedBox(ray: self, box: orientedBox)
+    }
+
+    /// Nearest distance along the ray to its intersection with `capsule`, or nil.
+    public func intersect(capsule: Capsule) -> Float32? {
+        return Intersection.rayCapsule(ray: self, capsule: capsule)
+    }
+
+    /// Nearest distance along the ray to its intersection with `triangle`, or nil.
+    public func intersect(triangle: Triangle) -> Float32? {
+        return Intersection.rayTriangle(ray: self, triangle: triangle)
+    }
+}

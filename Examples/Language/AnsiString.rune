@@ -1,0 +1,29 @@
+func main() -> Int {
+    let color: UInt8 = 42
+    let ansi: String = "\u{1b}[38;5;${color}m"
+
+    if ansi.length != 10 {
+        return 1
+    }
+
+    let buffer = try! Memory.systemAllocate(size: UInt(ansi.length))
+    let copied = ansi.copyBytes(destination: buffer, maxLength: UInt(ansi.length))
+    if copied != UInt(ansi.length) {
+        Memory.systemDeallocate(address: buffer)
+        return 2
+    }
+
+    let expected: String = "\u{1b}[38;5;42m"
+    if ansi != expected {
+        Memory.systemDeallocate(address: buffer)
+        return 3
+    }
+
+    if ansi[0].codePoint != 27 {
+        Memory.systemDeallocate(address: buffer)
+        return 4
+    }
+
+    Memory.systemDeallocate(address: buffer)
+    return 0
+}

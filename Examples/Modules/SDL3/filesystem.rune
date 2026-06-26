@@ -1,0 +1,24 @@
+@symbol("SDL_GetBasePath")
+public func getBasePath() -> CStringSlice?
+
+@symbol("SDL_GetPrefPath")
+private func getPrefPathRaw(organization: CStringSlice?, application: CStringSlice?) -> *Byte?
+
+/// Returns an application-specific writable directory. SDL creates the
+/// directory when necessary. The returned String owns its bytes.
+public func getPrefPath(organization: String, application: String) -> String? {
+    let organizationCString = CString(organization)
+    let applicationCString = CString(application)
+    let raw = getPrefPathRaw(
+        organization: organizationCString.asCStringSlice(),
+        application: applicationCString.asCStringSlice())
+    if raw == nil {
+        return nil
+    }
+
+    var ownedPath = CString("")
+    ownedPath.assignData(data: raw!)
+    let path = ownedPath.toString()
+    free(raw)
+    return path
+}

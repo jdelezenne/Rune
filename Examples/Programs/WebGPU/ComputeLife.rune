@@ -1,0 +1,518 @@
+// Conway's Game of Life: compute step on storage buffers, fullscreen present.
+
+import Standard.*
+import WebGPU
+
+const WIDTH: UInt32 = 800
+const HEIGHT: UInt32 = 600
+const GRID: UInt32 = 64
+const CELL_COUNT: Int = 4096
+const WORKGROUP: UInt32 = 8
+
+let computeShaderSource: String = """
+struct Params {
+    width: u32,
+    height: u32,
+    _pad0: u32,
+    _pad1: u32,
+}
+
+@group(0) @binding(0) var<storage, read> currentCells: array<u32>;
+@group(0) @binding(1) var<storage, read_write> nextCells: array<u32>;
+@group(0) @binding(2) var<uniform> params: Params;
+
+fn cellIndex(x: u32, y: u32) -> u32 {
+    return y * params.width + x;
+}
+
+fn cellAt(x: i32, y: i32) -> u32 {
+    let w = i32(params.width);
+    let h = i32(params.height);
+    let sx = (x % w + w) % w;
+    let sy = (y % h + h) % h;
+    return currentCells[cellIndex(u32(sx), u32(sy))];
+}
+
+@compute @workgroup_size(8, 8)
+fn computeMain(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (gid.x >= params.width || gid.y >= params.height) {
+        return;
+    }
+    let x = i32(gid.x);
+    let y = i32(gid.y);
+    var neighbors: u32 = 0u;
+    neighbors += cellAt(x - 1, y - 1);
+    neighbors += cellAt(x,     y - 1);
+    neighbors += cellAt(x + 1, y - 1);
+    neighbors += cellAt(x - 1, y);
+    neighbors += cellAt(x + 1, y);
+    neighbors += cellAt(x - 1, y + 1);
+    neighbors += cellAt(x,     y + 1);
+    neighbors += cellAt(x + 1, y + 1);
+    let alive = cellAt(x, y);
+    var next: u32 = 0u;
+    if (alive == 1u) {
+        if (neighbors == 2u || neighbors == 3u) {
+            next = 1u;
+        }
+    } else if (neighbors == 3u) {
+        next = 1u;
+    }
+    nextCells[cellIndex(gid.x, gid.y)] = next;
+}
+"""
+
+let renderShaderSource: String = """
+struct Params {
+    width: u32,
+    height: u32,
+    _pad0: u32,
+    _pad1: u32,
+}
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOut {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>( 3.0, -1.0),
+        vec2<f32>(-1.0,  3.0));
+    var uvs = array<vec2<f32>, 3>(
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(2.0, 1.0),
+        vec2<f32>(0.0, -1.0));
+    var output: VertexOut;
+    output.position = vec4<f32>(positions[vertexIndex], 0.0, 1.0);
+    output.uv = uvs[vertexIndex];
+    return output;
+}
+
+@group(0) @binding(0) var<storage, read> displayCells: array<u32>;
+@group(0) @binding(1) var<uniform> displayParams: Params;
+
+@fragment
+fn fragmentMain(input: VertexOut) -> @location(0) vec4<f32> {
+    let gx = u32(clamp(input.uv.x, 0.0, 0.999) * f32(displayParams.width));
+    let gy = u32(clamp(input.uv.y, 0.0, 0.999) * f32(displayParams.height));
+    let alive = displayCells[gy * displayParams.width + gx];
+    if (alive == 1u) {
+        return vec4<f32>(0.25, 0.95, 0.45, 1.0);
+    }
+    return vec4<f32>(0.03, 0.04, 0.07, 1.0);
+}
+"""
+
+var instance = WebGPU.Instance.fromHandle(handle: nil)
+var surface = WebGPU.Surface.fromHandle(handle: nil)
+var adapter = WebGPU.Adapter.fromHandle(handle: nil)
+var device = WebGPU.Device.fromHandle(handle: nil)
+var queue = WebGPU.Queue.fromHandle(handle: nil)
+var computePipeline = WebGPU.ComputePipeline.fromHandle(handle: nil)
+var renderPipeline = WebGPU.RenderPipeline.fromHandle(handle: nil)
+var cellBufferA = WebGPU.GPUBuffer.fromHandle(handle: nil)
+var cellBufferB = WebGPU.GPUBuffer.fromHandle(handle: nil)
+var paramsBuffer = WebGPU.GPUBuffer.fromHandle(handle: nil)
+var computeBindGroupAB = WebGPU.BindGroup.fromHandle(handle: nil)
+var computeBindGroupBA = WebGPU.BindGroup.fromHandle(handle: nil)
+var renderBindGroupA = WebGPU.BindGroup.fromHandle(handle: nil)
+var renderBindGroupB = WebGPU.BindGroup.fromHandle(handle: nil)
+var surfaceFormat: WebGPU.TextureFormat = WebGPU.TextureFormat.undefined
+var useBufferAAsCurrent = true
+var frameCounter: UInt32 = 0
+var ready = false
+
+func emptyStringView() -> WebGPU.StringView {
+    return WebGPU.StringView(data: nil, length: WebGPU.STRLEN)
+}
+
+func makeStringView(text: CStringSlice, length: UInt) -> WebGPU.StringView {
+    return WebGPU.StringView(data: (text.rawPointer() as *Int8), length: length)
+}
+
+func configureSurface() -> Bool {
+    var capabilities = WebGPU.SurfaceCapabilities(
+        nextInChain: nil, usages: 0, formatCount: 0, formats: nil,
+        presentModeCount: 0, presentModes: nil,
+        alphaModeCount: 0, alphaModes: nil)
+    if surface.getCapabilities(adapter: adapter, capabilities: &capabilities) != WebGPU.Status.success or
+        capabilities.formatCount == 0 or capabilities.presentModeCount == 0 or
+        capabilities.alphaModeCount == 0 {
+        Console.printLine("WebGPU Life: surface capabilities unavailable.")
+        return false
+    }
+    surfaceFormat = capabilities.formats!^
+    let presentMode = capabilities.presentModes!^
+    let alphaMode = capabilities.alphaModes!^
+    var configuration = WebGPU.SurfaceConfiguration(
+        nextInChain: nil, device: device.rawHandle, format: surfaceFormat,
+        usage: WebGPU.TEXTURE_USAGE_RENDER_ATTACHMENT,
+        width: WIDTH, height: HEIGHT,
+        viewFormatCount: 0, viewFormats: nil,
+        alphaMode: alphaMode, presentMode: presentMode)
+    surface.configure(configuration: &configuration)
+    capabilities.freeMembers()
+    return true
+}
+
+func createShaderModule(source: String) -> WebGPU.ShaderModule {
+    let shaderCString = CString(value: source)
+    var shaderWGSL = WebGPU.ShaderSourceWGSL(
+        chain: WebGPU.ChainedStruct(
+            next: nil, sType: WebGPU.SType.shaderSourceWGSL),
+        code: WebGPU.StringView(
+            data: (shaderCString.asCStringSlice().rawPointer() as *Int8),
+            length: (shaderCString.asSlice().length as! UInt)))
+    var descriptor = WebGPU.ShaderModuleDescriptor(
+        nextInChain: *shaderWGSL.chain, label: emptyStringView())
+    return device.createShaderModule(descriptor: &descriptor)
+}
+
+func seedCells() -> [UInt32, CELL_COUNT] {
+    var cells: [UInt32, CELL_COUNT] = []
+    for i in 0..CELL_COUNT {
+        cells[i] = 0
+    }
+    // Glider
+    let ox: Int = 10
+    let oy: Int = 10
+    cells[oy * Int(GRID) + ox + 1] = 1
+    cells[(oy + 1) * Int(GRID) + ox + 2] = 1
+    cells[(oy + 2) * Int(GRID) + ox] = 1
+    cells[(oy + 2) * Int(GRID) + ox + 1] = 1
+    cells[(oy + 2) * Int(GRID) + ox + 2] = 1
+    // Lightweight spaceship
+    let sx: Int = 30
+    let sy: Int = 40
+    cells[sy * Int(GRID) + sx + 1] = 1
+    cells[sy * Int(GRID) + sx + 4] = 1
+    cells[(sy + 1) * Int(GRID) + sx] = 1
+    cells[(sy + 2) * Int(GRID) + sx] = 1
+    cells[(sy + 3) * Int(GRID) + sx] = 1
+    cells[(sy + 3) * Int(GRID) + sx + 4] = 1
+    cells[(sy + 4) * Int(GRID) + sx] = 1
+    cells[(sy + 4) * Int(GRID) + sx + 1] = 1
+    cells[(sy + 4) * Int(GRID) + sx + 2] = 1
+    cells[(sy + 4) * Int(GRID) + sx + 3] = 1
+    // Random-ish scatter
+    var n: UInt32 = 1
+    for i in 0..CELL_COUNT {
+        n = n * 1664525 + 1013904223
+        if (n % 17) == 0 and i % 3 == 0 {
+            cells[i] = 1
+        }
+    }
+    return cells
+}
+
+func renderFrame() {
+    if !ready {
+        return
+    }
+
+    frameCounter = frameCounter + 1
+    // Step every other frame so the pattern is easier to follow.
+    let shouldStep = (frameCounter % 2) == 0
+
+    var surfaceTexture = WebGPU.SurfaceTexture(
+        nextInChain: nil, texture: nil,
+        status: WebGPU.SurfaceGetCurrentTextureStatus.error)
+    surface.getCurrentTexture(surfaceTexture: &surfaceTexture)
+    if surfaceTexture.status != WebGPU.SurfaceGetCurrentTextureStatus.successOptimal and
+        surfaceTexture.status != WebGPU.SurfaceGetCurrentTextureStatus.successSuboptimal {
+        return
+    }
+
+    let surfaceTextureObject = WebGPU.Texture.fromHandle(handle: surfaceTexture.texture)
+    let targetView = surfaceTextureObject.createView()
+    let encoder = device.createCommandEncoder()
+    if !targetView.isValid or !encoder.isValid {
+        targetView.release()
+        surfaceTextureObject.release()
+        return
+    }
+
+    if shouldStep {
+        let computePass = encoder.beginComputePass()
+        computePass.setPipeline(pipeline: computePipeline)
+        if useBufferAAsCurrent {
+            computePass.setBindGroup(groupIndex: 0, group: computeBindGroupAB)
+        } else {
+            computePass.setBindGroup(groupIndex: 0, group: computeBindGroupBA)
+        }
+        let groups = (GRID + WORKGROUP - 1) / WORKGROUP
+        computePass.dispatchWorkgroups(workgroupCountX: groups, workgroupCountY: groups)
+        computePass.end()
+        computePass.release()
+        useBufferAAsCurrent = !useBufferAAsCurrent
+    }
+
+    var colorAttachment = WebGPU.RenderPassColorAttachment(
+        nextInChain: nil,
+        view: targetView.rawHandle,
+        depthSlice: WebGPU.DEPTH_SLICE_UNDEFINED,
+        resolveTarget: nil,
+        loadOp: WebGPU.LoadOp.clear,
+        storeOp: WebGPU.StoreOp.store,
+        clearValue: WebGPU.Color(r: 0.02, g: 0.03, b: 0.05, a: 1.0))
+    var passDescriptor = WebGPU.RenderPassDescriptor(
+        nextInChain: nil,
+        label: emptyStringView(),
+        colorAttachmentCount: 1,
+        colorAttachments: *colorAttachment,
+        depthStencilAttachment: nil,
+        occlusionQuerySet: nil,
+        timestampWrites: nil)
+    let pass = encoder.beginRenderPass(descriptor: &passDescriptor)
+    pass.setPipeline(pipeline: renderPipeline)
+    if useBufferAAsCurrent {
+        pass.setBindGroup(groupIndex: 0, group: renderBindGroupA)
+    } else {
+        pass.setBindGroup(groupIndex: 0, group: renderBindGroupB)
+    }
+    pass.draw(vertexCount: 3)
+    pass.end()
+
+    let commandBuffer = encoder.finish()
+    queue.submit(command: commandBuffer)
+    // Emscripten presents the surface when this animation-frame callback returns.
+    commandBuffer.release()
+    pass.release()
+    encoder.release()
+    targetView.release()
+    surfaceTextureObject.release()
+}
+
+func createResources() -> Bool {
+    queue = device.getQueue()
+    if !queue.isValid or !configureSurface() {
+        return false
+    }
+
+    let cellBytes: UInt64 = UInt64(CELL_COUNT) * 4
+    var cellDescriptor = WebGPU.BufferDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        usage: WebGPU.BUFFER_USAGE_STORAGE | WebGPU.BUFFER_USAGE_COPY_DST,
+        size: cellBytes, mappedAtCreation: 0)
+    cellBufferA = device.createBuffer(descriptor: &cellDescriptor)
+    cellBufferB = device.createBuffer(descriptor: &cellDescriptor)
+    var paramsDescriptor = WebGPU.BufferDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        usage: WebGPU.BUFFER_USAGE_UNIFORM | WebGPU.BUFFER_USAGE_COPY_DST,
+        size: 16, mappedAtCreation: 0)
+    paramsBuffer = device.createBuffer(descriptor: &paramsDescriptor)
+    if !cellBufferA.isValid or !cellBufferB.isValid or !paramsBuffer.isValid {
+        Console.printLine("WebGPU Life: buffer creation failed.")
+        return false
+    }
+
+    var cells = seedCells()
+    let cellBytesUInt = cells.byteLength as! UInt
+    queue.writeBuffer(
+        buffer: cellBufferA, bufferOffset: 0,
+        data: (cells.bytes as *Byte), size: cellBytesUInt)
+    // Seed B from A on the GPU instead of a second host upload.
+    let seedEncoder = device.createCommandEncoder()
+    seedEncoder.copyBufferToBuffer(
+        source: cellBufferA, sourceOffset: 0,
+        destination: cellBufferB, destinationOffset: 0,
+        size: UInt64(cellBytesUInt))
+    let seedCommands = seedEncoder.finish()
+    queue.submit(command: seedCommands)
+    seedCommands.release()
+    seedEncoder.release()
+
+    var params: [UInt32, 4] = [GRID, GRID, 0, 0]
+    queue.writeBuffer(
+        buffer: paramsBuffer, bufferOffset: 0,
+        data: (params.bytes as *Byte), size: 16)
+
+    let computeShader = createShaderModule(source: computeShaderSource)
+    let renderShader = createShaderModule(source: renderShaderSource)
+    if !computeShader.isValid or !renderShader.isValid {
+        Console.printLine("WebGPU Life: shader creation failed.")
+        return false
+    }
+
+    let computeEntry: CStringSlice = "computeMain"
+    var computeState = WebGPU.ComputeState(
+        nextInChain: nil,
+        module: computeShader.rawHandle,
+        entryPoint: makeStringView(text: computeEntry, length: 11),
+        constantCount: 0,
+        constants: nil)
+    var computeDescriptor = WebGPU.ComputePipelineDescriptor(
+        nextInChain: nil,
+        label: emptyStringView(),
+        layout: nil,
+        compute: computeState)
+    computePipeline = device.createComputePipeline(descriptor: &computeDescriptor)
+    computeShader.release()
+    if !computePipeline.isValid {
+        Console.printLine("WebGPU Life: compute pipeline creation failed.")
+        renderShader.release()
+        return false
+    }
+
+    let vertexEntry: CStringSlice = "vertexMain"
+    let fragmentEntry: CStringSlice = "fragmentMain"
+    var vertexState = WebGPU.VertexState(
+        nextInChain: nil, module: renderShader.rawHandle,
+        entryPoint: makeStringView(text: vertexEntry, length: 10),
+        constantCount: 0, constants: nil,
+        bufferCount: 0, buffers: nil)
+    var colorTarget = WebGPU.ColorTargetState(
+        nextInChain: nil, format: surfaceFormat,
+        blend: nil, writeMask: WebGPU.COLOR_WRITE_MASK_ALL)
+    var fragmentState = WebGPU.FragmentState(
+        nextInChain: nil, module: renderShader.rawHandle,
+        entryPoint: makeStringView(text: fragmentEntry, length: 12),
+        constantCount: 0, constants: nil,
+        targetCount: 1, targets: *colorTarget)
+    var renderDescriptor = WebGPU.RenderPipelineDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: nil,
+        vertex: vertexState,
+        primitive: WebGPU.PrimitiveState(
+            nextInChain: nil,
+            topology: WebGPU.PrimitiveTopology.triangleList,
+            stripIndexFormat: WebGPU.IndexFormat.undefined,
+            frontFace: WebGPU.FrontFace.ccw,
+            cullMode: WebGPU.CullMode.none,
+            unclippedDepth: 0),
+        depthStencil: nil,
+        multisample: WebGPU.MultisampleState(
+            nextInChain: nil, count: 1, mask: 0xFFFFFFFF, alphaToCoverageEnabled: 0),
+        fragment: *fragmentState)
+    renderPipeline = device.createRenderPipeline(descriptor: &renderDescriptor)
+    renderShader.release()
+    if !renderPipeline.isValid {
+        Console.printLine("WebGPU Life: render pipeline creation failed.")
+        return false
+    }
+
+    let computeLayout = computePipeline.getBindGroupLayout(groupIndex: 0)
+    let renderLayout = renderPipeline.getBindGroupLayout(groupIndex: 0)
+    if !computeLayout.isValid or !renderLayout.isValid {
+        Console.printLine("WebGPU Life: bind group layout query failed.")
+        return false
+    }
+
+    var computeEntriesAB: [WebGPU.BindGroupEntry, 3] = [
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 0, buffer: cellBufferA.rawHandle,
+            offset: 0, size: cellBytes, sampler: nil, textureView: nil),
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 1, buffer: cellBufferB.rawHandle,
+            offset: 0, size: cellBytes, sampler: nil, textureView: nil),
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 2, buffer: paramsBuffer.rawHandle,
+            offset: 0, size: 16, sampler: nil, textureView: nil),
+    ]
+    var computeEntriesBA: [WebGPU.BindGroupEntry, 3] = [
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 0, buffer: cellBufferB.rawHandle,
+            offset: 0, size: cellBytes, sampler: nil, textureView: nil),
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 1, buffer: cellBufferA.rawHandle,
+            offset: 0, size: cellBytes, sampler: nil, textureView: nil),
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 2, buffer: paramsBuffer.rawHandle,
+            offset: 0, size: 16, sampler: nil, textureView: nil),
+    ]
+    var computeBindABDesc = WebGPU.BindGroupDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: computeLayout.rawHandle,
+        entryCount: 3, entries: (computeEntriesAB.bytes as *WebGPU.BindGroupEntry))
+    var computeBindBADesc = WebGPU.BindGroupDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: computeLayout.rawHandle,
+        entryCount: 3, entries: (computeEntriesBA.bytes as *WebGPU.BindGroupEntry))
+    computeBindGroupAB = device.createBindGroup(descriptor: &computeBindABDesc)
+    computeBindGroupBA = device.createBindGroup(descriptor: &computeBindBADesc)
+
+    var renderEntriesA: [WebGPU.BindGroupEntry, 2] = [
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 0, buffer: cellBufferA.rawHandle,
+            offset: 0, size: cellBytes, sampler: nil, textureView: nil),
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 1, buffer: paramsBuffer.rawHandle,
+            offset: 0, size: 16, sampler: nil, textureView: nil),
+    ]
+    var renderEntriesB: [WebGPU.BindGroupEntry, 2] = [
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 0, buffer: cellBufferB.rawHandle,
+            offset: 0, size: cellBytes, sampler: nil, textureView: nil),
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 1, buffer: paramsBuffer.rawHandle,
+            offset: 0, size: 16, sampler: nil, textureView: nil),
+    ]
+    var renderBindADesc = WebGPU.BindGroupDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: renderLayout.rawHandle,
+        entryCount: 2, entries: (renderEntriesA.bytes as *WebGPU.BindGroupEntry))
+    var renderBindBDesc = WebGPU.BindGroupDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: renderLayout.rawHandle,
+        entryCount: 2, entries: (renderEntriesB.bytes as *WebGPU.BindGroupEntry))
+    renderBindGroupA = device.createBindGroup(descriptor: &renderBindADesc)
+    renderBindGroupB = device.createBindGroup(descriptor: &renderBindBDesc)
+    computeLayout.release()
+    renderLayout.release()
+
+    if !computeBindGroupAB.isValid or !computeBindGroupBA.isValid or
+        !renderBindGroupA.isValid or !renderBindGroupB.isValid {
+        Console.printLine("WebGPU Life: bind group creation failed.")
+        return false
+    }
+    return true
+}
+
+func deviceReady(
+    status: WebGPU.RequestDeviceStatus,
+    receivedDevice: &WebGPU.DeviceHandle?,
+    message: WebGPU.StringView,
+    userdata1: &Byte?,
+    userdata2: &Byte?) {
+    if status != WebGPU.RequestDeviceStatus.success or receivedDevice == nil {
+        Console.printLine("WebGPU Life: device request failed.")
+        return
+    }
+    device = WebGPU.Device.fromHandle(handle: receivedDevice)
+    if createResources() {
+        ready = true
+        Console.printLine("WebGPU Game of Life started.")
+    }
+}
+
+func adapterReady(
+    status: WebGPU.RequestAdapterStatus,
+    receivedAdapter: &WebGPU.AdapterHandle?,
+    message: WebGPU.StringView,
+    userdata1: &Byte?,
+    userdata2: &Byte?) {
+    if status != WebGPU.RequestAdapterStatus.success or receivedAdapter == nil {
+        Console.printLine("WebGPU Life: adapter request failed.")
+        return
+    }
+    adapter = WebGPU.Adapter.fromHandle(handle: receivedAdapter)
+    adapter.requestDevice(callback: deviceReady)
+}
+
+func main() -> Int {
+    instance = WebGPU.Instance.create()
+    let canvasSelector: CStringSlice = "#canvas"
+    var source = WebGPU.EmscriptenSurfaceSourceCanvasHTMLSelector(
+        chain: WebGPU.ChainedStruct(
+            next: nil, sType: WebGPU.SType.emscriptenSurfaceSourceCanvasHTMLSelector),
+        selector: makeStringView(text: canvasSelector, length: 7))
+    var descriptor = WebGPU.SurfaceDescriptor(
+        nextInChain: *source.chain, label: emptyStringView())
+    surface = instance.createSurface(descriptor: &descriptor)
+    if !instance.isValid or !surface.isValid {
+        Console.printLine("WebGPU Life: initialization failed.")
+        return 1
+    }
+    Console.printLine("Requesting a WebGPU adapter for Game of Life...")
+    instance.requestAdapter(callback: adapterReady)
+    Platform.Emscripten.setMainLoop(renderFrame, 0, 1)
+    return 0
+}

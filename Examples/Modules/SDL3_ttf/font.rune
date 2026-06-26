@@ -1,0 +1,102 @@
+@symbol("TTF_Font")
+public distinct Font
+
+@flags
+public enum FontStyle: UInt32 {
+    normal = 0x00 // TTF_STYLE_NORMAL
+    bold = 0x01 // TTF_STYLE_BOLD
+    italic = 0x02 // TTF_STYLE_ITALIC
+    underline = 0x04 // TTF_STYLE_UNDERLINE
+    strikethrough = 0x08 // TTF_STYLE_STRIKETHROUGH
+}
+
+public enum FontHinting: Int32 {
+    invalid = -1 // TTF_HINTING_INVALID
+    normal = 0 // TTF_HINTING_NORMAL
+    light = 1 // TTF_HINTING_LIGHT
+    mono = 2 // TTF_HINTING_MONO
+    none = 3 // TTF_HINTING_NONE
+    lightSubpixel = 4 // TTF_HINTING_LIGHT_SUBPIXEL
+}
+
+public enum HorizontalAlignment: Int32 {
+    invalid = -1 // TTF_HORIZONTAL_ALIGN_INVALID
+    left = 0 // TTF_HORIZONTAL_ALIGN_LEFT
+    center = 1 // TTF_HORIZONTAL_ALIGN_CENTER
+    right = 2 // TTF_HORIZONTAL_ALIGN_RIGHT
+}
+
+@symbol("TTF_OpenFont")
+public func openFont(file: CStringSlice?, pointSize: Float32) -> &Font?
+
+@symbol("TTF_CloseFont")
+public func closeFont(font: &Font?) -> Void
+
+@symbol("TTF_SetFontSize")
+public func setFontSize(font: &Font?, pointSize: Float32) -> Bool
+
+@symbol("TTF_SetFontSizeDPI")
+public func setFontSizeDPI(font: &Font?, pointSize: Float32, horizontalDPI: Int32, verticalDPI: Int32) -> Bool
+
+@symbol("TTF_GetFontSize")
+public func getFontSize(font: &Font?) -> Float32
+
+@symbol("TTF_SetFontStyle")
+public func setFontStyle(font: &Font?, style: FontStyle) -> Void
+
+@symbol("TTF_GetFontStyle")
+public func getFontStyle(font: &Font?) -> FontStyle
+
+@symbol("TTF_SetFontOutline")
+public func setFontOutline(font: &Font?, outline: Int32) -> Bool
+
+@symbol("TTF_GetFontOutline")
+public func getFontOutline(font: &Font?) -> Int32
+
+@symbol("TTF_SetFontHinting")
+public func setFontHinting(font: &Font?, hinting: FontHinting) -> Void
+
+@symbol("TTF_GetFontHinting")
+public func getFontHinting(font: &Font?) -> FontHinting
+
+@symbol("TTF_SetFontWrapAlignment")
+public func setFontWrapAlignment(font: &Font?, alignment: HorizontalAlignment) -> Void
+
+@symbol("TTF_GetFontWrapAlignment")
+public func getFontWrapAlignment(font: &Font?) -> HorizontalAlignment
+
+@symbol("TTF_GetFontHeight")
+public func getFontHeight(font: &Font?) -> Int32
+
+@symbol("TTF_GetFontAscent")
+public func getFontAscent(font: &Font?) -> Int32
+
+@symbol("TTF_GetFontDescent")
+public func getFontDescent(font: &Font?) -> Int32
+
+@symbol("TTF_SetFontLineSkip")
+public func setFontLineSkip(font: &Font?, lineSkip: Int32) -> Void
+
+@symbol("TTF_GetFontLineSkip")
+public func getFontLineSkip(font: &Font?) -> Int32
+
+@symbol("TTF_SetFontKerning")
+public func setFontKerning(font: &Font?, enabled: Bool) -> Void
+
+@symbol("TTF_GetFontKerning")
+public func getFontKerning(font: &Font?) -> Bool
+
+@symbol("TTF_FontIsFixedWidth")
+public func fontIsFixedWidth(font: &Font?) -> Bool
+
+@symbol("TTF_FontIsScalable")
+public func fontIsScalable(font: &Font?) -> Bool
+
+@symbol("TTF_GetFontFamilyName")
+public func getFontFamilyName(font: &Font?) -> CStringSlice?
+
+@symbol("TTF_GetFontStyleName")
+public func getFontStyleName(font: &Font?) -> CStringSlice?
+
+@symbol("TTF_FontHasGlyph")
+public func fontHasGlyph(font: &Font?, codepoint: UInt32) -> Bool

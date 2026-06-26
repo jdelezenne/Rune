@@ -1,0 +1,261 @@
+// SDL3 audio stream demo
+
+import Standard.*
+import SDL3
+
+const sampleRate: Int32 = 11025
+const toneSeconds: Int32 = 2
+const toneFrequency: Float32 = 440.0
+const amplitude: Float32 = 10000.0
+const sampleCount: Int32 = sampleRate * toneSeconds
+const chunkSize: Int32 = 4096
+const tau: Float32 = 6.2831855
+const defaultQueueCapacity: Int32 = sampleRate * 2
+
+var playbackSamples: [Int16, defaultQueueCapacity] = []
+
+struct AudioQueue {
+    var mutex: Mutex
+    var size: Int32
+    var readIndex: Int32
+
+    init() {
+        self.mutex = Mutex()
+        self.size = 0
+        self.readIndex = 0
+    }
+
+    final() {
+        self.mutex.release()
+    }
+
+    mutating func clear() {
+        self.mutex.lock()
+        self.size = 0
+        self.readIndex = 0
+        self.mutex.unlock()
+    }
+
+    mutating func push(data: &Byte, byteLength: Int32) {
+        if byteLength <= 0 {
+            return
+        }
+
+        let sampleCount = byteLength / 2
+        if sampleCount <= 0 {
+            return
+        }
+
+        self.mutex.lock()
+
+        let pending = self.size - self.readIndex
+        let needed = pending + sampleCount
+        if needed > defaultQueueCapacity {
+            self.mutex.unlock()
+            return
+        }
+
+        let dest = (Int(playbackSamples.bytes) + Int(self.size * 2)) as &Byte
+        Memory.copy(source: data, destination: dest, byteCount: UInt(byteLength))
+        self.size = self.size + sampleCount
+        self.mutex.unlock()
+    }
+
+    mutating func readSamples(destination: &Byte, maxSamples: Int32) -> Int32 {
+        if maxSamples <= 0 {
+            return 0
+        }
+
+        self.mutex.lock()
+
+        let pending = self.size - self.readIndex
+        let toRead = pending < maxSamples ? pending : maxSamples
+        if toRead > 0 {
+            let src = (Int(playbackSamples.bytes) + Int(self.readIndex * 2)) as *Byte
+            let byteLength = toRead * 2
+            Memory.copy(source: src, destination: destination, byteCount: UInt(byteLength))
+            self.readIndex = self.readIndex + toRead
+        }
+
+        self.mutex.unlock()
+        return toRead
+    }
+
+    func pendingSamples() -> Int32 {
+        self.mutex.lock()
+        let pending = self.size - self.readIndex
+        self.mutex.unlock()
+        return pending
+    }
+}
+
+var playbackQueue: AudioQueue = AudioQueue()
+var callbackScratch: [Int16, 4096] = []
+var playbackStartTime: UInt64 = 0
+
+func feedStreamFromQueue(
+    stream: &SDL3.AudioStream?,
+    queue: &AudioQueue,
+    byteCount: Int32) -> Void {
+    if stream == nil || byteCount <= 0 {
+        return
+    }
+
+    var remainingBytes = byteCount
+    while remainingBytes > 0 {
+        let maxSamples = remainingBytes / 2
+        if maxSamples <= 0 {
+            break
+        }
+
+        let chunkSamples = maxSamples < chunkSize ? maxSamples : chunkSize
+        let samplesRead = queue.readSamples(callbackScratch.bytes, chunkSamples)
+        if samplesRead <= 0 {
+            break
+        }
+
+        let putBytes = samplesRead * 2
+        if !SDL3.putAudioStreamData(stream, callbackScratch.bytes, putBytes) {
+            break
+        }
+
+        remainingBytes = remainingBytes - putBytes
+    }
+}
+
+func onAudioGet(
+    _userdata: &Byte?,
+    stream: &SDL3.AudioStream?,
+    additionalAmount: Int32,
+    _totalAmount: Int32) -> Void {
+    feedStreamFromQueue(stream, &playbackQueue, additionalAmount)
+}
+
+func fillToneQueue(queue: &AudioQueue) -> Bool {
+    var samples: [Int16, 4096] = []
+    var phase: Float32 = 0.0
+    let phaseStep: Float32 = tau * toneFrequency / Float32(sampleRate)
+    const fadeSamples: Int32 = sampleRate / 50
+
+    var sampleWriteIndex: Int32 = 0
+    while sampleWriteIndex < sampleCount {
+        let remaining = sampleCount - sampleWriteIndex
+        let count = remaining < chunkSize ? remaining : chunkSize
+
+        for chunkIndex in 0..count {
+            let sampleIndex = sampleWriteIndex + chunkIndex
+            var gain: Float32 = 1.0
+
+            if sampleIndex < fadeSamples {
+                gain = Float32(sampleIndex) / Float32(fadeSamples)
+            } else if sampleIndex >= sampleCount - fadeSamples {
+                gain = Float32(sampleCount - sampleIndex) / Float32(fadeSamples)
+            }
+
+            let sample = amplitude * gain * Math.sin(phase)
+            samples[Int(chunkIndex)] = Int16(sample)
+            phase = phase + phaseStep
+            if phase >= tau {
+                phase = phase - tau
+            }
+        }
+
+        let byteLength = count * 2
+        queue.push(samples.bytes, byteLength)
+        sampleWriteIndex = sampleWriteIndex + count
+    }
+
+    return true
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.audio) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_Init failed")
+        } else {
+            Console.printLine("SDL_Init failed: ${message!}")
+        }
+
+        return 1
+    }
+
+    var spec = SDL3.AudioSpec(
+        format: SDL3.AudioFormat.s16,
+        channels: 1,
+        freq: sampleRate)
+
+    let device = SDL3.openAudioDevice(SDL3.defaultPlaybackDevice, &spec)
+    if device == 0 {
+        Console.printLine("SDL_OpenAudioDevice failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    let stream = SDL3.createAudioStream(&spec, &spec)
+    if stream == nil {
+        Console.printLine("SDL_CreateAudioStream failed: ${SDL3.getError()!}")
+        SDL3.closeAudioDevice(device)
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.setAudioStreamGetCallback(stream, onAudioGet, nil) {
+        Console.printLine("SDL_SetAudioStreamGetCallback failed: ${SDL3.getError()!}")
+        SDL3.destroyAudioStream(stream)
+        SDL3.closeAudioDevice(device)
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.bindAudioStream(device, stream) {
+        Console.printLine("SDL_BindAudioStream failed: ${SDL3.getError()!}")
+        SDL3.destroyAudioStream(stream)
+        SDL3.closeAudioDevice(device)
+        SDL3.quit()
+        return 1
+    }
+
+    if !fillToneQueue(&playbackQueue) {
+        Console.printLine("Failed to fill PCM queue")
+        SDL3.destroyAudioStream(stream)
+        SDL3.closeAudioDevice(device)
+        SDL3.quit()
+        return 1
+    }
+
+    playbackStartTime = SDL3.getTicks()
+    if !SDL3.resumeAudioDevice(device) {
+        Console.printLine("SDL_ResumeAudioDevice failed: ${SDL3.getError()!}")
+        SDL3.destroyAudioStream(stream)
+        SDL3.closeAudioDevice(device)
+        SDL3.quit()
+        return 1
+    }
+    Console.printLine("AudioStreamDemo: playing ${toneSeconds}s tone at ${toneFrequency} Hz...")
+
+    // Let the bound device pull from the stream; the get callback moves queue PCM into it.
+    while playbackQueue.pendingSamples() > 0 {
+        SDL3.delay(10)
+    }
+
+    if !SDL3.flushAudioStream(stream) {
+        Console.printLine("SDL_FlushAudioStream failed: ${SDL3.getError()!}")
+        SDL3.destroyAudioStream(stream)
+        SDL3.closeAudioDevice(device)
+        SDL3.quit()
+        return 1
+    }
+
+    let durationMs: UInt64 = UInt64(toneSeconds * 1000)
+    var elapsed = SDL3.getTicks() - playbackStartTime
+    while elapsed < durationMs {
+        SDL3.delay(10)
+        elapsed = SDL3.getTicks() - playbackStartTime
+    }
+
+    SDL3.destroyAudioStream(stream)
+    SDL3.closeAudioDevice(device)
+    SDL3.quit()
+    return 0
+}

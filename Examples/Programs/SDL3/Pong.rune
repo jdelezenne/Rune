@@ -1,0 +1,254 @@
+// SDL3 Pong: classic two-paddle bounce, player vs. a simple AI.
+//
+// Controls:
+//   W / S or Up / Down  - move the left paddle
+//   R                   - restart after a win
+//   Escape / close      - quit
+
+import Standard.*
+import SDL3
+
+const WINDOW_W: Float32 = 640.0
+const WINDOW_H: Float32 = 480.0
+const PADDLE_W: Float32 = 14.0
+const PADDLE_H: Float32 = 90.0
+const BALL_SIZE: Float32 = 14.0
+const PLAYER_SPEED: Float32 = 7.0
+const AI_SPEED: Float32 = 5.0
+const WIN_SCORE: Int = 7
+
+struct Rng {
+    var state: UInt32
+}
+
+func randUnit(rng: &Rng) -> Float32 {
+    rng.state = rng.state * 1664525 + 1013904223
+    return Float32(rng.state) / 4294967295.0
+}
+
+func randRange(rng: &Rng, low: Float32, high: Float32) -> Float32 {
+    return low + randUnit(rng) * (high - low)
+}
+
+struct KeyState {
+    var up: Bool
+    var down: Bool
+    var restart: Bool
+    var escape: Bool
+}
+
+func setKeyDown(state: &KeyState, scancode: SDL3.Scancode, pressed: Bool) {
+    if scancode == SDL3.Scancode.w || scancode == SDL3.Scancode.up {
+        state.up = pressed
+    } else if scancode == SDL3.Scancode.s || scancode == SDL3.Scancode.down {
+        state.down = pressed
+    } else if scancode == SDL3.Scancode.escape {
+        state.escape = pressed
+    }
+}
+
+func drawRect(renderer: &SDL3.Renderer?, x: Float32, y: Float32, w: Float32, h: Float32) {
+    var rect = SDL3.FRect(x: x, y: y, w: w, h: h)
+    SDL3.renderFillRect(renderer, &rect)
+}
+
+func drawCenterLine(renderer: &SDL3.Renderer?) {
+    SDL3.setRenderDrawColor(renderer, 70, 74, 84, 255)
+    var y: Float32 = 8.0
+    while y < WINDOW_H {
+        drawRect(renderer, WINDOW_W / 2.0 - 2.0, y, 4.0, 14.0)
+        y = y + 26.0
+    }
+}
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var event = SDL3.Event()
+var running = true
+var keys = KeyState(up: false, down: false, restart: false, escape: false)
+var rng = Rng(state: 918273)
+
+var leftPaddleY: Float32 = WINDOW_H / 2.0 - PADDLE_H / 2.0
+var rightPaddleY: Float32 = WINDOW_H / 2.0 - PADDLE_H / 2.0
+var ballX: Float32 = WINDOW_W / 2.0 - BALL_SIZE / 2.0
+var ballY: Float32 = WINDOW_H / 2.0 - BALL_SIZE / 2.0
+var ballVX: Float32 = 4.5
+var ballVY: Float32 = 2.5
+var leftScore: Int = 0
+var rightScore: Int = 0
+var gameOver = false
+
+func resetBall(serveLeft: Bool) {
+    ballX = WINDOW_W / 2.0 - BALL_SIZE / 2.0
+    ballY = WINDOW_H / 2.0 - BALL_SIZE / 2.0
+    let speed: Float32 = 4.5
+    let dir: Float32 = serveLeft ? -1.0 : 1.0
+    ballVX = speed * dir
+    ballVY = randRange(&rng, -2.5, 2.5)
+}
+
+func handleEvent(evt: SDL3.Event) -> Bool {
+    if evt.type == SDL3.EventType.quit {
+        return false
+    }
+
+    if evt.type == SDL3.EventType.keyDown && evt.down {
+        setKeyDown(&keys, evt.scancode, true)
+        if evt.scancode == SDL3.Scancode.escape {
+            return false
+        }
+        if evt.scancode == SDL3.Scancode.r && gameOver {
+            leftScore = 0
+            rightScore = 0
+            gameOver = false
+            resetBall(true)
+        }
+        return true
+    }
+
+    if evt.type == SDL3.EventType.keyUp {
+        setKeyDown(&keys, evt.scancode, false)
+    }
+
+    return true
+}
+
+func mainLoop() {
+    while SDL3.pollEvent(&event) {
+        if !handleEvent(event) {
+            running = false
+        }
+    }
+
+    if !running {
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        Console.printLine("Pong finished.")
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    if !gameOver {
+        if keys.up {
+            leftPaddleY = leftPaddleY - PLAYER_SPEED
+        }
+        if keys.down {
+            leftPaddleY = leftPaddleY + PLAYER_SPEED
+        }
+        leftPaddleY = Math.clamp(leftPaddleY, 0.0, WINDOW_H - PADDLE_H)
+
+        let ballCenterY = ballY + BALL_SIZE / 2.0
+        let rightCenterY = rightPaddleY + PADDLE_H / 2.0
+        if ballCenterY < rightCenterY - 4.0 {
+            rightPaddleY = rightPaddleY - AI_SPEED
+        } else if ballCenterY > rightCenterY + 4.0 {
+            rightPaddleY = rightPaddleY + AI_SPEED
+        }
+        rightPaddleY = Math.clamp(rightPaddleY, 0.0, WINDOW_H - PADDLE_H)
+
+        ballX = ballX + ballVX
+        ballY = ballY + ballVY
+
+        if ballY <= 0.0 || ballY + BALL_SIZE >= WINDOW_H {
+            ballVY = -ballVY
+            ballY = Math.clamp(ballY, 0.0, WINDOW_H - BALL_SIZE)
+        }
+
+        let leftPaddleX: Float32 = 24.0
+        let rightPaddleX: Float32 = WINDOW_W - 24.0 - PADDLE_W
+
+        if ballVX < 0.0 && ballX <= leftPaddleX + PADDLE_W && ballX >= leftPaddleX
+            && ballY + BALL_SIZE >= leftPaddleY && ballY <= leftPaddleY + PADDLE_H {
+            ballX = leftPaddleX + PADDLE_W
+            ballVX = -ballVX
+            let hitOffset = (ballY + BALL_SIZE / 2.0 - (leftPaddleY + PADDLE_H / 2.0)) / (PADDLE_H / 2.0)
+            ballVY = hitOffset * 5.0
+        }
+
+        if ballVX > 0.0 && ballX + BALL_SIZE >= rightPaddleX && ballX <= rightPaddleX + PADDLE_W
+            && ballY + BALL_SIZE >= rightPaddleY && ballY <= rightPaddleY + PADDLE_H {
+            ballX = rightPaddleX - BALL_SIZE
+            ballVX = -ballVX
+            let hitOffset = (ballY + BALL_SIZE / 2.0 - (rightPaddleY + PADDLE_H / 2.0)) / (PADDLE_H / 2.0)
+            ballVY = hitOffset * 5.0
+        }
+
+        if ballX + BALL_SIZE < 0.0 {
+            rightScore = rightScore + 1
+            if rightScore >= WIN_SCORE {
+                gameOver = true
+            } else {
+                resetBall(false)
+            }
+        } else if ballX > WINDOW_W {
+            leftScore = leftScore + 1
+            if leftScore >= WIN_SCORE {
+                gameOver = true
+            } else {
+                resetBall(true)
+            }
+        }
+    }
+
+    SDL3.setRenderDrawColor(renderer, 12, 14, 20, 255)
+    SDL3.renderClear(renderer)
+
+    drawCenterLine(renderer)
+
+    SDL3.setRenderDrawColor(renderer, 235, 235, 240, 255)
+    drawRect(renderer, 24.0, leftPaddleY, PADDLE_W, PADDLE_H)
+    drawRect(renderer, WINDOW_W - 24.0 - PADDLE_W, rightPaddleY, PADDLE_W, PADDLE_H)
+    drawRect(renderer, ballX, ballY, BALL_SIZE, BALL_SIZE)
+
+    let scoreText = CString("${leftScore}   :   ${rightScore}")
+    SDL3.setRenderDrawColor(renderer, 200, 205, 215, 255)
+    SDL3.renderDebugText(renderer, WINDOW_W / 2.0 - 30.0, 16.0, scoreText.asCStringSlice())
+
+    if gameOver {
+        let winner: String = leftScore >= WIN_SCORE ? "LEFT (YOU)" : "RIGHT (AI)"
+        let banner = CString("${winner} WINS - PRESS R TO RESTART")
+        SDL3.setRenderDrawColor(renderer, 255, 220, 120, 255)
+        SDL3.renderDebugText(renderer, WINDOW_W / 2.0 - 110.0, WINDOW_H / 2.0, banner.asCStringSlice())
+    }
+
+    SDL3.renderPresent(renderer)
+    SDL3.delay(16)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_Init failed")
+        } else {
+            Console.printLine("SDL_Init failed: ${message!}")
+        }
+
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Pong", 640, 480, 0, &window, &renderer) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_CreateWindowAndRenderer failed")
+        } else {
+            Console.printLine("SDL_CreateWindowAndRenderer failed: ${message!}")
+        }
+        SDL3.quit()
+        return 1
+    }
+
+    Console.printLine("Pong: W/S or Up/Down move the left paddle, first to 7 wins, R restarts.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

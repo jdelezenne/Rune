@@ -1,0 +1,168 @@
+import Standard.*
+import SDL3
+
+struct AsteroidsServer {
+    var listener: TcpListener
+    var peers: Array<ServerPeer>
+    var world: NetworkWorld
+    var nextPlayerId: Int32
+    var running: Bool
+}
+
+func addPeer(server: &AsteroidsServer, stream: TcpStream) throws(String) {
+    var clientStream = stream
+    _ = clientStream.setNonblocking(enabled: true)
+    _ = clientStream.setNoDelay(enabled: true)
+
+    let playerId = server.nextPlayerId
+    server.nextPlayerId = server.nextPlayerId + 1
+    let address = clientStream.peerAddress
+    server.world.players.append(makePlayer(id: playerId, rng: &server.world.rng))
+    server.peers.append(ServerPeer(
+        id: playerId,
+        stream: clientStream,
+        address: address,
+        active: true,
+        receiveText: ""))
+    try sendText(stream: &clientStream, text: encodeWelcome(id: playerId))
+    Console.printLine("client #${playerId} connected from ${address}")
+}
+
+func acceptPeers(server: &AsteroidsServer) throws(String) {
+    while true {
+        let accepted = try server.listener.acceptAvailable()
+        if accepted == nil {
+            return
+        }
+        try addPeer(server: server, stream: accepted!)
+    }
+}
+
+func removePeer(server: &AsteroidsServer, peerIndex: Int) {
+    let playerId = server.peers[peerIndex].id
+    server.peers[peerIndex].active = false
+    server.peers[peerIndex].stream.close()
+
+    let playerIndex = findPlayerIndex(world: server.world, id: playerId)
+    if playerIndex >= 0 {
+        server.world.players[playerIndex].active = false
+    }
+    Console.printLine("client #${playerId} disconnected")
+}
+
+func processPeerLines(server: &AsteroidsServer, peerIndex: Int) {
+    while true {
+        let line = takeLine(text: server.peers[peerIndex].receiveText)
+        if !line.found {
+            return
+        }
+        server.peers[peerIndex].receiveText = line.rest
+        let playerIndex = findPlayerIndex(world: server.world, id: server.peers[peerIndex].id)
+        if playerIndex >= 0 {
+            server.world.players[playerIndex].input = decodeInput(line: line.line)
+        }
+    }
+}
+
+func pollPeers(server: &AsteroidsServer, buffer: &Byte) throws(String) {
+    var index = 0
+    while index < server.peers.count {
+        if server.peers[index].active {
+            do {
+                let received = appendReceivedText(
+                    stream: &server.peers[index].stream,
+                    receiveText: server.peers[index].receiveText,
+                    buffer: buffer)
+                server.peers[index].receiveText = received.text
+                if received.closed {
+                    removePeer(server: server, peerIndex: index)
+                } else if received.changed {
+                    processPeerLines(server: server, peerIndex: index)
+                }
+            }
+            catch let error {
+                Console.printLine("client #${server.peers[index].id} read failed: ${error}")
+                removePeer(server: server, peerIndex: index)
+            }
+        }
+        index = index + 1
+    }
+}
+
+func broadcastSnapshot(server: &AsteroidsServer) {
+    let snapshot = encodeSnapshot(world: server.world)
+    var index = 0
+    while index < server.peers.count {
+        if server.peers[index].active {
+            do {
+                sendText(stream: &server.peers[index].stream, text: snapshot)
+            }
+            catch let error {
+                Console.printLine("client #${server.peers[index].id} write failed: ${error}")
+                removePeer(server: server, peerIndex: index)
+            }
+        }
+        index = index + 1
+    }
+}
+
+func runServer() throws(String) -> Int {
+    var listener = try TcpListener.bind(host: NETWORK_BIND_HOST, port: NETWORK_PORT, backlog: 32)
+    _ = listener.setNonblocking(enabled: true)
+
+    let buffer = try! Memory.systemAllocate(size: NETWORK_BUFFER_SIZE)
+    defer Memory.systemDeallocate(address: buffer)
+
+    var server = AsteroidsServer(
+        listener: listener,
+        peers: [],
+        world: makeNetworkWorld(seed: 0xA57E401D),
+        nextPlayerId: 1,
+        running: true)
+
+    Console.printLine("Asteroids multiplayer server listening on ${server.listener.localAddress}")
+    let perfFreq = SDL3.getPerformanceFrequency()
+    var lastCounter = SDL3.getPerformanceCounter()
+    var accumulator: Float32 = 0.0
+    while server.running {
+        try acceptPeers(server: &server)
+        try pollPeers(server: &server, buffer: buffer)
+
+        let counter = SDL3.getPerformanceCounter()
+        var frameTime = Float32(counter - lastCounter) / Float32(perfFreq)
+        lastCounter = counter
+        if frameTime > 0.1 {
+            frameTime = 0.1
+        }
+        accumulator = accumulator + frameTime
+
+        while accumulator >= SERVER_DT {
+            updateNetworkWorld(world: &server.world, dt: SERVER_DT)
+            if server.world.tick % SNAPSHOT_EVERY_TICKS == 0 {
+                broadcastSnapshot(server: &server)
+            }
+            accumulator = accumulator - SERVER_DT
+        }
+        SDL3.delay(1)
+    }
+
+    var index = 0
+    while index < server.peers.count {
+        if server.peers[index].active {
+            server.peers[index].stream.close()
+        }
+        index = index + 1
+    }
+    server.listener.close()
+    return 0
+}
+
+func main() -> Int {
+    do {
+        return runServer()
+    }
+    catch let error {
+        Console.printLine("asteroids server error: ${error}")
+        return 1
+    }
+}

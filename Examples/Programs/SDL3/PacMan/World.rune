@@ -1,0 +1,433 @@
+// World: the Game state machine - dot/pellet economy, the scatter/chase
+// mode timeline, frightened mode, ghost house release, scoring, lives and
+// level progression.
+
+import Standard.*
+
+// MARK: - Tuning
+
+const PACMAN_SPEED: Float32 = 100.0
+const GHOST_SPEED: Float32 = 90.0
+const GHOST_TUNNEL_SPEED: Float32 = 60.0
+const GHOST_FRIGHTENED_SPEED: Float32 = 60.0
+const GHOST_EATEN_SPEED: Float32 = 190.0
+
+const FRIGHTENED_DURATION: Float32 = 6.0
+const FRIGHTENED_FLASH_START: Float32 = 2.0
+
+const DOT_SCORE: Int32 = 10
+const PELLET_SCORE: Int32 = 50
+const EXTRA_LIFE_SCORE: Int32 = 10000
+
+const GHOST_EATEN_SCORES: [Int32, 4] = [200, 400, 800, 1600]
+
+const READY_DURATION: Float32 = 2.0
+const DEATH_DURATION: Float32 = 2.0
+const LEVEL_CLEAR_DURATION: Float32 = 2.0
+
+const PACMAN_START_COL: Int = 14
+const PACMAN_START_ROW: Int = 23
+const HOUSE_HOME_COL: Int = 13
+const HOUSE_HOME_ROW: Int = 14
+const DOOR_COL: Int = 13
+const DOOR_ROW: Int = 12
+
+// Classic level-1 scatter/chase timeline: alternating scatter/chase windows
+// that get shorter as the level goes on, ending in permanent chase.
+const MODE_COUNT: Int = 8
+const MODE_IS_CHASE: [Bool, MODE_COUNT] = [false, true, false, true, false, true, false, true]
+const MODE_DURATION: [Float32, MODE_COUNT] = [7.0, 20.0, 7.0, 20.0, 5.0, 20.0, 5.0, 100000.0]
+
+enum GamePhase: Int32 {
+    ready = 0
+    playing = 1
+    pacmanDying = 2
+    levelClear = 3
+    gameOver = 4
+}
+
+struct InputEdge {
+    var turnUp: Bool
+    var turnRight: Bool
+    var turnDown: Bool
+    var turnLeft: Bool
+    var pause: Bool
+    var restart: Bool
+    var quit: Bool
+}
+
+struct Game {
+    var pacman: PacMan
+    var ghosts: [Ghost, 4]
+    var dots: [UInt8, MAZE_CELLS]
+    var dotsRemaining: Int
+    var dotsEatenTotal: Int
+    var score: Int32
+    var highScore: Int32
+    var lives: Int
+    var level: Int
+    var phase: GamePhase
+    var phaseTimer: Float32
+    var modeIndex: Int
+    var modeTimer: Float32
+    var frightenedTimer: Float32
+    var eatenCombo: Int
+    var extraLifeAwarded: Bool
+    var paused: Bool
+
+    mutating func reset() {
+        self.pacman = makePacMan(PACMAN_START_COL, PACMAN_START_ROW)
+        self.ghosts = [
+            makeGhost(GhostPersonality.blinky, 0),
+            makeGhost(GhostPersonality.pinky, 0),
+            makeGhost(GhostPersonality.inky, 30),
+            makeGhost(GhostPersonality.clyde, 60),
+        ]
+        self.dots = MAZE_DOTS
+        self.dotsRemaining = countRemainingDots(&self.dots)
+        self.dotsEatenTotal = 0
+        self.score = 0
+        self.lives = 3
+        self.level = 1
+        self.phase = GamePhase.ready
+        self.phaseTimer = READY_DURATION
+        self.modeIndex = 0
+        self.modeTimer = MODE_DURATION[0]
+        self.frightenedTimer = 0.0
+        self.eatenCombo = 0
+        self.extraLifeAwarded = false
+        self.paused = false
+    }
+
+    mutating func startNextLevel() {
+        self.level = self.level + 1
+        self.pacman = makePacMan(PACMAN_START_COL, PACMAN_START_ROW)
+        self.ghosts = [
+            makeGhost(GhostPersonality.blinky, 0),
+            makeGhost(GhostPersonality.pinky, 0),
+            makeGhost(GhostPersonality.inky, 30),
+            makeGhost(GhostPersonality.clyde, 60),
+        ]
+        self.dots = MAZE_DOTS
+        self.dotsRemaining = countRemainingDots(&self.dots)
+        self.dotsEatenTotal = 0
+        self.phase = GamePhase.ready
+        self.phaseTimer = READY_DURATION
+        self.modeIndex = 0
+        self.modeTimer = MODE_DURATION[0]
+        self.frightenedTimer = 0.0
+        self.eatenCombo = 0
+    }
+
+    mutating func respawnActors() {
+        self.pacman = makePacMan(PACMAN_START_COL, PACMAN_START_ROW)
+        self.ghosts = [
+            makeGhost(GhostPersonality.blinky, 0),
+            makeGhost(GhostPersonality.pinky, 0),
+            makeGhost(GhostPersonality.inky, 30),
+            makeGhost(GhostPersonality.clyde, 60),
+        ]
+        self.modeIndex = 0
+        self.modeTimer = MODE_DURATION[0]
+        self.frightenedTimer = 0.0
+        self.eatenCombo = 0
+    }
+
+    mutating func startFrightened() {
+        self.frightenedTimer = FRIGHTENED_DURATION
+        self.eatenCombo = 0
+        for ghostIndex in 0..4 {
+            if self.ghosts[ghostIndex].houseState == GhostHouseState.active && self.ghosts[ghostIndex].mode != GhostMode.eaten {
+                self.ghosts[ghostIndex].mode = GhostMode.frightened
+                self.ghosts[ghostIndex].direction = oppositeDirection(self.ghosts[ghostIndex].direction)
+                self.ghosts[ghostIndex].moveProgress = 0.0
+            }
+        }
+    }
+
+    func currentNormalGhostMode() -> GhostMode {
+        if MODE_IS_CHASE[self.modeIndex] {
+            return GhostMode.chase
+        }
+
+        return GhostMode.scatter
+    }
+
+    mutating func endFrightened() {
+        self.frightenedTimer = 0.0
+        let normalMode = self.currentNormalGhostMode()
+        for ghostIndex in 0..4 {
+            if self.ghosts[ghostIndex].mode == GhostMode.frightened {
+                self.ghosts[ghostIndex].mode = normalMode
+            }
+        }
+    }
+
+    mutating func advanceModeIndex() {
+        if self.modeIndex >= MODE_COUNT - 1 {
+            return
+        }
+
+        self.modeIndex = self.modeIndex + 1
+        self.modeTimer = MODE_DURATION[self.modeIndex]
+        let newIsChase = MODE_IS_CHASE[self.modeIndex]
+        for ghostIndex in 0..4 {
+            if self.ghosts[ghostIndex].mode == GhostMode.scatter || self.ghosts[ghostIndex].mode == GhostMode.chase {
+                if newIsChase {
+                    self.ghosts[ghostIndex].mode = GhostMode.chase
+                } else {
+                    self.ghosts[ghostIndex].mode = GhostMode.scatter
+                }
+                self.ghosts[ghostIndex].direction = oppositeDirection(self.ghosts[ghostIndex].direction)
+                self.ghosts[ghostIndex].moveProgress = 0.0
+            }
+        }
+    }
+
+    mutating func checkExtraLife() {
+        if !self.extraLifeAwarded && self.score >= EXTRA_LIFE_SCORE {
+            self.extraLifeAwarded = true
+            self.lives = self.lives + 1
+        }
+    }
+
+    mutating func eatDotUnderPacMan() {
+        let index = tileIndex(self.pacman.col, self.pacman.row)
+        let dot = self.dots[index]
+        if dot == DOT_NONE {
+            return
+        }
+
+        self.dots[index] = DOT_NONE
+        self.dotsRemaining = self.dotsRemaining - 1
+        self.dotsEatenTotal = self.dotsEatenTotal + 1
+
+        if dot == DOT_POWER {
+            self.score = self.score + PELLET_SCORE
+            self.startFrightened()
+        } else {
+            self.score = self.score + DOT_SCORE
+        }
+
+        self.checkExtraLife()
+
+        if self.dotsRemaining <= 0 {
+            self.phase = GamePhase.levelClear
+            self.phaseTimer = LEVEL_CLEAR_DURATION
+        }
+    }
+
+    mutating func updateGhost(ghostIndex: Int, dt: Float32) {
+        if self.ghosts[ghostIndex].houseState == GhostHouseState.waiting {
+            stepGhostWaiting(&self.ghosts[ghostIndex], dt)
+            if self.dotsEatenTotal >= self.ghosts[ghostIndex].releaseThreshold {
+                self.ghosts[ghostIndex].houseState = GhostHouseState.leaving
+                self.ghosts[ghostIndex].leaveWaypoint = 0
+            }
+            return
+        }
+
+        if self.ghosts[ghostIndex].houseState == GhostHouseState.leaving {
+            stepGhostLeaving(&self.ghosts[ghostIndex], dt, GHOST_SPEED)
+            if self.ghosts[ghostIndex].houseState == GhostHouseState.active {
+                self.ghosts[ghostIndex].mode = self.currentNormalGhostMode()
+            }
+            return
+        }
+
+        let personality = self.ghosts[ghostIndex].personality
+        let selfCol = self.ghosts[ghostIndex].col
+        let selfRow = self.ghosts[ghostIndex].row
+        let mode = self.ghosts[ghostIndex].mode
+        let pacmanCol = self.pacman.col
+        let pacmanRow = self.pacman.row
+        let pacmanDirection = self.pacman.direction
+        let blinkyCol = self.ghosts[0].col
+        let blinkyRow = self.ghosts[0].row
+
+        var target = TilePos(col: pacmanCol, row: pacmanRow)
+        var speed = GHOST_SPEED
+        if mode == GhostMode.eaten {
+            target = TilePos(col: DOOR_COL, row: DOOR_ROW)
+            speed = GHOST_EATEN_SPEED
+        } else if mode == GhostMode.frightened {
+            target = TilePos(col: MAZE_COLS - 1 - pacmanCol, row: MAZE_ROWS - 1 - pacmanRow)
+            speed = GHOST_FRIGHTENED_SPEED
+        } else if mode == GhostMode.chase {
+            target = ghostChaseTarget(personality, selfCol, selfRow, pacmanCol, pacmanRow, pacmanDirection, blinkyCol, blinkyRow)
+        } else {
+            target = ghostScatterTarget(personality)
+        }
+
+        if selfRow == TUNNEL_ROW {
+            speed = GHOST_TUNNEL_SPEED
+        }
+
+        stepGhostActive(&self.ghosts[ghostIndex], dt, target, speed)
+
+        if mode == GhostMode.eaten && ghostAtHouse(&self.ghosts[ghostIndex]) {
+            self.ghosts[ghostIndex].houseState = GhostHouseState.waiting
+            self.ghosts[ghostIndex].col = HOUSE_HOME_COL
+            self.ghosts[ghostIndex].row = HOUSE_HOME_ROW
+            self.ghosts[ghostIndex].moveProgress = 0.0
+            self.ghosts[ghostIndex].leaveWaypoint = 0
+            self.ghosts[ghostIndex].mode = GhostMode.scatter
+        }
+    }
+
+    mutating func checkCollisions() {
+        for ghostIndex in 0..4 {
+            if self.ghosts[ghostIndex].houseState != GhostHouseState.active {
+                continue
+            }
+            if self.ghosts[ghostIndex].col != self.pacman.col || self.ghosts[ghostIndex].row != self.pacman.row {
+                continue
+            }
+
+            if self.ghosts[ghostIndex].mode == GhostMode.frightened {
+                self.score = self.score + GHOST_EATEN_SCORES[self.eatenCombo]
+                if self.eatenCombo < 3 {
+                    self.eatenCombo = self.eatenCombo + 1
+                }
+                self.checkExtraLife()
+                self.ghosts[ghostIndex].mode = GhostMode.eaten
+            } else if self.ghosts[ghostIndex].mode != GhostMode.eaten {
+                self.phase = GamePhase.pacmanDying
+                self.phaseTimer = DEATH_DURATION
+                self.lives = self.lives - 1
+                if self.lives < 0 {
+                    self.lives = 0
+                }
+                return
+            }
+        }
+    }
+
+    mutating func update(edge: InputEdge, dt: Float32) {
+        if edge.pause && (self.phase == GamePhase.playing || self.paused) {
+            self.paused = !self.paused
+        }
+
+        if self.phase == GamePhase.gameOver {
+            if edge.restart {
+                self.reset()
+            }
+            return
+        }
+
+        if self.paused {
+            return
+        }
+
+        if self.phase == GamePhase.ready {
+            self.phaseTimer = self.phaseTimer - dt
+            if self.phaseTimer <= 0.0 {
+                self.phase = GamePhase.playing
+            }
+            return
+        }
+
+        if self.phase == GamePhase.pacmanDying {
+            self.phaseTimer = self.phaseTimer - dt
+            if self.phaseTimer <= 0.0 {
+                if self.lives <= 0 {
+                    if self.score > self.highScore {
+                        self.highScore = self.score
+                    }
+                    self.phase = GamePhase.gameOver
+                } else {
+                    self.respawnActors()
+                    self.phase = GamePhase.ready
+                    self.phaseTimer = READY_DURATION
+                }
+            }
+            return
+        }
+
+        if self.phase == GamePhase.levelClear {
+            self.phaseTimer = self.phaseTimer - dt
+            if self.phaseTimer <= 0.0 {
+                self.startNextLevel()
+            }
+            return
+        }
+
+        // playing
+        if edge.turnUp {
+            self.pacman.pendingDirection = Direction.up
+        } else if edge.turnRight {
+            self.pacman.pendingDirection = Direction.right
+        } else if edge.turnDown {
+            self.pacman.pendingDirection = Direction.down
+        } else if edge.turnLeft {
+            self.pacman.pendingDirection = Direction.left
+        }
+
+        stepPacMan(&self.pacman, dt, PACMAN_SPEED)
+        self.eatDotUnderPacMan()
+        if self.phase != GamePhase.playing {
+            return
+        }
+
+        if self.frightenedTimer > 0.0 {
+            self.frightenedTimer = self.frightenedTimer - dt
+            if self.frightenedTimer <= 0.0 {
+                self.endFrightened()
+            }
+        } else {
+            self.modeTimer = self.modeTimer - dt
+            if self.modeTimer <= 0.0 {
+                self.advanceModeIndex()
+            }
+        }
+
+        for ghostIndex in 0..4 {
+            self.updateGhost(ghostIndex, dt)
+        }
+
+        if self.score > self.highScore {
+            self.highScore = self.score
+        }
+
+        self.checkCollisions()
+    }
+}
+
+func countRemainingDots(dots: &[UInt8, MAZE_CELLS]) -> Int {
+    var count = 0
+    for i in 0..MAZE_CELLS {
+        if dots[i] != DOT_NONE {
+            count = count + 1
+        }
+    }
+
+    return count
+}
+
+func makeGame() -> Game {
+    var game = Game(
+        pacman: makePacMan(PACMAN_START_COL, PACMAN_START_ROW),
+        ghosts: [
+            makeGhost(GhostPersonality.blinky, 0),
+            makeGhost(GhostPersonality.pinky, 0),
+            makeGhost(GhostPersonality.inky, 30),
+            makeGhost(GhostPersonality.clyde, 60),
+        ],
+        dots: MAZE_DOTS,
+        dotsRemaining: 0,
+        dotsEatenTotal: 0,
+        score: 0,
+        highScore: 0,
+        lives: 3,
+        level: 1,
+        phase: GamePhase.ready,
+        phaseTimer: READY_DURATION,
+        modeIndex: 0,
+        modeTimer: MODE_DURATION[0],
+        frightenedTimer: 0.0,
+        eatenCombo: 0,
+        extraLifeAwarded: false,
+        paused: false)
+    game.reset()
+    return game
+}

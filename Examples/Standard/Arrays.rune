@@ -1,0 +1,9 @@
+import Standard.*
+
+func main() -> Int {
+    let numbers: Array<Int> = [10, 20, 30, 40, 50]
+    for value in numbers {
+        Console.printLine("${value}")
+    }
+    return 0
+}

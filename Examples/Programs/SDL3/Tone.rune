@@ -1,0 +1,115 @@
+// Minimal SDL3 audio demo: generates a sine tone in memory and plays it via the stream push API.
+
+import Standard.*
+import SDL3
+
+const sampleRate: Int32 = 11025
+const toneSeconds: Int32 = 2
+const toneFrequency: Float32 = 440.0
+const amplitude: Float32 = 10000.0
+const sampleCount: Int32 = sampleRate * toneSeconds
+const chunkSize: Int32 = 4096
+const tau: Float32 = 6.2831855
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.audio) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_Init failed")
+        } else {
+            Console.printLine("SDL_Init failed: ${message!}")
+        }
+
+        return 1
+    }
+    defer SDL3.quit()
+
+    var spec = SDL3.AudioSpec(
+        format: SDL3.AudioFormat.s16,
+        channels: 1,
+        freq: sampleRate
+    )
+
+    let device = SDL3.openAudioDevice(SDL3.defaultPlaybackDevice, &spec)
+    if device == 0 {
+        Console.printLine("SDL_OpenAudioDevice failed: ${SDL3.getError()!}")
+        return 1
+    }
+    defer SDL3.closeAudioDevice(device)
+
+    let stream = SDL3.createAudioStream(&spec, &spec)
+    if stream == nil {
+        Console.printLine("SDL_CreateAudioStream failed: ${SDL3.getError()!}")
+        return 1
+    }
+    defer SDL3.destroyAudioStream(stream)
+
+    if !SDL3.bindAudioStream(device, stream) {
+        Console.printLine("SDL_BindAudioStream failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    var samples: [Int16, 4096] = []
+
+    var phase: Float32 = 0.0
+    var phaseStep: Float32 = tau * toneFrequency / Float32(sampleRate)
+    const fadeSamples: Int32 = sampleRate / 50 // 20 ms fade in/out
+
+    var startTime: UInt64 = 0
+    var playbackStarted: Bool = false
+    var sampleWriteIndex: Int32 = 0
+    while sampleWriteIndex < sampleCount {
+        let remaining = sampleCount - sampleWriteIndex
+        let count = remaining < chunkSize ? remaining : chunkSize
+
+        for chunkIndex in 0..count {
+            let sampleIndex = sampleWriteIndex + chunkIndex
+            var gain: Float32 = 1.0
+
+            if sampleIndex < fadeSamples {
+                gain = Float32(sampleIndex) / Float32(fadeSamples)
+            } else if sampleIndex >= sampleCount - fadeSamples {
+                gain = Float32(sampleCount - sampleIndex) / Float32(fadeSamples)
+            }
+
+            let sample = amplitude * gain * Math.sin(phase)
+            samples[Int(chunkIndex)] = Int16(sample)
+            phase = phase + phaseStep
+            if phase >= tau {
+                phase = phase - tau
+            }
+        }
+
+        let byteLength: Int32 = Int32(count * 2)
+        if !SDL3.putAudioStreamData(stream, samples.bytes, byteLength) {
+            Console.printLine("SDL_PutAudioStreamData failed: ${SDL3.getError()!}")
+            return 1
+        }
+
+        if !playbackStarted {
+            startTime = SDL3.getTicks()
+            if !SDL3.resumeAudioDevice(device) {
+                Console.printLine("SDL_ResumeAudioDevice failed: ${SDL3.getError()!}")
+                return 1
+            }
+            Console.printLine("Playing ${toneSeconds}s tone at ${toneFrequency} Hz...")
+            playbackStarted = true
+        }
+
+        sampleWriteIndex = sampleWriteIndex + count
+    }
+
+    if !SDL3.flushAudioStream(stream) {
+        Console.printLine("SDL_FlushAudioStream failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    let durationMs: UInt64 = UInt64(toneSeconds * 1000)
+    var elapsed = SDL3.getTicks() - startTime
+    while elapsed < durationMs {
+        SDL3.delay(10)
+        elapsed = SDL3.getTicks() - startTime
+    }
+
+    return 0
+}

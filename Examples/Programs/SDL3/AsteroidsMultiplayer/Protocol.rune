@@ -1,0 +1,167 @@
+import Standard.*
+
+func encodeInput(input: InputState) -> String {
+    return "I " +
+        boolBit(value: input.rotateLeft) + " " +
+        boolBit(value: input.rotateRight) + " " +
+        boolBit(value: input.thrust) + " " +
+        boolBit(value: input.fire) + " " +
+        boolBit(value: input.hyperspace) + "\n"
+}
+
+func decodeInput(line: String) -> InputState {
+    let parts = line.split(separator: " ")
+    var input = emptyInput()
+    if parts.count < 6 || parts[0] != "I" {
+        return input
+    }
+
+    input.rotateLeft = parseBoolBit(value: parts[1])
+    input.rotateRight = parseBoolBit(value: parts[2])
+    input.thrust = parseBoolBit(value: parts[3])
+    input.fire = parseBoolBit(value: parts[4])
+    input.hyperspace = parseBoolBit(value: parts[5])
+    return input
+}
+
+func encodeWelcome(id: Int32) -> String {
+    return "W ${id}\n"
+}
+
+func decodeWelcome(line: String) -> Int32 {
+    let parts = line.split(separator: " ")
+    if parts.count < 2 || parts[0] != "W" {
+        return 0
+    }
+    return Int32(Int(value: parts[1]))
+}
+
+func appendShipSnapshot(text: String, player: Player) -> String {
+    return text +
+        "P ${player.id} ${player.ship.x} ${player.ship.y} ${player.ship.angle} " +
+        "${boolBit(value: player.ship.alive)} ${boolBit(value: player.ship.thrusting)} " +
+        "${player.score} ${player.lives} ${player.ship.invuln}\n"
+}
+
+func appendBulletSnapshot(text: String, bullet: NetworkBullet) -> String {
+    return text +
+        "B ${bullet.ownerId} ${bullet.x} ${bullet.y}\n"
+}
+
+func appendAsteroidSnapshot(text: String, asteroid: Asteroid) -> String {
+    var line = text +
+        "A ${asteroid.x} ${asteroid.y} ${asteroid.angle} ${asteroid.tier} ${asteroid.vertexCount}"
+    for radiusIndex in 0..asteroid.vertexCount {
+        line = line + " ${asteroid.radii[Int(radiusIndex)]}"
+    }
+    return line + "\n"
+}
+
+func encodeSnapshot(world: NetworkWorld) -> String {
+    var text = "S ${world.tick} ${world.wave} ${world.roundResetTimer} ${world.roundWinnerId}\n"
+    for playerIndex in 0..world.players.count {
+        let player = world.players[playerIndex]
+        if player.active {
+            text = appendShipSnapshot(text: text, player: player)
+        }
+    }
+    for bulletIndex in 0..world.bullets.count {
+        let bullet = world.bullets[bulletIndex]
+        if bullet.active {
+            text = appendBulletSnapshot(text: text, bullet: bullet)
+        }
+    }
+    for asteroidIndex in 0..world.asteroids.count {
+        let asteroid = world.asteroids[asteroidIndex]
+        if asteroid.alive {
+            text = appendAsteroidSnapshot(text: text, asteroid: asteroid)
+        }
+    }
+    return text + "E\n"
+}
+
+func clearSnapshot(world: &NetworkWorld) {
+    world.players = []
+    world.bullets = []
+    world.asteroids = []
+}
+
+func decodeSnapshotLine(world: &NetworkWorld, line: String) -> Bool {
+    let parts = line.split(separator: " ")
+    if parts.count == 0 {
+        return false
+    }
+
+    if parts[0] == "S" {
+        clearSnapshot(world: world)
+        if parts.count >= 3 {
+            world.tick = Int32(Int(value: parts[1]))
+            world.wave = Int32(Int(value: parts[2]))
+        }
+        if parts.count >= 5 {
+            world.roundResetTimer = Float32(value: parts[3])
+            world.roundWinnerId = Int32(Int(value: parts[4]))
+        } else {
+            world.roundResetTimer = 0.0
+            world.roundWinnerId = -1
+        }
+        return false
+    }
+
+    if parts[0] == "P" && parts.count >= 10 {
+        world.players.append(Player(
+            id: Int32(Int(value: parts[1])),
+            ship: Ship(
+                x: Float32(value: parts[2]),
+                y: Float32(value: parts[3]),
+                vx: 0.0,
+                vy: 0.0,
+                angle: Float32(value: parts[4]),
+                alive: parseBoolBit(value: parts[5]),
+                invuln: Float32(value: parts[9]),
+                fireTimer: 0.0,
+                hyperspaceTimer: 0.0,
+                thrusting: parseBoolBit(value: parts[6])),
+            input: emptyInput(),
+            active: true,
+            score: Int32(Int(value: parts[7])),
+            lives: Int32(Int(value: parts[8]))))
+        return false
+    }
+
+    if parts[0] == "B" && parts.count >= 4 {
+        world.bullets.append(NetworkBullet(
+            ownerId: Int32(Int(value: parts[1])),
+            x: Float32(value: parts[2]),
+            y: Float32(value: parts[3]),
+            vx: 0.0,
+            vy: 0.0,
+            life: 1.0,
+            active: true))
+        return false
+    }
+
+    if parts[0] == "A" && parts.count >= 6 {
+        let vertexCount = Int32(Int(value: parts[5]))
+        var asteroid = Asteroid(
+            x: Float32(value: parts[1]),
+            y: Float32(value: parts[2]),
+            vx: 0.0,
+            vy: 0.0,
+            angle: Float32(value: parts[3]),
+            spin: 0.0,
+            tier: Int32(Int(value: parts[4])),
+            alive: true,
+            vertexCount: vertexCount,
+            radii: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        var radiusIndex: Int32 = 0
+        while radiusIndex < vertexCount && Int(radiusIndex) + 6 < parts.count {
+            asteroid.radii[Int(radiusIndex)] = Float32(value: parts[Int(radiusIndex) + 6])
+            radiusIndex = radiusIndex + 1
+        }
+        world.asteroids.append(asteroid)
+        return false
+    }
+
+    return parts[0] == "E"
+}

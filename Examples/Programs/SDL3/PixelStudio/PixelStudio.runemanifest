@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "name": "PixelStudio",
+  "kind": "executable",
+  "sources": [
+    "Model.rune",
+    "Render.rune",
+    "Main.rune"
+  ],
+  "dependencies": [
+    "../../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../../Modules/SDL3/SDL3.runemanifest"
+  ]
+}

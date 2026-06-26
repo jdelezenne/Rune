@@ -1,0 +1,29 @@
+import Standard.*
+
+const LEVEL_COUNT: Int = 90
+
+/// Zero-padded resource index used only by the on-disk LevelNNN convention.
+func levelResourceNumber(level: Int) -> String {
+    if level < 10 {
+        return "00${level}"
+    }
+    if level < 100 {
+        return "0${level}"
+    }
+    return "${level}"
+}
+
+func levelFilename(level: Int) -> String {
+    return "Level${levelResourceNumber(level)}"
+}
+
+func levelPath(level: Int) -> Storage.Path {
+    return Application.resourcesDirectory / Storage.Path("Levels") / Storage.Path(levelFilename(level))
+}
+
+func levelSource(level: Int) throws(Storage.StorageError) -> String {
+    var file = try Storage.File.openAt(
+        path: levelPath(level),
+        flags: Storage.FileOpenFlags.reading())
+    return try file.readToString()
+}

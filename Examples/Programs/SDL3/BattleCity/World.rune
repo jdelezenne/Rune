@@ -1,0 +1,877 @@
+// World: the Game state machine - the eroding battlefield, the enemy
+// spawner working through the stage's reserve of twenty tanks, the enemy
+// patrol-and-hunt AI, bullet resolution against bricks / steel / tanks /
+// the eagle, the six pick-up effects, scoring and the stage tour. Losing
+// the eagle or the last tank ends the run; clearing the reserve advances
+// to the next stage.
+
+import Standard.*
+
+// MARK: - Tuning
+
+const START_LIVES: Int = 3
+const EXTRA_LIFE_SCORE: Int32 = 20000
+
+const HELMET_DURATION: Float32 = 10.0
+const SHOVEL_DURATION: Float32 = 15.0
+const FREEZE_DURATION: Float32 = 8.0
+
+const READY_DURATION: Float32 = 2.0
+const CLEAR_DURATION: Float32 = 3.0
+const BASE_LOSS_LINGER: Float32 = 2.0
+
+const SPAWN_RETRY_DELAY: Float32 = 0.5
+
+// Reserve positions (0-based) whose tanks flash and drop a pick-up.
+func reserveCarriesPowerUp(spawned: Int) -> Bool {
+    return spawned == 3 || spawned == 10 || spawned == 17
+}
+
+// MARK: - Phases
+
+const PHASE_READY: Int32 = 0
+const PHASE_PLAYING: Int32 = 1
+const PHASE_CLEAR: Int32 = 2
+const PHASE_GAME_OVER: Int32 = 3
+
+// MARK: - Input for one frame
+
+struct InputEdge {
+    var up: Bool
+    var down: Bool
+    var left: Bool
+    var right: Bool
+    var fire: Bool
+    var pause: Bool
+    var restart: Bool
+    var quit: Bool
+}
+
+func makeInputEdge() -> InputEdge {
+    return InputEdge(
+        up: false,
+        down: false,
+        left: false,
+        right: false,
+        fire: false,
+        pause: false,
+        restart: false,
+        quit: false)
+}
+
+// MARK: - Game
+
+struct Game {
+    var tiles: [UInt8, GRID_CELLS]
+    var quarters: [UInt8, GRID_CELLS]
+    var player: PlayerTank
+    var enemies: [EnemyTank, MAX_ENEMIES]
+    var bullets: [Bullet, MAX_BULLETS]
+    var powerUp: PowerUp
+    var effects: [Effect, MAX_EFFECTS]
+    var rng: Rng
+    var stage: Int
+    var round: Int
+    var lives: Int
+    var score: Int32
+    var highScore: Int32
+    var extraLifeAwarded: Bool
+    var reserve: Int
+    var spawned: Int
+    var spawnTimer: Float32
+    var spawnPoint: Int
+    var shovelTimer: Float32
+    var freezeTimer: Float32
+    var baseAlive: Bool
+    var baseLossTimer: Float32
+    var phase: Int32
+    var phaseTimer: Float32
+    var animTimer: Float32
+    var paused: Bool
+
+    // MARK: - Stage loading
+
+    mutating func loadStage() {
+        for index in 0..GRID_CELLS {
+            let tile = stageTile(self.stage, index)
+            self.tiles[index] = tile
+            self.quarters[index] = tile == TILE_BRICK ? QUARTER_ALL : 0
+        }
+        self.stampBaseRing(TILE_BRICK)
+
+        self.player = makePlayerTank()
+        for slot in 0..MAX_ENEMIES {
+            self.enemies[slot] = makeEnemyTank()
+        }
+        for index in 0..MAX_BULLETS {
+            self.bullets[index] = makeBullet()
+        }
+        for index in 0..MAX_EFFECTS {
+            self.effects[index] = makeEffect()
+        }
+        self.powerUp = makePowerUp()
+        self.reserve = STAGE_RESERVE
+        self.spawned = 0
+        self.spawnTimer = 0.6
+        self.spawnPoint = 0
+        self.shovelTimer = 0.0
+        self.freezeTimer = 0.0
+        self.baseAlive = true
+        self.baseLossTimer = 0.0
+        self.phase = PHASE_READY
+        self.phaseTimer = READY_DURATION
+    }
+
+    mutating func fullReset() {
+        self.stage = 0
+        self.round = 0
+        self.lives = START_LIVES
+        self.score = 0
+        self.extraLifeAwarded = false
+        self.paused = false
+        self.loadStage()
+    }
+
+    mutating func stampBaseRing(tile: UInt8) {
+        for ring in 0..BASE_RING_COUNT {
+            let index = cellIndex(BASE_RING_COLS[ring], BASE_RING_ROWS[ring])
+            self.tiles[index] = tile
+            self.quarters[index] = tile == TILE_BRICK ? QUARTER_ALL : 0
+        }
+    }
+
+    // MARK: - Terrain queries
+
+    func tankBlockedByCell(col: Int, row: Int) -> Bool {
+        if col < 0 || col >= GRID || row < 0 || row >= GRID {
+            return true
+        }
+        if col == BASE_COL && row == BASE_ROW {
+            return true
+        }
+        let index = cellIndex(col, row)
+        let tile = self.tiles[index]
+        if tile == TILE_BRICK {
+            return self.quarters[index] != 0
+        }
+        return tile == TILE_STEEL || tile == TILE_WATER
+    }
+
+    // Would a tank body centred at (x, y) overlap a wall, the water, the
+    // eagle or the arena edge?
+    func tankBlockedByTerrain(x: Float32, y: Float32) -> Bool {
+        let margin: Float32 = TANK_HALF - 1.0
+        if x - margin < FIELD_X || x + margin > FIELD_X + FIELD_W {
+            return true
+        }
+        if y - margin < FIELD_Y || y + margin > FIELD_Y + FIELD_H {
+            return true
+        }
+        let colLo = colAtX(x - margin)
+        let colHi = colAtX(x + margin)
+        let rowLo = rowAtY(y - margin)
+        let rowHi = rowAtY(y + margin)
+        for row in rowLo..rowHi + 1 {
+            for col in colLo..colHi + 1 {
+                if self.tankBlockedByCell(col, row) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    func tanksOverlap(x0: Float32, y0: Float32, x1: Float32, y1: Float32) -> Bool {
+        let gap: Float32 = TANK_HALF * 2.0 - 2.0
+        return Math.abs(x0 - x1) < gap && Math.abs(y0 - y1) < gap
+    }
+
+    // Full movement test for one tank. `selfSlot` is the enemy slot moving,
+    // or -1 for the player.
+    func tankBlocked(x: Float32, y: Float32, selfSlot: Int) -> Bool {
+        if self.tankBlockedByTerrain(x, y) {
+            return true
+        }
+        if selfSlot >= 0 && self.player.alive {
+            if self.tanksOverlap(x, y, self.player.x, self.player.y) {
+                return true
+            }
+        }
+        for slot in 0..MAX_ENEMIES {
+            if slot == selfSlot || self.enemies[slot].state != ENEMY_STATE_ACTIVE {
+                continue
+            }
+            if self.tanksOverlap(x, y, self.enemies[slot].x, self.enemies[slot].y) {
+                return true
+            }
+        }
+        return false
+    }
+
+    // MARK: - Firing
+
+    func playerBulletsInFlight() -> Int {
+        var count = 0
+        for index in 0..MAX_BULLETS {
+            if self.bullets[index].active && self.bullets[index].fromPlayer {
+                count = count + 1
+            }
+        }
+        return count
+    }
+
+    func enemyBulletInFlight(slot: Int) -> Bool {
+        for index in 0..MAX_BULLETS {
+            if self.bullets[index].active && !self.bullets[index].fromPlayer && self.bullets[index].owner == slot {
+                return true
+            }
+        }
+        return false
+    }
+
+    mutating func spawnBullet(fromPlayer: Bool, owner: Int, x: Float32, y: Float32, dir: Int32, speed: Float32, breachesSteel: Bool) {
+        for index in 0..MAX_BULLETS {
+            if self.bullets[index].active {
+                continue
+            }
+            self.bullets[index] = Bullet(
+                active: true,
+                fromPlayer: fromPlayer,
+                owner: owner,
+                x: x,
+                y: y,
+                dir: dir,
+                speed: speed,
+                breachesSteel: breachesSteel)
+            return
+        }
+    }
+
+    mutating func firePlayer() {
+        if !self.player.alive {
+            return
+        }
+        if self.playerBulletsInFlight() >= playerBulletLimit(self.player.starLevel) {
+            return
+        }
+        self.spawnBullet(
+            true,
+            -1,
+            muzzleX(self.player.x, self.player.dir),
+            muzzleY(self.player.y, self.player.dir),
+            self.player.dir,
+            playerBulletSpeed(self.player.starLevel),
+            self.player.starLevel >= MAX_STAR_LEVEL)
+    }
+
+    mutating func fireEnemy(slot: Int) {
+        if self.enemyBulletInFlight(slot) {
+            return
+        }
+        let kind = self.enemies[slot].kind
+        self.spawnBullet(
+            false,
+            slot,
+            muzzleX(self.enemies[slot].x, self.enemies[slot].dir),
+            muzzleY(self.enemies[slot].y, self.enemies[slot].dir),
+            self.enemies[slot].dir,
+            enemyBulletSpeed(kind),
+            false)
+    }
+
+    // MARK: - Effects and scoring
+
+    mutating func addEffect(x: Float32, y: Float32, big: Bool, score: Int32) {
+        for index in 0..MAX_EFFECTS {
+            if self.effects[index].active {
+                continue
+            }
+            let duration: Float32 = big ? BIG_BOOM_DURATION : SMALL_BOOM_DURATION
+            self.effects[index] = Effect(
+                active: true,
+                big: big,
+                x: x,
+                y: y,
+                timer: score > 0 ? 0.9 : duration,
+                duration: score > 0 ? 0.9 : duration,
+                score: score)
+            return
+        }
+    }
+
+    mutating func addScore(points: Int32) {
+        self.score = self.score + points
+        if self.score > self.highScore {
+            self.highScore = self.score
+        }
+        if !self.extraLifeAwarded && self.score >= EXTRA_LIFE_SCORE {
+            self.extraLifeAwarded = true
+            self.lives = self.lives + 1
+        }
+    }
+
+    // MARK: - Enemy spawner
+
+    // Tougher classes take a bigger share of the reserve as the tour
+    // progresses.
+    mutating func pickEnemyKind() -> Int32 {
+        let tier = self.stage + self.round * STAGE_COUNT
+        let roll = randInt(&self.rng, 100)
+        let armorShare = Math.min(10 + tier * 4, 30)
+        let powerShare = Math.min(15 + tier * 3, 30)
+        let lightShare = 25
+        if roll < armorShare {
+            return ENEMY_ARMOR
+        }
+        if roll < armorShare + powerShare {
+            return ENEMY_POWER
+        }
+        if roll < armorShare + powerShare + lightShare {
+            return ENEMY_LIGHT
+        }
+        return ENEMY_BASIC
+    }
+
+    func fieldedEnemies() -> Int {
+        var count = 0
+        for slot in 0..MAX_ENEMIES {
+            if self.enemies[slot].state != ENEMY_STATE_OFF {
+                count = count + 1
+            }
+        }
+        return count
+    }
+
+    mutating func stepSpawner(dt: Float32) {
+        if self.reserve <= 0 || self.fieldedEnemies() >= MAX_ENEMIES {
+            return
+        }
+        self.spawnTimer = self.spawnTimer - dt
+        if self.spawnTimer > 0.0 {
+            return
+        }
+
+        let col = ENEMY_SPAWN_COLS[self.spawnPoint]
+        self.spawnPoint = (self.spawnPoint + 1) % 3
+        let x = cellCenterX(col)
+        let y = cellCenterY(0)
+
+        // Hold the drop while another tank sits on the pad.
+        if self.player.alive && self.tanksOverlap(x, y, self.player.x, self.player.y) {
+            self.spawnTimer = SPAWN_RETRY_DELAY
+            return
+        }
+        for slot in 0..MAX_ENEMIES {
+            if self.enemies[slot].state == ENEMY_STATE_ACTIVE &&
+                self.tanksOverlap(x, y, self.enemies[slot].x, self.enemies[slot].y) {
+                self.spawnTimer = SPAWN_RETRY_DELAY
+                return
+            }
+        }
+
+        for slot in 0..MAX_ENEMIES {
+            if self.enemies[slot].state != ENEMY_STATE_OFF {
+                continue
+            }
+            var enemy = makeEnemyTank()
+            enemy.state = ENEMY_STATE_SPAWNING
+            enemy.kind = self.pickEnemyKind()
+            enemy.x = x
+            enemy.y = y
+            enemy.dir = DIR_DOWN
+            enemy.hp = enemyHitPoints(enemy.kind)
+            enemy.carriesPowerUp = reserveCarriesPowerUp(self.spawned)
+            enemy.spawnTimer = SPAWN_STAR_DURATION
+            enemy.moveTimer = 0.0
+            enemy.fireTimer = randRange(&self.rng, 0.8, 1.8)
+            self.enemies[slot] = enemy
+            self.reserve = self.reserve - 1
+            self.spawned = self.spawned + 1
+            let tier = Float32(self.stage + self.round * STAGE_COUNT)
+            let interval: Float32 = 2.6 - tier * 0.15
+            self.spawnTimer = Math.max(interval, 1.2)
+            return
+        }
+    }
+
+    // MARK: - Enemy AI
+
+    // Pick a fresh heading: mostly hunt the base, sometimes wander.
+    mutating func chooseEnemyDir(slot: Int) -> Int32 {
+        let roll = randInt(&self.rng, 100)
+        if roll < 40 {
+            let dx = cellCenterX(BASE_COL) - self.enemies[slot].x
+            let dy = cellCenterY(BASE_ROW) - self.enemies[slot].y
+            if Math.abs(dx) > Math.abs(dy) {
+                return dx > 0.0 ? DIR_RIGHT : DIR_LEFT
+            }
+            return dy > 0.0 ? DIR_DOWN : DIR_UP
+        }
+        if roll < 65 {
+            return self.enemies[slot].dir
+        }
+        return Int32(randInt(&self.rng, 4))
+    }
+
+    mutating func turnEnemy(slot: Int, dir: Int32) {
+        var x = self.enemies[slot].x
+        var y = self.enemies[slot].y
+        snapForTurn(&x, &y, self.enemies[slot].dir, dir)
+        self.enemies[slot].x = x
+        self.enemies[slot].y = y
+        self.enemies[slot].dir = dir
+        self.enemies[slot].moveTimer = randRange(&self.rng, 0.8, 2.4)
+    }
+
+    mutating func stepEnemies(dt: Float32) {
+        let frozen = self.freezeTimer > 0.0
+        for slot in 0..MAX_ENEMIES {
+            if self.enemies[slot].state == ENEMY_STATE_SPAWNING {
+                self.enemies[slot].spawnTimer = self.enemies[slot].spawnTimer - dt
+                if self.enemies[slot].spawnTimer <= 0.0 {
+                    self.enemies[slot].state = ENEMY_STATE_ACTIVE
+                }
+                continue
+            }
+            if self.enemies[slot].state != ENEMY_STATE_ACTIVE || frozen {
+                continue
+            }
+
+            let speed = enemySpeed(self.enemies[slot].kind)
+            let dir = Int(self.enemies[slot].dir)
+            let nx = self.enemies[slot].x + DIR_DX[dir] * speed * dt
+            let ny = self.enemies[slot].y + DIR_DY[dir] * speed * dt
+
+            self.enemies[slot].moveTimer = self.enemies[slot].moveTimer - dt
+            if self.tankBlocked(nx, ny, slot) || self.enemies[slot].moveTimer <= 0.0 {
+                let newDir = self.chooseEnemyDir(slot)
+                self.turnEnemy(slot, newDir)
+            } else {
+                self.enemies[slot].x = nx
+                self.enemies[slot].y = ny
+                self.enemies[slot].trackPhase = self.enemies[slot].trackPhase + speed * dt
+            }
+
+            self.enemies[slot].fireTimer = self.enemies[slot].fireTimer - dt
+            if self.enemies[slot].fireTimer <= 0.0 {
+                self.fireEnemy(slot)
+                self.enemies[slot].fireTimer = randRange(&self.rng, 0.7, 2.0)
+            }
+        }
+    }
+
+    // MARK: - Player control
+
+    mutating func steerPlayer(edge: InputEdge, dt: Float32) {
+        if !self.player.alive {
+            return
+        }
+
+        var wantsDir: Int32 = -1
+        // Keep the current heading while its key stays down, otherwise take
+        // the first pressed direction.
+        let currentHeld =
+            (self.player.dir == DIR_UP && edge.up) ||
+            (self.player.dir == DIR_RIGHT && edge.right) ||
+            (self.player.dir == DIR_DOWN && edge.down) ||
+            (self.player.dir == DIR_LEFT && edge.left)
+        if currentHeld {
+            wantsDir = self.player.dir
+        } else if edge.up {
+            wantsDir = DIR_UP
+        } else if edge.right {
+            wantsDir = DIR_RIGHT
+        } else if edge.down {
+            wantsDir = DIR_DOWN
+        } else if edge.left {
+            wantsDir = DIR_LEFT
+        }
+
+        self.player.moving = wantsDir >= 0
+        if wantsDir < 0 {
+            return
+        }
+
+        if wantsDir != self.player.dir {
+            var x = self.player.x
+            var y = self.player.y
+            snapForTurn(&x, &y, self.player.dir, wantsDir)
+            self.player.x = x
+            self.player.y = y
+            self.player.dir = wantsDir
+        }
+
+        let dir = Int(self.player.dir)
+        let nx = self.player.x + DIR_DX[dir] * PLAYER_SPEED * dt
+        let ny = self.player.y + DIR_DY[dir] * PLAYER_SPEED * dt
+        if !self.tankBlocked(nx, ny, -1) {
+            self.player.x = nx
+            self.player.y = ny
+            self.player.trackPhase = self.player.trackPhase + PLAYER_SPEED * dt
+        }
+    }
+
+    // MARK: - Deaths
+
+    mutating func killPlayer() {
+        self.addEffect(self.player.x, self.player.y, true, 0)
+        self.lives = self.lives - 1
+        if self.lives <= 0 {
+            self.player.alive = false
+            self.phase = PHASE_GAME_OVER
+            return
+        }
+        self.player = makePlayerTank()
+    }
+
+    mutating func destroyEnemy(slot: Int, awardScore: Bool) {
+        let x = self.enemies[slot].x
+        let y = self.enemies[slot].y
+        let points = enemyScore(self.enemies[slot].kind)
+        self.addEffect(x, y, true, 0)
+        if awardScore {
+            self.addEffect(x, y, false, points)
+            self.addScore(points)
+        }
+        if self.enemies[slot].carriesPowerUp && awardScore {
+            self.dropPowerUp()
+        }
+        self.enemies[slot] = makeEnemyTank()
+    }
+
+    mutating func destroyBase() {
+        self.baseAlive = false
+        self.addEffect(cellCenterX(BASE_COL), cellCenterY(BASE_ROW), true, 0)
+        self.baseLossTimer = BASE_LOSS_LINGER
+    }
+
+    // MARK: - Power-ups
+
+    mutating func dropPowerUp() {
+        // Find a landing cell that is not water, steel or the fortress.
+        for attempt in 0..12 {
+            let col = randInt(&self.rng, GRID)
+            let row = randInt(&self.rng, GRID - 2)
+            let tile = self.tiles[cellIndex(col, row)]
+            if tile == TILE_WATER || tile == TILE_STEEL {
+                continue
+            }
+            self.powerUp = PowerUp(
+                active: true,
+                kind: Int32(randInt(&self.rng, POWERUP_KINDS)),
+                x: cellCenterX(col),
+                y: cellCenterY(row))
+            return
+        }
+    }
+
+    mutating func applyPowerUp() {
+        let kind = self.powerUp.kind
+        self.powerUp.active = false
+        self.addEffect(self.player.x, self.player.y, false, SCORE_POWERUP)
+        self.addScore(SCORE_POWERUP)
+
+        if kind == POWERUP_GRENADE {
+            for slot in 0..MAX_ENEMIES {
+                if self.enemies[slot].state == ENEMY_STATE_ACTIVE {
+                    self.destroyEnemy(slot, false)
+                }
+            }
+        } else if kind == POWERUP_HELMET {
+            self.player.shieldTimer = HELMET_DURATION
+        } else if kind == POWERUP_SHOVEL {
+            self.shovelTimer = SHOVEL_DURATION
+            self.stampBaseRing(TILE_STEEL)
+        } else if kind == POWERUP_STAR {
+            self.player.starLevel = Math.min(self.player.starLevel + 1, MAX_STAR_LEVEL)
+        } else if kind == POWERUP_TANK {
+            self.lives = self.lives + 1
+        } else {
+            self.freezeTimer = FREEZE_DURATION
+        }
+    }
+
+    // MARK: - Bullet resolution
+
+    // Chew through a brick cell from the side the shot came in on; a second
+    // hit (or a steel-breaching shot) clears what is left.
+    mutating func erodeBrick(index: Int, dir: Int32) {
+        var sideMask: UInt8 = QUARTER_BOTTOM
+        if dir == DIR_DOWN {
+            sideMask = QUARTER_TOP
+        } else if dir == DIR_RIGHT {
+            sideMask = QUARTER_LEFT
+        } else if dir == DIR_LEFT {
+            sideMask = QUARTER_RIGHT
+        }
+
+        if (self.quarters[index] & sideMask) != 0 {
+            self.quarters[index] = self.quarters[index] & ~sideMask
+        } else {
+            self.quarters[index] = 0
+        }
+        if self.quarters[index] == 0 {
+            self.tiles[index] = TILE_EMPTY
+        }
+    }
+
+    // Terrain test for one sample point of a bullet's leading edge.
+    // Returns true when the bullet stops.
+    mutating func bulletHitsTerrain(x: Float32, y: Float32, dir: Int32, breachesSteel: Bool) -> Bool {
+        let col = colAtX(x)
+        let row = rowAtY(y)
+        if col < 0 || col >= GRID || row < 0 || row >= GRID {
+            return false
+        }
+        let index = cellIndex(col, row)
+        let tile = self.tiles[index]
+        if tile == TILE_BRICK && self.quarters[index] != 0 {
+            self.erodeBrick(index, dir)
+            return true
+        }
+        if tile == TILE_STEEL {
+            if breachesSteel {
+                self.tiles[index] = TILE_EMPTY
+            }
+            return true
+        }
+        return false
+    }
+
+    mutating func resolveBullet(index: Int) {
+        let dir = Int(self.bullets[index].dir)
+        let bx = self.bullets[index].x
+        let by = self.bullets[index].y
+
+        // Off the field: spark against the surrounding wall.
+        if bx < FIELD_X || bx > FIELD_X + FIELD_W || by < FIELD_Y || by > FIELD_Y + FIELD_H {
+            self.addEffect(
+                Math.clamp(bx, FIELD_X, FIELD_X + FIELD_W),
+                Math.clamp(by, FIELD_Y, FIELD_Y + FIELD_H),
+                false,
+                0)
+            self.bullets[index].active = false
+            return
+        }
+
+        // Terrain, sampled at two points across the shot so the blast chews
+        // a full tank-width channel like the original.
+        let tipX = bx + DIR_DX[dir] * BULLET_HALF
+        let tipY = by + DIR_DY[dir] * BULLET_HALF
+        let acrossX = DIR_DY[dir] * 10.0
+        let acrossY = DIR_DX[dir] * 10.0
+        var stopped = self.bulletHitsTerrain(tipX + acrossX, tipY + acrossY, self.bullets[index].dir, self.bullets[index].breachesSteel)
+        if self.bulletHitsTerrain(tipX - acrossX, tipY - acrossY, self.bullets[index].dir, self.bullets[index].breachesSteel) {
+            stopped = true
+        }
+        if stopped {
+            self.addEffect(bx, by, false, 0)
+            self.bullets[index].active = false
+            return
+        }
+
+        // The eagle.
+        if self.baseAlive &&
+            Math.abs(bx - cellCenterX(BASE_COL)) < CELL * 0.5 + BULLET_HALF &&
+            Math.abs(by - cellCenterY(BASE_ROW)) < CELL * 0.5 + BULLET_HALF {
+            self.bullets[index].active = false
+            self.destroyBase()
+            return
+        }
+
+        // Opposing shots cancel in flight.
+        for other in 0..MAX_BULLETS {
+            if other == index || !self.bullets[other].active {
+                continue
+            }
+            if self.bullets[other].fromPlayer == self.bullets[index].fromPlayer {
+                continue
+            }
+            if Math.abs(self.bullets[other].x - bx) < 10.0 && Math.abs(self.bullets[other].y - by) < 10.0 {
+                self.bullets[other].active = false
+                self.bullets[index].active = false
+                return
+            }
+        }
+
+        if self.bullets[index].fromPlayer {
+            for slot in 0..MAX_ENEMIES {
+                if self.enemies[slot].state != ENEMY_STATE_ACTIVE {
+                    continue
+                }
+                if Math.abs(self.enemies[slot].x - bx) < TANK_HALF + BULLET_HALF &&
+                    Math.abs(self.enemies[slot].y - by) < TANK_HALF + BULLET_HALF {
+                    self.bullets[index].active = false
+                    self.enemies[slot].hp = self.enemies[slot].hp - 1
+                    if self.enemies[slot].hp <= 0 {
+                        self.destroyEnemy(slot, true)
+                    } else {
+                        self.addEffect(bx, by, false, 0)
+                    }
+                    return
+                }
+            }
+            return
+        }
+
+        if self.player.alive &&
+            Math.abs(self.player.x - bx) < TANK_HALF + BULLET_HALF &&
+            Math.abs(self.player.y - by) < TANK_HALF + BULLET_HALF {
+            self.bullets[index].active = false
+            if self.player.shieldTimer > 0.0 {
+                self.addEffect(bx, by, false, 0)
+            } else {
+                self.killPlayer()
+            }
+        }
+    }
+
+    mutating func stepBullets(dt: Float32) {
+        for index in 0..MAX_BULLETS {
+            if !self.bullets[index].active {
+                continue
+            }
+            stepBullet(&self.bullets[index], dt)
+            self.resolveBullet(index)
+        }
+    }
+
+    // MARK: - Timers
+
+    mutating func stepTimers(dt: Float32) {
+        if self.player.shieldTimer > 0.0 {
+            self.player.shieldTimer = Math.max(self.player.shieldTimer - dt, 0.0)
+        }
+        if self.freezeTimer > 0.0 {
+            self.freezeTimer = Math.max(self.freezeTimer - dt, 0.0)
+        }
+        if self.shovelTimer > 0.0 {
+            self.shovelTimer = self.shovelTimer - dt
+            if self.shovelTimer <= 0.0 {
+                self.shovelTimer = 0.0
+                self.stampBaseRing(TILE_BRICK)
+            }
+        }
+    }
+
+    // MARK: - Phase steps
+
+    mutating func stepPlaying(edge: InputEdge, dt: Float32) {
+        self.steerPlayer(edge, dt)
+        if edge.fire {
+            self.firePlayer()
+        }
+
+        self.stepSpawner(dt)
+        self.stepEnemies(dt)
+        self.stepBullets(dt)
+        self.stepTimers(dt)
+        for index in 0..MAX_EFFECTS {
+            stepEffect(&self.effects[index], dt)
+        }
+
+        if self.powerUp.active && self.player.alive &&
+            Math.abs(self.powerUp.x - self.player.x) < TANK_HALF + 14.0 &&
+            Math.abs(self.powerUp.y - self.player.y) < TANK_HALF + 14.0 {
+            self.applyPowerUp()
+        }
+
+        if !self.baseAlive {
+            self.baseLossTimer = self.baseLossTimer - dt
+            if self.baseLossTimer <= 0.0 {
+                self.phase = PHASE_GAME_OVER
+            }
+            return
+        }
+
+        if self.reserve == 0 && self.fieldedEnemies() == 0 {
+            self.phase = PHASE_CLEAR
+            self.phaseTimer = CLEAR_DURATION
+        }
+    }
+
+    mutating func update(edge: InputEdge, dt: Float32) {
+        self.animTimer = self.animTimer + dt
+
+        if edge.pause && (self.phase == PHASE_PLAYING || self.paused) {
+            self.paused = !self.paused
+        }
+
+        if self.phase == PHASE_GAME_OVER {
+            for index in 0..MAX_EFFECTS {
+                stepEffect(&self.effects[index], dt)
+            }
+            if edge.restart {
+                self.fullReset()
+            }
+            return
+        }
+
+        if self.paused {
+            return
+        }
+
+        if self.phase == PHASE_READY {
+            self.phaseTimer = self.phaseTimer - dt
+            if self.phaseTimer <= 0.0 {
+                self.phase = PHASE_PLAYING
+            }
+            return
+        }
+
+        if self.phase == PHASE_CLEAR {
+            for index in 0..MAX_EFFECTS {
+                stepEffect(&self.effects[index], dt)
+            }
+            self.phaseTimer = self.phaseTimer - dt
+            if self.phaseTimer <= 0.0 {
+                self.stage = self.stage + 1
+                if self.stage >= STAGE_COUNT {
+                    self.stage = 0
+                    self.round = self.round + 1
+                }
+                self.loadStage()
+            }
+            return
+        }
+
+        self.stepPlaying(edge, dt)
+    }
+}
+
+func makeGame() -> Game {
+    var tiles: [UInt8, GRID_CELLS] = []
+    var quarters: [UInt8, GRID_CELLS] = []
+    var enemies: [EnemyTank, MAX_ENEMIES] = []
+    var bullets: [Bullet, MAX_BULLETS] = []
+    var effects: [Effect, MAX_EFFECTS] = []
+    var game = Game(
+        tiles: tiles,
+        quarters: quarters,
+        player: makePlayerTank(),
+        enemies: enemies,
+        bullets: bullets,
+        powerUp: makePowerUp(),
+        effects: effects,
+        rng: makeRng(0x1B7D3C5F),
+        stage: 0,
+        round: 0,
+        lives: START_LIVES,
+        score: 0,
+        highScore: 0,
+        extraLifeAwarded: false,
+        reserve: STAGE_RESERVE,
+        spawned: 0,
+        spawnTimer: 0.6,
+        spawnPoint: 0,
+        shovelTimer: 0.0,
+        freezeTimer: 0.0,
+        baseAlive: true,
+        baseLossTimer: 0.0,
+        phase: PHASE_READY,
+        phaseTimer: READY_DURATION,
+        animTimer: 0.0,
+        paused: false)
+    game.fullReset()
+    return game
+}

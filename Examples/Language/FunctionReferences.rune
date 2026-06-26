@@ -1,0 +1,25 @@
+func writeSum(target: &Int, left: Int, right: Int) -> Void {
+    target^ = left + right
+}
+
+func addFromReference(target: &Int, source: *Int, offset: Int) -> Void {
+    target^ = source^ + offset
+}
+
+func scaled(value: *Int, factor: Int) -> Int {
+    return value^ * factor
+}
+
+func main() -> Int {
+    var base = 20
+    var result = 0
+
+    writeSum(&result, 10, 11)
+    addFromReference(&result, *base, 1)
+
+    if scaled(*result, 2) != 42 {
+        return 1
+    }
+
+    return 0
+}

@@ -1,0 +1,535 @@
+// Voxel data model: a fixed-size dense grid of palette-indexed voxels, an
+// orbit camera, editor tool/color state, and the ray-voxel intersection
+// (Amanatides & Woo DDA traversal) used to pick which voxel the mouse is
+// pointing at. Deliberately designed from scratch as a plain grid + DDA
+// raycast rather than reusing VoxelPlanet's infinite-terrain chunk system
+// (Examples/Programs/OpenGL/VoxelPlanet/Model.rune) -- an editor needs
+// exact, stable voxel addressing and a single mesh it can rebuild after
+// every edit, not chunked procedural generation.
+
+import Standard.*
+
+const GRID_SIZE: Int32 = 24
+
+// Const array-size expressions must be evaluable without a runtime type
+// conversion, so this duplicates GRID_SIZE's value as a plain Int literal
+// rather than computing it from GRID_SIZE via Int(GRID_SIZE) -- keep the
+// two in sync if the grid size ever changes.
+const GRID_SIZE_COUNT: Int = 24
+const VOXEL_COUNT: Int = GRID_SIZE_COUNT * GRID_SIZE_COUNT * GRID_SIZE_COUNT
+
+// 0 means empty/air; a solid voxel stores its palette index + 1, so index 0
+// in the palette is still distinguishable from "no voxel here".
+const EMPTY_VOXEL: UInt8 = 0
+
+const PALETTE_COUNT: Int = 12
+// Structs aren't constant-foldable, so this is a global `let` (initialized
+// once at program startup) rather than a `const`.
+let PALETTE: [Vector3, PALETTE_COUNT] = [
+    Vector3(x: 0.85, y: 0.85, z: 0.85), // 0: white
+    Vector3(x: 0.55, y: 0.55, z: 0.58), // 1: stone gray
+    Vector3(x: 0.62, y: 0.42, z: 0.24), // 2: wood brown
+    Vector3(x: 0.29, y: 0.64, z: 0.25), // 3: grass green
+    Vector3(x: 0.16, y: 0.42, z: 0.20), // 4: dark green
+    Vector3(x: 0.85, y: 0.76, z: 0.45), // 5: sand
+    Vector3(x: 0.20, y: 0.45, z: 0.80), // 6: water blue
+    Vector3(x: 0.80, y: 0.20, z: 0.20), // 7: red
+    Vector3(x: 0.90, y: 0.55, z: 0.10), // 8: orange
+    Vector3(x: 0.85, y: 0.80, z: 0.15), // 9: yellow
+    Vector3(x: 0.55, y: 0.20, z: 0.75), // 10: purple
+    Vector3(x: 0.10, y: 0.10, z: 0.12), // 11: near-black
+]
+
+enum Tool: Int32 {
+    place = 0
+    erase = 1
+    paint = 2
+    picker = 3
+    fill = 4
+}
+
+const TOOLBAR_TOOLS: [Tool, 5] = [
+    Tool.place,
+    Tool.erase,
+    Tool.paint,
+    Tool.picker,
+    Tool.fill,
+]
+
+func toolName(tool: Tool) -> String {
+    if tool == Tool.place {
+        return "Place"
+    } else if tool == Tool.erase {
+        return "Erase"
+    } else if tool == Tool.paint {
+        return "Paint"
+    } else if tool == Tool.picker {
+        return "Picker"
+    }
+    return "Fill"
+}
+
+struct OrbitCamera {
+    var yaw: Float32
+    var pitch: Float32
+    var distance: Float32
+    var target: Vector3
+}
+
+func defaultCamera() -> OrbitCamera {
+    let half = Float32(GRID_SIZE) * 0.5
+    return OrbitCamera(
+        yaw: 0.9,
+        // `eye()` subtracts the spherical direction from the target, so a
+        // negative pitch places the camera above the model.  A positive
+        // pitch starts below the floor and makes the editor appear inverted.
+        pitch: -0.55,
+        distance: Float32(GRID_SIZE) * 2.0,
+        target: Vector3(x: half, y: half, z: half))
+}
+
+extension OrbitCamera {
+    func eye() -> Vector3 {
+        let cosPitch = Math.cos(pitch)
+        let direction = Vector3(
+            x: Math.cos(yaw) * cosPitch,
+            y: Math.sin(pitch),
+            z: Math.sin(yaw) * cosPitch)
+        return target - direction * distance
+    }
+
+    func viewMatrix() -> Matrix4 {
+        return Matrix4.lookAt(eye: eye(), target: target, up: Vector3(x: 0.0, y: 1.0, z: 0.0))
+    }
+
+    mutating func orbit(deltaYaw: Float32, deltaPitch: Float32) {
+        yaw = yaw + deltaYaw
+        pitch = pitch + deltaPitch
+        let limit: Float32 = 1.5
+        if pitch > limit {
+            pitch = limit
+        }
+        if pitch < -limit {
+            pitch = -limit
+        }
+    }
+
+    mutating func zoom(factor: Float32) {
+        distance = distance * factor
+        if distance < 3.0 {
+            distance = 3.0
+        }
+        if distance > Float32(GRID_SIZE) * 6.0 {
+            distance = Float32(GRID_SIZE) * 6.0
+        }
+    }
+
+    // Moves the orbit target in the camera's screen plane. Scaling by the
+    // visible world height keeps a mouse drag feeling consistent at every
+    // zoom level.
+    mutating func pan(deltaX: Float32, deltaY: Float32, windowHeight: Float32, fovYDegrees: Float32) {
+        let eyePosition = eye()
+        let forward = (target - eyePosition).normalized()
+        let worldUp = Vector3(x: 0.0, y: 1.0, z: 0.0)
+        let right = forward.cross(other: worldUp).normalized()
+        let up = right.cross(other: forward)
+        let fovYRadians = fovYDegrees * Float32(Math.PI / 180.0)
+        let worldUnitsPerPixel = 2.0 * distance * Math.tan(fovYRadians * 0.5) / windowHeight
+        target = target - right * (deltaX * worldUnitsPerPixel) + up * (deltaY * worldUnitsPerPixel)
+    }
+
+    // Ray from the camera eye through a screen-space pixel, computed
+    // directly from the camera's own basis vectors and vertical FOV rather
+    // than unprojecting through an inverse view-projection matrix (Matrix4
+    // has no inverse -- see Standard.Math). Must use the same fovYDegrees
+    // and aspect ratio as the perspective projection the scene is actually
+    // rendered with, or picking and rendering disagree about where the
+    // camera is looking.
+    func mouseRay(mouseX: Float32, mouseY: Float32, windowWidth: Float32, windowHeight: Float32, fovYDegrees: Float32) -> Vector3 {
+        let ndcX = (mouseX / windowWidth) * 2.0 - 1.0
+        let ndcY = 1.0 - (mouseY / windowHeight) * 2.0
+        let fovYRadians = fovYDegrees * Float32(Math.PI / 180.0)
+        let halfHeight = Math.tan(fovYRadians * 0.5)
+        let halfWidth = halfHeight * (windowWidth / windowHeight)
+
+        let eyePosition = eye()
+        let forward = (target - eyePosition).normalized()
+        let worldUp = Vector3(x: 0.0, y: 1.0, z: 0.0)
+        let right = forward.cross(other: worldUp).normalized()
+        let up = right.cross(other: forward)
+
+        return (forward + right * (ndcX * halfWidth) + up * (ndcY * halfHeight)).normalized()
+    }
+}
+
+struct Grid {
+    var voxels: [UInt8, VOXEL_COUNT] = []
+}
+
+func inBounds(x: Int32, y: Int32, z: Int32) -> Bool {
+    return x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE && z >= 0 && z < GRID_SIZE
+}
+
+func voxelIndex(x: Int32, y: Int32, z: Int32) -> Int {
+    return Int(x) + Int(y) * Int(GRID_SIZE) + Int(z) * Int(GRID_SIZE) * Int(GRID_SIZE)
+}
+
+extension Grid {
+    func at(x: Int32, y: Int32, z: Int32) -> UInt8 {
+        if !inBounds(x, y, z) {
+            return EMPTY_VOXEL
+        }
+        return voxels[voxelIndex(x, y, z)]
+    }
+
+    func isSolid(x: Int32, y: Int32, z: Int32) -> Bool {
+        return at(x, y, z) != EMPTY_VOXEL
+    }
+
+    mutating func setVoxel(x: Int32, y: Int32, z: Int32, value: UInt8) {
+        if inBounds(x, y, z) {
+            voxels[voxelIndex(x, y, z)] = value
+        }
+    }
+}
+
+struct Editor {
+    var grid: Grid
+    var camera: OrbitCamera
+    var tool: Tool
+    var colorIndex: Int
+    var gridHeight: Int32
+}
+
+func makeEditor() -> Editor {
+    return Editor(
+        // Start with an empty voxel volume. The reference grid at y = 0 is
+        // the initial work plane, rather than a layer of solid voxels.
+        grid: Grid(),
+        camera: defaultCamera(),
+        tool: Tool.place,
+        colorIndex: 3,
+        gridHeight: 0)
+}
+
+// One ray-voxel intersection result: `voxel` is the solid voxel the ray
+// actually hit, `placement` is the empty cell immediately before it along
+// the ray (where a new voxel should go for the "place" tool), and `normal`
+// is the outward face normal of the hit voxel the ray entered through.
+struct RaycastHit {
+    var voxel: Vector3
+    var placement: Vector3
+    var normal: Vector3
+}
+
+enum Axis: Int32 {
+    x = 0
+    y = 1
+    z = 2
+}
+
+const AXES: [Axis, 3] = [Axis.x, Axis.y, Axis.z]
+
+func vector3Component(v: Vector3, axis: Axis) -> Float32 {
+    if axis == Axis.x {
+        return v.x
+    } else if axis == Axis.y {
+        return v.y
+    }
+    return v.z
+}
+
+// Slab-method ray/AABB intersection against the grid's bounding box
+// [0, GRID_SIZE]^3. Returns the entry distance along the ray (clamped to
+// 0 if the origin is already inside), or nil if the ray misses the box
+// entirely (including pointing away from it).
+func intersectGridBounds(origin: Vector3, direction: Vector3) -> Float32? {
+    var tMin: Float32 = 0.0
+    var tMax: Float32 = 3.4e38
+
+    for axisIndex in 0..3 {
+        let axis = AXES[axisIndex]
+        let originComponent = vector3Component(origin, axis)
+        let directionComponent = vector3Component(direction, axis)
+        let boundsMax = Float32(GRID_SIZE)
+
+        if Math.abs(directionComponent) < 0.00001 {
+            if originComponent < 0.0 || originComponent > boundsMax {
+                return nil
+            }
+            continue
+        }
+
+        var t0 = (0.0 - originComponent) / directionComponent
+        var t1 = (boundsMax - originComponent) / directionComponent
+        if t0 > t1 {
+            let swap = t0
+            t0 = t1
+            t1 = swap
+        }
+        if t0 > tMin {
+            tMin = t0
+        }
+        if t1 < tMax {
+            tMax = t1
+        }
+        if tMin > tMax {
+            return nil
+        }
+    }
+
+    return tMin
+}
+
+// Distance (in units of tDelta) from `originCoord` to the first voxel
+// boundary crossing along one axis, given the whole-voxel coordinate the
+// origin currently sits in and the step direction on that axis.
+func firstVoxelBoundary(voxelCoord: Int32, originCoord: Float32, step: Int32) -> Float32 {
+    if step > 0 {
+        return Float32(voxelCoord + 1) - originCoord
+    }
+    return originCoord - Float32(voxelCoord)
+}
+
+const MAX_RAYCAST_DISTANCE: Float32 = 500.0
+
+// Amanatides & Woo voxel traversal: walks whole-voxel steps along the ray
+// from its entry into the grid, stopping at the first solid voxel. This
+// visits exactly the voxels the ray geometrically passes through (no
+// skipped or duplicated cells), which is what makes it correct for picking
+// -- a naive fixed-step march can tunnel through thin geometry or pick the
+// wrong face depending on step size.
+func raycastVoxels(grid: &Grid, origin: Vector3, direction: Vector3) -> RaycastHit? {
+    let entry = intersectGridBounds(origin, direction)
+    if entry == nil {
+        return nil
+    }
+
+    let epsilon: Float32 = 0.0005
+    let startDistance = entry! + epsilon
+    if startDistance > MAX_RAYCAST_DISTANCE {
+        return nil
+    }
+    let start = origin + direction * startDistance
+
+    var voxelX = Int32(Math.floor(start.x))
+    var voxelY = Int32(Math.floor(start.y))
+    var voxelZ = Int32(Math.floor(start.z))
+    if voxelX < 0 {
+        voxelX = 0
+    } else if voxelX >= GRID_SIZE {
+        voxelX = GRID_SIZE - 1
+    }
+    if voxelY < 0 {
+        voxelY = 0
+    } else if voxelY >= GRID_SIZE {
+        voxelY = GRID_SIZE - 1
+    }
+    if voxelZ < 0 {
+        voxelZ = 0
+    } else if voxelZ >= GRID_SIZE {
+        voxelZ = GRID_SIZE - 1
+    }
+
+    var stepX: Int32 = 0
+    if direction.x > 0.0 {
+        stepX = 1
+    } else if direction.x < 0.0 {
+        stepX = -1
+    }
+    var stepY: Int32 = 0
+    if direction.y > 0.0 {
+        stepY = 1
+    } else if direction.y < 0.0 {
+        stepY = -1
+    }
+    var stepZ: Int32 = 0
+    if direction.z > 0.0 {
+        stepZ = 1
+    } else if direction.z < 0.0 {
+        stepZ = -1
+    }
+
+    let bigNumber: Float32 = 3.4e38
+    let tDeltaX: Float32 = if stepX != 0 { Math.abs(1.0 / direction.x) } else { bigNumber }
+    let tDeltaY: Float32 = if stepY != 0 { Math.abs(1.0 / direction.y) } else { bigNumber }
+    let tDeltaZ: Float32 = if stepZ != 0 { Math.abs(1.0 / direction.z) } else { bigNumber }
+
+    var tMaxX: Float32 = if stepX != 0 { firstVoxelBoundary(voxelX, start.x, stepX) * tDeltaX } else { bigNumber }
+    var tMaxY: Float32 = if stepY != 0 { firstVoxelBoundary(voxelY, start.y, stepY) * tDeltaY } else { bigNumber }
+    var tMaxZ: Float32 = if stepZ != 0 { firstVoxelBoundary(voxelZ, start.z, stepZ) * tDeltaZ } else { bigNumber }
+
+    // The ray can enter the grid directly into a solid voxel (e.g. looking
+    // at the starter platform edge-on) -- check the starting cell before
+    // stepping the DDA at all, or that hit would be missed entirely.
+    if grid.isSolid(voxelX, voxelY, voxelZ) {
+        return RaycastHit(
+            voxel: Vector3(x: Float32(voxelX), y: Float32(voxelY), z: Float32(voxelZ)),
+            placement: Vector3(x: Float32(voxelX), y: Float32(voxelY), z: Float32(voxelZ)),
+            normal: Vector3(x: 0.0, y: 0.0, z: 0.0))
+    }
+
+    var travelled: Float32 = 0.0
+    while travelled < MAX_RAYCAST_DISTANCE {
+        var previousX = voxelX
+        var previousY = voxelY
+        var previousZ = voxelZ
+        var normal = Vector3(x: 0.0, y: 0.0, z: 0.0)
+
+        if tMaxX <= tMaxY && tMaxX <= tMaxZ {
+            voxelX = voxelX + stepX
+            travelled = tMaxX
+            tMaxX = tMaxX + tDeltaX
+            normal = Vector3(x: Float32(-stepX), y: 0.0, z: 0.0)
+        } else if tMaxY <= tMaxZ {
+            voxelY = voxelY + stepY
+            travelled = tMaxY
+            tMaxY = tMaxY + tDeltaY
+            normal = Vector3(x: 0.0, y: Float32(-stepY), z: 0.0)
+        } else {
+            voxelZ = voxelZ + stepZ
+            travelled = tMaxZ
+            tMaxZ = tMaxZ + tDeltaZ
+            normal = Vector3(x: 0.0, y: 0.0, z: Float32(-stepZ))
+        }
+
+        if !inBounds(voxelX, voxelY, voxelZ) {
+            return nil
+        }
+
+        if grid.isSolid(voxelX, voxelY, voxelZ) {
+            return RaycastHit(
+                voxel: Vector3(x: Float32(voxelX), y: Float32(voxelY), z: Float32(voxelZ)),
+                placement: Vector3(x: Float32(previousX), y: Float32(previousY), z: Float32(previousZ)),
+                normal: normal)
+        }
+    }
+
+    return nil
+}
+
+// Intersects the movable reference grid so the place tool can seed voxels
+// without requiring an existing solid face to click.
+func raycastGridPlane(origin: Vector3, direction: Vector3, height: Int32) -> RaycastHit? {
+    if Math.abs(direction.y) < 0.00001 {
+        return nil
+    }
+
+    let planeY = Float32(height)
+    let distance = (planeY - origin.y) / direction.y
+    if distance < 0.0 || distance > MAX_RAYCAST_DISTANCE {
+        return nil
+    }
+
+    let point = origin + direction * distance
+    let size = Float32(GRID_SIZE)
+    if point.x < 0.0 || point.x >= size || point.z < 0.0 || point.z >= size {
+        return nil
+    }
+
+    let cell = Vector3(
+        x: Float32(Math.floor(point.x)),
+        y: planeY,
+        z: Float32(Math.floor(point.z)))
+    return RaycastHit(
+        voxel: cell,
+        placement: cell,
+        normal: Vector3(x: 0.0, y: 1.0, z: 0.0))
+}
+
+// 6-connected neighbor offsets (+X -X +Y -Y +Z -Z) for the fill tool's
+// flood fill below.
+const FILL_NEIGHBOR_OFFSETS: [Int32, 18] = [
+    1, 0, 0,
+    -1, 0, 0,
+    0, 1, 0,
+    0, -1, 0,
+    0, 0, 1,
+    0, 0, -1,
+]
+
+extension Editor {
+    // Applies the current tool at `hit`. Returns whether the grid actually
+    // changed (so the caller only pays for a mesh rebuild when something
+    // really was edited, not on every mouse motion event).
+    mutating func applyTool(hit: RaycastHit) -> Bool {
+        if tool == Tool.place {
+            let cell = hit.placement
+            let x = Int32(cell.x)
+            let y = Int32(cell.y)
+            let z = Int32(cell.z)
+            if grid.isSolid(x, y, z) {
+                return false
+            }
+            grid.setVoxel(x: x, y: y, z: z, value: UInt8(colorIndex + 1))
+            return true
+        }
+
+        let x = Int32(hit.voxel.x)
+        let y = Int32(hit.voxel.y)
+        let z = Int32(hit.voxel.z)
+
+        if tool == Tool.erase {
+            grid.setVoxel(x: x, y: y, z: z, value: EMPTY_VOXEL)
+            return true
+        }
+
+        if tool == Tool.paint {
+            let value = UInt8(colorIndex + 1)
+            if grid.at(x, y, z) == value {
+                return false
+            }
+            grid.setVoxel(x: x, y: y, z: z, value: value)
+            return true
+        }
+
+        if tool == Tool.picker {
+            let picked = grid.at(x, y, z)
+            if picked != EMPTY_VOXEL {
+                colorIndex = Int(picked) - 1
+            }
+            tool = Tool.place
+            return false
+        }
+
+        // Fill: 6-connected flood fill of every voxel matching the hit
+        // voxel's current value, replacing it with the selected color --
+        // the 3D analogue of PixelStudio's 2D bucket fill
+        // (Examples/Programs/SDL3/PixelStudio/Model.rune's `useToolAt`).
+        let oldValue = grid.at(x, y, z)
+        let newValue = UInt8(colorIndex + 1)
+        if oldValue == newValue {
+            return false
+        }
+
+        var queueX: [Int32] = []
+        var queueY: [Int32] = []
+        var queueZ: [Int32] = []
+        queueX.append(x)
+        queueY.append(y)
+        queueZ.append(z)
+        grid.setVoxel(x: x, y: y, z: z, value: newValue)
+
+        var read = 0
+        while read < queueX.count {
+            let cx = queueX[read]
+            let cy = queueY[read]
+            let cz = queueZ[read]
+            read = read + 1
+
+            for n in 0..6 {
+                let nx = cx + FILL_NEIGHBOR_OFFSETS[n * 3]
+                let ny = cy + FILL_NEIGHBOR_OFFSETS[n * 3 + 1]
+                let nz = cz + FILL_NEIGHBOR_OFFSETS[n * 3 + 2]
+                if grid.at(nx, ny, nz) == oldValue {
+                    grid.setVoxel(x: nx, y: ny, z: nz, value: newValue)
+                    queueX.append(nx)
+                    queueY.append(ny)
+                    queueZ.append(nz)
+                }
+            }
+        }
+
+        return true
+    }
+}

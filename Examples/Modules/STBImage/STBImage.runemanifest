@@ -1,0 +1,23 @@
+{
+  "version": "1.0.0",
+  "name": "STBImage",
+  "kind": "library",
+  "unsafe": true,
+  "sources": [
+    "image.rune"
+  ],
+  "dependencies": [
+    "../../../Build/ninja-debug/modules/Rune.runemodule",
+    "../../../Build/ninja-debug/modules/LibC.runemodule"
+  ],
+  "includeHeaders": [
+    "stb_image.h"
+  ],
+  "linkLibraries": [
+    "stb_image"
+  ],
+  "linkDirectories": [
+    "../../../Build/ninja-debug/Examples/stb_image/lib"
+  ],
+  "output": "STBImage.runemodule"
+}

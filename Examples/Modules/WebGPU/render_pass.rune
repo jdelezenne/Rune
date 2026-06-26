@@ -1,0 +1,87 @@
+public extension RenderPassEncoder {
+    public static func fromHandle(handle: &RenderPassEncoderHandle?) -> RenderPassEncoder {
+        return RenderPassEncoder(handle: handle)
+    }
+
+    public rawHandle: &RenderPassEncoderHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func setPipeline(pipeline: RenderPipeline) {
+        renderPassEncoderSetPipeline(handle, pipeline.handle)
+    }
+
+    public func setBindGroup(
+        groupIndex: UInt32,
+        group: BindGroup,
+        dynamicOffsetCount: UInt = 0,
+        dynamicOffsets: *UInt32? = nil)
+    {
+        renderPassEncoderSetBindGroup(
+            handle,
+            groupIndex,
+            group.handle,
+            dynamicOffsetCount,
+            dynamicOffsets)
+    }
+
+    public func setVertexBuffer(
+        slot: UInt32,
+        buffer: GPUBuffer,
+        offset: UInt64 = 0,
+        size: UInt64 = WHOLE_SIZE)
+    {
+        renderPassEncoderSetVertexBuffer(handle, slot, buffer.handle, offset, size)
+    }
+
+    public func setIndexBuffer(
+        buffer: GPUBuffer,
+        format: IndexFormat,
+        offset: UInt64 = 0,
+        size: UInt64 = WHOLE_SIZE)
+    {
+        renderPassEncoderSetIndexBuffer(handle, buffer.handle, format, offset, size)
+    }
+
+    public func draw(
+        vertexCount: UInt32,
+        instanceCount: UInt32 = 1,
+        firstVertex: UInt32 = 0,
+        firstInstance: UInt32 = 0)
+    {
+        renderPassEncoderDraw(
+            handle,
+            vertexCount,
+            instanceCount,
+            firstVertex,
+            firstInstance)
+    }
+
+    public func drawIndexed(
+        indexCount: UInt32,
+        instanceCount: UInt32 = 1,
+        firstIndex: UInt32 = 0,
+        baseVertex: Int32 = 0,
+        firstInstance: UInt32 = 0)
+    {
+        renderPassEncoderDrawIndexed(
+            handle,
+            indexCount,
+            instanceCount,
+            firstIndex,
+            baseVertex,
+            firstInstance)
+    }
+
+    public func end() {
+        renderPassEncoderEnd(handle)
+    }
+
+    public func release() {
+        renderPassEncoderRelease(handle)
+    }
+}

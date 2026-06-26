@@ -1,0 +1,97 @@
+import Standard.*
+import SDL3
+
+const AUDIO_SAMPLE_RATE: Int32 = 11025
+const AUDIO_TAU: Float32 = 6.2831855
+
+struct GameAudio {
+    var device: UInt32
+    var stream: &SDL3.AudioStream?
+}
+
+func buildGameAudio() -> GameAudio {
+    var audio = GameAudio(device: 0, stream: nil)
+    var spec = SDL3.AudioSpec(format: SDL3.AudioFormat.s16, channels: 1, freq: AUDIO_SAMPLE_RATE)
+    audio.device = SDL3.openAudioDevice(SDL3.defaultPlaybackDevice, &spec)
+    if audio.device == 0 {
+        Console.printLine("Wipeout: audio unavailable; continuing silently.")
+        return audio
+    }
+    audio.stream = SDL3.createAudioStream(&spec, &spec)
+    if audio.stream == nil || !SDL3.bindAudioStream(audio.device, audio.stream) {
+        if audio.stream != nil {
+            SDL3.destroyAudioStream(audio.stream)
+        }
+        SDL3.closeAudioDevice(audio.device)
+        audio.stream = nil
+        audio.device = 0
+        Console.printLine("Wipeout: audio stream unavailable; continuing silently.")
+    }
+    return audio
+}
+
+func destroyGameAudio(audio: &GameAudio) {
+    if audio.stream != nil {
+        SDL3.destroyAudioStream(audio.stream)
+        audio.stream = nil
+    }
+    if audio.device != 0 {
+        SDL3.closeAudioDevice(audio.device)
+        audio.device = 0
+    }
+}
+
+func playTone(audio: &GameAudio, frequency: Float32, durationSamples: Int32, volume: Float32) {
+    if audio.stream == nil {
+        return
+    }
+    let count = durationSamples
+    if count <= 0 || count > 4096 {
+        return
+    }
+    var samples: [Int16, 4096] = []
+    var fade = count / 6
+    if fade > 180 {
+        fade = 180
+    }
+    if fade < 1 {
+        fade = 1
+    }
+    let phaseStep = AUDIO_TAU * frequency / Float32(AUDIO_SAMPLE_RATE)
+    for index in 0..count {
+        var gain: Float32 = 1.0
+        if index < fade {
+            gain = Float32(index) / Float32(fade)
+        } else if index >= count - fade {
+            gain = Float32(count - index) / Float32(fade)
+        }
+        let phase = Float32(index) * phaseStep
+        let tone = Math.sin(phase) * 0.7 + Math.sin(phase * 2.0) * 0.2
+        samples[Int(index)] = Int16(tone * gain * volume)
+    }
+    if SDL3.putAudioStreamData(audio.stream, samples.bytes, count * 2) {
+        _ = SDL3.resumeAudioDevice(audio.device)
+    }
+}
+
+func playFrameAudio(audio: &GameAudio, events: FrameEvents) {
+    if events.countdownBeep {
+        playTone(audio, 660.0, 900, 7000.0)
+    }
+    if events.fired {
+        playTone(audio, 220.0, 700, 9000.0)
+    }
+    if events.boost {
+        playTone(audio, 880.0, 500, 5500.0)
+    }
+    if events.wallHit {
+        playTone(audio, 90.0, 600, 8000.0)
+    }
+    if events.weaponPad {
+        playTone(audio, 523.25, 800, 7500.0)
+    }
+    if events.finished {
+        playTone(audio, 392.0, 1200, 8500.0)
+        playTone(audio, 523.25, 1400, 8500.0)
+    }
+}

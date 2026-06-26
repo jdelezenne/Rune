@@ -1,0 +1,118 @@
+/// A UDP datagram endpoint.
+///
+/// UDP is message-oriented and connectionless. A socket can be bound to receive
+/// datagrams on a local address, and can send datagrams to many remote peers.
+public struct UdpSocket {
+    var _socket: Socket
+
+    /// Creates an unbound UDP endpoint. It can send datagrams immediately; bind
+    /// when receiving from a known local address is needed.
+    public init() {
+        _socket = Socket()
+    }
+
+    /// Binds a UDP endpoint to `address`.
+    public static func bind(address: SocketAddress) throws(String) -> UdpSocket {
+        var socket = Socket()
+        var error = ""
+        if !socket.bind(host: address.host, port: address.port, error: &error) {
+            throw error
+        }
+
+        return UdpSocket(socket: socket)
+    }
+
+    /// Binds a UDP endpoint to `host`:`port`.
+    public static func bind(host: String, port: UInt16) throws(String) -> UdpSocket {
+        var socket = Socket()
+        var error = ""
+        if !socket.bind(host: host, port: port, error: &error) {
+            throw error
+        }
+
+        return UdpSocket(socket: socket)
+    }
+
+    /// Takes ownership of an existing UDP socket.
+    public init(socket: Socket) {
+        _socket = socket
+    }
+
+    /// Whether the endpoint currently owns an open socket handle.
+    public isOpen: Bool {
+        return _socket.isOpen
+    }
+
+    /// Native platform socket handle, or -1 when closed.
+    public nativeHandle: *SocketHandle? {
+        return _socket.nativeHandle
+    }
+
+    /// Local endpoint address formatted by the runtime.
+    public localAddress: String {
+        return _socket.localAddress
+    }
+
+    /// Sends one datagram to `address`.
+    /// @return Number of bytes sent.
+    public mutating func sendTo(data: *Byte, length: UInt, address: SocketAddress) throws(String) -> Int64 {
+        var error = ""
+        let sent = _socket.sendTo(data: data, length: length, host: address.host, port: address.port, error: &error)
+        if sent < 0 {
+            throw error
+        }
+
+        return sent
+    }
+
+    /// Sends one datagram to `host`:`port`.
+    /// @return Number of bytes sent.
+    public mutating func sendTo(data: *Byte, length: UInt, host: String, port: UInt16) throws(String) -> Int64 {
+        var error = ""
+        let sent = _socket.sendTo(data: data, length: length, host: host, port: port, error: &error)
+        if sent < 0 {
+            throw error
+        }
+
+        return sent
+    }
+
+    /// Receives one datagram into `buffer`.
+    /// @return Datagram metadata, including byte count and sender address.
+    public mutating func receiveFrom(buffer: &Byte, length: UInt) throws(String) -> UdpDatagram {
+        var error = ""
+        var remoteHost = ""
+        var remotePort: UInt16 = 0
+        let received = _socket.receiveFrom(buffer: buffer, length: length, fromHost: &remoteHost, fromPort: &remotePort, error: &error)
+        if received < 0 {
+            throw error
+        }
+
+        return UdpDatagram(byteCount: received, remoteAddress: SocketAddress(host: remoteHost, port: remotePort))
+    }
+
+    /// Closes the endpoint.
+    public mutating func close() {
+        _socket.close()
+    }
+
+    /// Sets whether this endpoint performs blocking or non-blocking I/O.
+    public mutating func setNonblocking(enabled: Bool) -> Bool {
+        return _socket.setNonblocking(enabled: enabled)
+    }
+
+    /// Sets `SO_REUSEADDR`.
+    public mutating func setReuseAddress(enabled: Bool) -> Bool {
+        return _socket.setReuseAddress(enabled: enabled)
+    }
+
+    /// Sets the maximum time a blocking `receiveFrom` call will wait for data.
+    public mutating func setReceiveTimeout(milliseconds: UInt32) -> Bool {
+        return _socket.setReceiveTimeout(milliseconds: milliseconds)
+    }
+
+    /// Sets the maximum time a blocking `sendTo` call will wait for buffer space.
+    public mutating func setSendTimeout(milliseconds: UInt32) -> Bool {
+        return _socket.setSendTimeout(milliseconds: milliseconds)
+    }
+}

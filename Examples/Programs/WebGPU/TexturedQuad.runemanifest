@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "name": "WebGPUTexturedQuad",
+  "kind": "executable",
+  "unsafe": true,
+  "sources": [
+    "TexturedQuad.rune"
+  ],
+  "dependencies": [
+    "../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../Modules/WebGPU/WebGPU.runemanifest"
+  ]
+}

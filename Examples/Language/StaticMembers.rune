@@ -1,0 +1,31 @@
+struct Point {
+    var x: Int
+    var y: Int
+
+    static func zero() -> Point {
+        return Point(x: 0, y: 0)
+    }
+
+    static func unit() -> Point {
+        return Point(x: 1, y: 1)
+    }
+
+    func sum() -> Int {
+        return x + y
+    }
+}
+
+func main() -> Int {
+    let origin = Point.zero()
+    let unit = Point.unit()
+
+    if origin.sum() != 0 {
+        return 1
+    }
+
+    if unit.sum() != 2 {
+        return 2
+    }
+
+    return 0
+}

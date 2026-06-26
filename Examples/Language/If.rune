@@ -1,0 +1,31 @@
+func classify(value: Int) -> Int {
+    if value < 0 {
+        return -1
+    }
+    else if value == 0 {
+        return 0
+    }
+    else {
+        return 1
+    }
+}
+
+func main() -> Int {
+    let negative = classify(value: -4)
+    let zero = classify(value: 0)
+    let positive = classify(value: 9)
+
+    if negative != -1 {
+        return 1
+    }
+
+    if zero != 0 {
+        return 2
+    }
+
+    if positive != 1 {
+        return 3
+    }
+
+    return 0
+}

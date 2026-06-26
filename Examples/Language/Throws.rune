@@ -1,0 +1,41 @@
+func divide(a: Int, b: Int) throws -> Int {
+    if b == 0 {
+        throw
+    }
+
+    return a / b
+}
+
+func run() throws -> Int {
+    return try divide(20, 4)
+}
+
+func optionalText(enabled: Bool) throws -> String? {
+    if !enabled {
+        return nil
+    }
+
+    let text = "Rune"
+    return text
+}
+
+func main() -> Int {
+    do {
+        if run() != 5 {
+            return 1
+        }
+
+        let text = try optionalText(enabled: true)
+        if text == nil {
+            return 3
+        }
+        if text! != "Rune" {
+            return 4
+        }
+
+        return 0
+    }
+    catch {
+        return 2
+    }
+}

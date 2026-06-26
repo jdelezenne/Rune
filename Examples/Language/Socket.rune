@@ -1,0 +1,130 @@
+import Standard.*
+
+func fail(message: String) -> Int {
+    #printLn("FAIL: ${message}")
+    return 1
+}
+
+func tcpLoopback() -> Int {
+    var listener = Socket()
+    var listenErr = ""
+    if !listener.listen(host: "127.0.0.1", port: 18470, backlog: 1, error: &listenErr) {
+        return fail("tcp listen: ${listenErr}")
+    }
+
+    var client = Socket()
+    var connectErr = ""
+    if !client.connect(host: "127.0.0.1", port: 18470, error: &connectErr) {
+        return fail("tcp connect: ${connectErr}")
+    }
+
+    var acceptErr = ""
+    var server = listener.accept(error: &acceptErr)
+    if !server.isOpen {
+        return fail("tcp accept: ${acceptErr}")
+    }
+
+    let message = try! Memory.systemAllocate(size: 5)
+    Memory.fill(destination: message, value: 65, byteCount: 5)
+
+    var sendErr = ""
+    let sent = client.send(data: message, length: 5, error: &sendErr)
+    if sent != 5 {
+        return fail("tcp send: expected 5 bytes, got ${sent} (${sendErr})")
+    }
+
+    let buffer = try! Memory.systemAllocate(size: 64)
+    var recvErr = ""
+    let received = server.receive(buffer: buffer, length: 64, error: &recvErr)
+    if received != 5 {
+        return fail("tcp receive: expected 5 bytes, got ${received} (${recvErr})")
+    }
+
+    let peerAddress = server.remoteAddress
+    if peerAddress == "" || client.localAddress == "" {
+        return fail("tcp addresses: remoteAddress/localAddress unexpectedly empty")
+    }
+
+    server.shutdown()
+    server.close()
+    client.close()
+    listener.close()
+    Memory.systemDeallocate(address: message)
+    Memory.systemDeallocate(address: buffer)
+
+    #printLn("tcp loopback: sent/received ${received} bytes, peer=${peerAddress}")
+    return 0
+}
+
+func udpLoopback() -> Int {
+    var receiver = Socket()
+    var bindErr = ""
+    if !receiver.bind(host: "127.0.0.1", port: 18471, error: &bindErr) {
+        return fail("udp bind: ${bindErr}")
+    }
+
+    var sender = Socket()
+    let message = try! Memory.systemAllocate(size: 3)
+    Memory.fill(destination: message, value: 66, byteCount: 3)
+
+    var sendErr = ""
+    let sent = sender.sendTo(data: message, length: 3, host: "127.0.0.1", port: 18471, error: &sendErr)
+    if sent != 3 {
+        return fail("udp sendTo: expected 3 bytes, got ${sent} (${sendErr})")
+    }
+
+    let buffer = try! Memory.systemAllocate(size: 64)
+    var fromHost = ""
+    var fromPort: UInt16 = 0
+    var recvErr = ""
+    let received = receiver.receiveFrom(buffer: buffer, length: 64, fromHost: &fromHost, fromPort: &fromPort, error: &recvErr)
+    if received != 3 {
+        return fail("udp receiveFrom: expected 3 bytes, got ${received} (${recvErr})")
+    }
+    if fromHost == "" || fromPort == 0 {
+        return fail("udp receiveFrom: sender address unexpectedly empty")
+    }
+
+    receiver.close()
+    sender.close()
+    Memory.systemDeallocate(address: message)
+    Memory.systemDeallocate(address: buffer)
+
+    #printLn("udp loopback: sent/received ${received} bytes, sender=${fromHost}:${fromPort}")
+    return 0
+}
+
+func connectFailure() -> Int {
+    var socket = Socket()
+    var err = ""
+    let ok = socket.connect(host: "127.0.0.1", port: 1, error: &err)
+    if ok || socket.isOpen {
+        return fail("connect to a closed port unexpectedly succeeded")
+    }
+    if err == "" {
+        return fail("connect failure did not report an error message")
+    }
+
+    #printLn("connect failure reported: ${err}")
+    return 0
+}
+
+func main() -> Int {
+    let tcpResult = tcpLoopback()
+    if tcpResult != 0 {
+        return tcpResult
+    }
+
+    let udpResult = udpLoopback()
+    if udpResult != 0 {
+        return udpResult
+    }
+
+    let failureResult = connectFailure()
+    if failureResult != 0 {
+        return failureResult
+    }
+
+    #printLn("socket smoke test: OK")
+    return 0
+}

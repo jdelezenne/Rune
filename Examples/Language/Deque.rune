@@ -1,0 +1,70 @@
+import Standard.*
+
+func main() -> Int {
+    var values: Deque<Int> = [10, 20, 30]
+
+    if values.count != 3 {
+        return 1
+    }
+
+    if values.peekFront() != 10 {
+        return 2
+    }
+
+    if values.peekBack() != 30 {
+        return 3
+    }
+
+    values.pushFront(5)
+    values.pushBack(40)
+
+    if values.count != 5 {
+        return 4
+    }
+
+    if values.peekFront() != 5 {
+        return 5
+    }
+
+    if values.peekBack() != 40 {
+        return 6
+    }
+
+    if values.popFront() != 5 {
+        return 9
+    }
+
+    if values.popBack() != 40 {
+        return 10
+    }
+
+    if values.popFront() != 10 {
+        return 11
+    }
+
+    if values.popBack() != 30 {
+        return 12
+    }
+
+    if values.count != 1 {
+        return 13
+    }
+
+    if values.popFront() != 20 {
+        return 14
+    }
+
+    if !values.isEmpty {
+        return 15
+    }
+
+    values.pushBack(100)
+    values.pushFront(90)
+    values.clear()
+
+    if !values.isEmpty {
+        return 16
+    }
+
+    return 0
+}

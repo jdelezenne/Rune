@@ -1,0 +1,13 @@
+func buildValues() -> [Int, 3] {
+    var values: [Int, 3] = [1, 2, 3]
+    values[1] = 40
+    return values
+}
+
+func main() -> Int {
+    const values = eval buildValues()
+    if values[0] + values[1] + values[2] == 44 {
+        return 0
+    }
+    return 1
+}

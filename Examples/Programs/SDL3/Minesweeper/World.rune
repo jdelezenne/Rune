@@ -1,0 +1,375 @@
+// World: the Game state machine - lazy mine placement so the first click is
+// always safe, breadth-first flood reveal of empty regions, flag / question
+// marking, chording on satisfied numbers, and the win / loss bookkeeping
+// (auto-flagging the field on a win, revealing every mine on a loss).
+
+import Standard.*
+
+// MARK: - Deterministic RNG (xorshift, same pattern as Galaxian/Sudoku)
+
+struct Rng {
+    var state: UInt32
+}
+
+func makeRng(seed: UInt32) -> Rng {
+    var s = seed
+    if s == 0 {
+        s = 0x1234567
+    }
+    return Rng(state: s)
+}
+
+func randU32(rng: &Rng) -> UInt32 {
+    var x = rng.state
+    x = x ^ (x << 13)
+    x = x ^ (x >> 17)
+    x = x ^ (x << 5)
+    rng.state = x
+    return x
+}
+
+func randInt(rng: &Rng, n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    return Int(randU32(rng) % UInt32(n))
+}
+
+// MARK: - Game
+
+struct Game {
+    var mine: [Bool, MAX_CELLS]
+    var revealed: [Bool, MAX_CELLS]
+    var mark: [UInt8, MAX_CELLS]
+    var adjacent: [UInt8, MAX_CELLS]
+    var rng: Rng
+    var difficulty: Int
+    var cols: Int
+    var rows: Int
+    var mineCount: Int
+    var state: Int32
+    var timer: Float32
+    var flagsPlaced: Int
+    var revealedCount: Int
+    var lossIndex: Int
+    var pressedIndex: Int
+    var facePressed: Bool
+
+    func cellCount() -> Int {
+        return self.cols * self.rows
+    }
+
+    func minesLeft() -> Int {
+        return self.mineCount - self.flagsPlaced
+    }
+
+    func timerSeconds() -> Int {
+        let seconds = Int(self.timer)
+        return seconds > 999 ? 999 : seconds
+    }
+
+    func isLive() -> Bool {
+        return self.state == STATE_READY || self.state == STATE_PLAYING
+    }
+
+    mutating func newGame(difficulty: Int) {
+        self.difficulty = difficulty
+        self.cols = DIFF_COLS[difficulty]
+        self.rows = DIFF_ROWS[difficulty]
+        self.mineCount = DIFF_MINES[difficulty]
+        for index in 0..MAX_CELLS {
+            self.mine[index] = false
+            self.revealed[index] = false
+            self.mark[index] = MARK_NONE
+            self.adjacent[index] = 0
+        }
+        self.state = STATE_READY
+        self.timer = 0.0
+        self.flagsPlaced = 0
+        self.revealedCount = 0
+        self.lossIndex = -1
+        self.pressedIndex = -1
+        self.facePressed = false
+    }
+
+    mutating func tick(dt: Float32) {
+        if self.state == STATE_PLAYING {
+            self.timer = self.timer + dt
+        }
+    }
+
+    // MARK: - Mine placement (after the first click, so it is never a mine)
+
+    mutating func placeMines(safeIndex: Int) {
+        let cells = self.cellCount()
+        var placed = 0
+        while placed < self.mineCount {
+            let index = randInt(&self.rng, cells)
+            if index == safeIndex || self.mine[index] {
+                continue
+            }
+            self.mine[index] = true
+            placed = placed + 1
+        }
+
+        for row in 0..self.rows {
+            for col in 0..self.cols {
+                let index = cellIndex(col, row, self.cols)
+                var count = 0
+                for n in 0..8 {
+                    let ncol = col + NEIGHBOR_DX[n]
+                    let nrow = row + NEIGHBOR_DY[n]
+                    if ncol < 0 || ncol >= self.cols || nrow < 0 || nrow >= self.rows {
+                        continue
+                    }
+                    if self.mine[cellIndex(ncol, nrow, self.cols)] {
+                        count = count + 1
+                    }
+                }
+                self.adjacent[index] = UInt8(count)
+            }
+        }
+    }
+
+    // MARK: - Reveal
+
+    mutating func loseAt(index: Int) {
+        self.state = STATE_LOST
+        self.lossIndex = index
+        // Show every unflagged mine; wrong flags are drawn crossed out.
+        for cell in 0..self.cellCount() {
+            if self.mine[cell] && self.mark[cell] != MARK_FLAG {
+                self.revealed[cell] = true
+            }
+        }
+    }
+
+    mutating func win() {
+        self.state = STATE_WON
+        // The classic flourish: the remaining mines flag themselves.
+        for cell in 0..self.cellCount() {
+            if self.mine[cell] {
+                self.mark[cell] = MARK_FLAG
+            }
+        }
+        self.flagsPlaced = self.mineCount
+    }
+
+    mutating func checkWin() {
+        if self.state != STATE_PLAYING {
+            return
+        }
+        if self.revealedCount == self.cellCount() - self.mineCount {
+            self.win()
+        }
+    }
+
+    // Reveal one cell; empty cells flood outward breadth-first. Flagged
+    // cells never open, and the very first reveal of a game seeds the mines
+    // around it.
+    mutating func revealCell(index: Int) {
+        if !self.isLive() {
+            return
+        }
+        if self.revealed[index] || self.mark[index] == MARK_FLAG {
+            return
+        }
+
+        if self.state == STATE_READY {
+            self.placeMines(index)
+            self.state = STATE_PLAYING
+        }
+
+        if self.mine[index] {
+            self.loseAt(index)
+            return
+        }
+
+        var queue: [Int] = []
+        queue.append(index)
+        var head = 0
+        while head < queue.count {
+            let cell = queue[head]
+            head = head + 1
+            if self.revealed[cell] || self.mark[cell] == MARK_FLAG {
+                continue
+            }
+            self.revealed[cell] = true
+            self.mark[cell] = MARK_NONE
+            self.revealedCount = self.revealedCount + 1
+            if self.adjacent[cell] != 0 {
+                continue
+            }
+            let col = cell % self.cols
+            let row = cell / self.cols
+            for n in 0..8 {
+                let ncol = col + NEIGHBOR_DX[n]
+                let nrow = row + NEIGHBOR_DY[n]
+                if ncol < 0 || ncol >= self.cols || nrow < 0 || nrow >= self.rows {
+                    continue
+                }
+                let neighbor = cellIndex(ncol, nrow, self.cols)
+                if !self.revealed[neighbor] {
+                    queue.append(neighbor)
+                }
+            }
+        }
+
+        self.checkWin()
+    }
+
+    // MARK: - Marks
+
+    mutating func cycleMark(index: Int) {
+        if !self.isLive() || self.revealed[index] {
+            return
+        }
+        if self.mark[index] == MARK_NONE {
+            self.mark[index] = MARK_FLAG
+            self.flagsPlaced = self.flagsPlaced + 1
+        } else if self.mark[index] == MARK_FLAG {
+            self.mark[index] = MARK_QUESTION
+            self.flagsPlaced = self.flagsPlaced - 1
+        } else {
+            self.mark[index] = MARK_NONE
+        }
+    }
+
+    // MARK: - Chording
+
+    // On a revealed number with exactly that many flags around it, open all
+    // the remaining neighbours in one stroke (a misplaced flag loses here).
+    mutating func chord(index: Int) {
+        if self.state != STATE_PLAYING {
+            return
+        }
+        if !self.revealed[index] || self.adjacent[index] == 0 {
+            return
+        }
+
+        let col = index % self.cols
+        let row = index / self.cols
+        var flags = 0
+        for n in 0..8 {
+            let ncol = col + NEIGHBOR_DX[n]
+            let nrow = row + NEIGHBOR_DY[n]
+            if ncol < 0 || ncol >= self.cols || nrow < 0 || nrow >= self.rows {
+                continue
+            }
+            if self.mark[cellIndex(ncol, nrow, self.cols)] == MARK_FLAG {
+                flags = flags + 1
+            }
+        }
+        if flags != Int(self.adjacent[index]) {
+            return
+        }
+
+        for n in 0..8 {
+            let ncol = col + NEIGHBOR_DX[n]
+            let nrow = row + NEIGHBOR_DY[n]
+            if ncol < 0 || ncol >= self.cols || nrow < 0 || nrow >= self.rows {
+                continue
+            }
+            let neighbor = cellIndex(ncol, nrow, self.cols)
+            if !self.revealed[neighbor] && self.mark[neighbor] != MARK_FLAG {
+                self.revealCell(neighbor)
+                if self.state == STATE_LOST {
+                    return
+                }
+            }
+        }
+    }
+
+    // MARK: - Mouse interaction
+
+    // Left button pressed: arm the face button, or sink the cell under the
+    // cursor (the classic "held down" look).
+    mutating func pressAt(x: Float32, y: Float32) {
+        if pointInFaceButton(x, y) {
+            self.facePressed = true
+            return
+        }
+        self.dragTo(x, y)
+    }
+
+    // Left button dragged: the pressed cell follows the cursor.
+    mutating func dragTo(x: Float32, y: Float32) {
+        if self.facePressed {
+            self.facePressed = pointInFaceButton(x, y)
+            if self.facePressed {
+                return
+            }
+        }
+        self.pressedIndex = -1
+        if !self.isLive() {
+            return
+        }
+        let index = cellAtPoint(x, y, self.cols, self.rows)
+        if index >= 0 && !self.revealed[index] && self.mark[index] != MARK_FLAG {
+            self.pressedIndex = index
+        }
+    }
+
+    // Left button released: click the face for a new game, or open the
+    // pressed cell.
+    mutating func releaseLeft(x: Float32, y: Float32) {
+        if self.facePressed {
+            self.facePressed = false
+            if pointInFaceButton(x, y) {
+                self.newGame(self.difficulty)
+            }
+            return
+        }
+
+        let pressed = self.pressedIndex
+        self.pressedIndex = -1
+        if pressed < 0 {
+            return
+        }
+        let index = cellAtPoint(x, y, self.cols, self.rows)
+        if index == pressed {
+            self.revealCell(index)
+        }
+    }
+
+    mutating func rightClickAt(x: Float32, y: Float32) {
+        let index = cellAtPoint(x, y, self.cols, self.rows)
+        if index >= 0 {
+            self.cycleMark(index)
+        }
+    }
+
+    mutating func chordAt(x: Float32, y: Float32) {
+        self.pressedIndex = -1
+        let index = cellAtPoint(x, y, self.cols, self.rows)
+        if index >= 0 {
+            self.chord(index)
+        }
+    }
+}
+
+func makeGame() -> Game {
+    var mine: [Bool, MAX_CELLS] = []
+    var revealed: [Bool, MAX_CELLS] = []
+    var mark: [UInt8, MAX_CELLS] = []
+    var adjacent: [UInt8, MAX_CELLS] = []
+    var game = Game(
+        mine: mine,
+        revealed: revealed,
+        mark: mark,
+        adjacent: adjacent,
+        rng: makeRng(0x2B992DDF),
+        difficulty: 0,
+        cols: DIFF_COLS[0],
+        rows: DIFF_ROWS[0],
+        mineCount: DIFF_MINES[0],
+        state: STATE_READY,
+        timer: 0.0,
+        flagsPlaced: 0,
+        revealedCount: 0,
+        lossIndex: -1,
+        pressedIndex: -1,
+        facePressed: false)
+    game.newGame(0)
+    return game
+}

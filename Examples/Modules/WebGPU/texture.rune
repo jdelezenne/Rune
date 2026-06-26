@@ -1,0 +1,39 @@
+public extension Texture {
+    public static func fromHandle(handle: &TextureHandle?) -> Texture {
+        return Texture(handle: handle)
+    }
+
+    public rawHandle: &TextureHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func createView(descriptor: *TextureViewDescriptor? = nil) -> TextureView {
+        return TextureView(handle: textureCreateView(handle, descriptor))
+    }
+
+    public func release() {
+        textureRelease(handle)
+    }
+}
+
+public extension TextureView {
+    public static func fromHandle(handle: &TextureViewHandle?) -> TextureView {
+        return TextureView(handle: handle)
+    }
+
+    public rawHandle: &TextureViewHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func release() {
+        textureViewRelease(handle)
+    }
+}

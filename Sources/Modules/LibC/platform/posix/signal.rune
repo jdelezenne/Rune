@@ -1,0 +1,20 @@
+public const SIGHUP: Int32 = 1
+public const SIGINT: Int32 = 2
+public const SIGILL: Int32 = 4
+public const SIGABRT: Int32 = 6
+public const SIGFPE: Int32 = 8
+public const SIGSEGV: Int32 = 11
+public const SIGPIPE: Int32 = 13
+public const SIGTERM: Int32 = 15
+public const SIGCHLD: Int32 = 20
+public const SIGUSR1: Int32 = 30
+public const SIGUSR2: Int32 = 31
+
+@symbol
+public func signal(sig: Int32, handler: &Byte?) -> &Byte?
+
+@symbol
+public func raise(sig: Int32) -> Int32
+
+@symbol
+public func sigaction(sig: Int32, act: *Byte?, oact: *Byte?) -> Int32

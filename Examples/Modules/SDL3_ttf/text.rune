@@ -1,0 +1,46 @@
+import SDL3
+
+// `length` is the text's length in bytes, or 0 for a null-terminated
+// CStringSlice (the common case).
+@symbol("TTF_GetStringSize")
+public func getStringSize(font: &Font?, text: CStringSlice, length: UInt, width: &Int32, height: &Int32) -> Bool
+
+@symbol("TTF_GetStringSizeWrapped")
+public func getStringSizeWrapped(font: &Font?, text: CStringSlice, length: UInt, wrapWidth: Int32, width: &Int32, height: &Int32) -> Bool
+
+@symbol("TTF_MeasureString")
+public func measureString(font: &Font?, text: CStringSlice, length: UInt, maxWidth: Int32, measuredWidth: &Int32, measuredLength: &UInt) -> Bool
+
+// Solid: fastest, no antialiasing (1-bit coverage).
+@symbol("TTF_RenderText_Solid")
+public func renderTextSolid(font: &Font?, text: CStringSlice, length: UInt, foreground: SDL3.Color) -> &SDL3.Surface?
+
+@symbol("TTF_RenderText_Solid_Wrapped")
+public func renderTextSolidWrapped(font: &Font?, text: CStringSlice, length: UInt, foreground: SDL3.Color, wrapWidth: Int32) -> &SDL3.Surface?
+
+// Shaded: antialiased against a solid background color (opaque
+// rectangle) -- cheaper than Blended, but not suitable over a
+// non-solid-color background.
+@symbol("TTF_RenderText_Shaded")
+public func renderTextShaded(font: &Font?, text: CStringSlice, length: UInt, foreground: SDL3.Color, background: SDL3.Color) -> &SDL3.Surface?
+
+@symbol("TTF_RenderText_Shaded_Wrapped")
+public func renderTextShadedWrapped(font: &Font?, text: CStringSlice, length: UInt, foreground: SDL3.Color, background: SDL3.Color, wrapWidth: Int32) -> &SDL3.Surface?
+
+// Blended: antialiased with real per-pixel alpha -- the usual choice
+// for text drawn over anything other than a flat color (e.g. a 3D
+// scene, or composited as a GL texture).
+@symbol("TTF_RenderText_Blended")
+public func renderTextBlended(font: &Font?, text: CStringSlice, length: UInt, foreground: SDL3.Color) -> &SDL3.Surface?
+
+@symbol("TTF_RenderText_Blended_Wrapped")
+public func renderTextBlendedWrapped(font: &Font?, text: CStringSlice, length: UInt, foreground: SDL3.Color, wrapWidth: Int32) -> &SDL3.Surface?
+
+// LCD: subpixel-antialiased (like ClearType) -- sharpest on an LCD
+// panel at small sizes, but the RGB subpixel fringing looks wrong
+// unless displayed at 1:1 pixel scale.
+@symbol("TTF_RenderText_LCD")
+public func renderTextLCD(font: &Font?, text: CStringSlice, length: UInt, foreground: SDL3.Color, background: SDL3.Color) -> &SDL3.Surface?
+
+@symbol("TTF_RenderText_LCD_Wrapped")
+public func renderTextLCDWrapped(font: &Font?, text: CStringSlice, length: UInt, foreground: SDL3.Color, background: SDL3.Color, wrapWidth: Int32) -> &SDL3.Surface?

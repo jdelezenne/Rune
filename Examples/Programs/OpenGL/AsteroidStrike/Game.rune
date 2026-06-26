@@ -1,0 +1,388 @@
+import Standard.*
+import SDL3
+
+const ARENA_RADIUS: Float32 = 72.0
+const MAX_ROCKS: Int = 56
+const MAX_SHOTS: Int = 40
+const MAX_PARTICLES: Int = 320
+const ROCK_VARIANTS: Int = 5
+
+const SHOT_SPEED: Float32 = 62.0
+const SHOT_LIFE: Float32 = 1.55
+const FIRE_INTERVAL: Float32 = 0.11
+
+struct Rng { var state: UInt32 }
+
+func randomUnit(rng: &Rng) -> Float32 {
+    rng.state = rng.state * 1664525 + 1013904223
+    return Float32(rng.state) / 4294967295.0
+}
+
+func randomRange(rng: &Rng, low: Float32, high: Float32) -> Float32 {
+    return low + (high - low) * randomUnit(rng)
+}
+
+func randomDirection(rng: &Rng) -> Vector3 {
+    var value = Vector3(
+        x: randomRange(rng, -1.0, 1.0),
+        y: randomRange(rng, -0.8, 0.8),
+        z: randomRange(rng, -1.0, 1.0))
+    if value.lengthSquared() < 0.01 { value.x = 1.0 }
+    return value.normalized()
+}
+
+struct ShipBasis {
+    var forward: Vector3
+    var right: Vector3
+    var up: Vector3
+}
+
+func shipBasis(yaw: Float32, pitch: Float32, roll: Float32) -> ShipBasis {
+    let cp = Math.cos(pitch)
+    let forward = Vector3(x: Math.cos(yaw) * cp, y: Math.sin(pitch), z: Math.sin(yaw) * cp).normalized()
+    let flatRight = Vector3(x: 0.0 - Math.sin(yaw), y: 0.0, z: Math.cos(yaw)).normalized()
+    let flatUp = flatRight.cross(other: forward).normalized()
+    let c = Math.cos(roll)
+    let s = Math.sin(roll)
+    return ShipBasis(
+        forward: forward,
+        right: (flatRight * c + flatUp * s).normalized(),
+        up: (flatUp * c - flatRight * s).normalized())
+}
+
+struct Ship {
+    var position: Vector3
+    var velocity: Vector3
+    var speed: Float32
+    var yaw: Float32
+    var pitch: Float32
+    var roll: Float32
+    var fireCooldown: Float32
+    var muzzleSide: Float32
+    var invulnerable: Float32
+    var trailTimer: Float32
+}
+
+struct Rock {
+    var position: Vector3
+    var velocity: Vector3
+    var spinAxis: Vector3
+    var spin: Float32
+    var spinSpeed: Float32
+    var radius: Float32
+    var tier: Int32
+    var variant: Int32
+    var active: Bool
+}
+
+struct Shot {
+    var position: Vector3
+    var velocity: Vector3
+    var life: Float32
+    var active: Bool
+}
+
+struct Particle {
+    var position: Vector3
+    var velocity: Vector3
+    var color: Vector3
+    var size: Float32
+    var life: Float32
+    var maxLife: Float32
+    var drag: Float32
+    var active: Bool
+}
+
+struct FrameEvents {
+    var shotsFired: Int32
+    var rocksDestroyed: Int32
+    var shipDestroyed: Int32
+    var thrusting: Bool
+}
+
+struct CameraRig {
+    var eye: Vector3
+    var target: Vector3
+}
+
+struct Controls {
+    var lookYaw: Float32
+    var lookPitch: Float32
+    var turnYaw: Float32
+    var turnPitch: Float32
+    var roll: Float32
+    var thrust: Bool
+    var brake: Bool
+    var fire: Bool
+}
+
+struct Game {
+    var ship: Ship
+    var rocks: [Rock, MAX_ROCKS]
+    var shots: [Shot, MAX_SHOTS]
+    var particles: [Particle, MAX_PARTICLES]
+    var camera: CameraRig
+    var rng: Rng
+    var score: Int32
+    var lives: Int32
+    var wave: Int32
+    var gameOver: Bool
+}
+
+func keyboardDown(keys: *Bool?, key: SDL3.Scancode) -> Bool {
+    if keys == nil { return false }
+    return ((Int(keys!) + Int(key as Int32)) as *Bool)^
+}
+
+func readControls(keys: *Bool?) -> Controls {
+    var mouseX: Float32 = 0.0
+    var mouseY: Float32 = 0.0
+    let mouseButtons = SDL3.MouseButton(SDL3.getRelativeMouseState(&mouseX, &mouseY))
+    var turnYaw: Float32 = 0.0
+    var turnPitch: Float32 = 0.0
+    if keyboardDown(keys, SDL3.Scancode.left) { turnYaw = turnYaw - 1.0 }
+    if keyboardDown(keys, SDL3.Scancode.right) { turnYaw = turnYaw + 1.0 }
+    if keyboardDown(keys, SDL3.Scancode.up) { turnPitch = turnPitch + 1.0 }
+    if keyboardDown(keys, SDL3.Scancode.down) { turnPitch = turnPitch - 1.0 }
+    var roll: Float32 = 0.0
+    if keyboardDown(keys, SDL3.Scancode.a) || keyboardDown(keys, SDL3.Scancode.q) { roll = roll - 1.0 }
+    if keyboardDown(keys, SDL3.Scancode.d) || keyboardDown(keys, SDL3.Scancode.e) { roll = roll + 1.0 }
+    return Controls(
+        lookYaw: mouseX * 0.0024, lookPitch: 0.0 - mouseY * 0.0022,
+        turnYaw: turnYaw, turnPitch: turnPitch, roll: roll,
+        thrust: keyboardDown(keys, SDL3.Scancode.w),
+        brake: keyboardDown(keys, SDL3.Scancode.s),
+        fire: keyboardDown(keys, SDL3.Scancode.space) ||
+            (mouseButtons & SDL3.MouseButton.leftMask) != SDL3.MouseButton(0))
+}
+
+func wrap(value: Float32) -> Float32 {
+    if value > ARENA_RADIUS { return value - ARENA_RADIUS * 2.0 }
+    if value < 0.0 - ARENA_RADIUS { return value + ARENA_RADIUS * 2.0 }
+    return value
+}
+
+func rockRadius(tier: Int32) -> Float32 {
+    if tier == 2 { return 4.4 }
+    if tier == 1 { return 2.45 }
+    return 1.25
+}
+
+func segmentHitsSphere(start: Vector3, end: Vector3, center: Vector3, radius: Float32) -> Bool {
+    let segment = end - start
+    let lengthSquared = segment.lengthSquared()
+    if lengthSquared < 0.000001 { return start.distance(to: center) <= radius }
+    let along = Math.clamp((center - start).dot(other: segment) / lengthSquared, 0.0, 1.0)
+    let closest = start + segment * along
+    return (closest - center).lengthSquared() <= radius * radius
+}
+
+func spawnRock(game: &Game, position: Vector3, velocity: Vector3, tier: Int32) {
+    for index in 0..MAX_ROCKS {
+        if game.rocks[index].active { continue }
+        game.rocks[index] = Rock(
+            position: position, velocity: velocity,
+            spinAxis: randomDirection(&game.rng), spin: randomRange(&game.rng, 0.0, 6.28),
+            spinSpeed: randomRange(&game.rng, -1.2, 1.2), radius: rockRadius(tier),
+            tier: tier, variant: Int32(randomUnit(&game.rng) * Float32(ROCK_VARIANTS)), active: true)
+        return
+    }
+}
+
+func spawnWave(game: &Game) {
+    let count = 3 + game.wave
+    for _ in 0..count {
+        let outward = randomDirection(&game.rng)
+        let position = outward * randomRange(&game.rng, 42.0, 62.0)
+        let towardCenter = (Vector3.zero() - position).normalized()
+        let drift = randomDirection(&game.rng) * 2.5
+        spawnRock(game, position, towardCenter * randomRange(&game.rng, 2.5, 5.0) + drift, 2)
+    }
+}
+
+func newGame(seed: UInt32) -> Game {
+    var game = Game(
+        ship: Ship(position: Vector3.zero(), velocity: Vector3.zero(), yaw: 0.0, pitch: 0.0,
+            speed: 0.0, roll: 0.0, fireCooldown: 0.0, muzzleSide: -1.0,
+            invulnerable: 2.5, trailTimer: 0.0),
+        rocks: [], shots: [], particles: [],
+        camera: CameraRig(eye: Vector3(x: -11.0, y: 3.4, z: 0.0), target: Vector3(x: 8.0, y: 0.0, z: 0.0)),
+        rng: Rng(state: if seed == 0 { 0xA57E10D1 } else { seed }),
+        score: 0, lives: 3, wave: 1, gameOver: false)
+    spawnWave(&game)
+    return game
+}
+
+func fire(game: &Game, basis: ShipBasis) -> Bool {
+    if game.ship.fireCooldown > 0.0 { return false }
+    let muzzle = game.ship.position + basis.forward * 3.15 + basis.up * Float32(-0.08) + basis.right * (0.72 * game.ship.muzzleSide)
+    for index in 0..MAX_SHOTS {
+        if game.shots[index].active { continue }
+        game.shots[index] = Shot(position: muzzle, velocity: game.ship.velocity + basis.forward * SHOT_SPEED, life: SHOT_LIFE, active: true)
+        game.ship.muzzleSide = 0.0 - game.ship.muzzleSide
+        game.ship.fireCooldown = FIRE_INTERVAL
+        return true
+    }
+    return false
+}
+
+func addParticle(game: &Game, position: Vector3, velocity: Vector3, color: Vector3,
+    size: Float32, life: Float32, drag: Float32) {
+    for index in 0..MAX_PARTICLES {
+        if game.particles[index].active { continue }
+        game.particles[index] = Particle(position: position, velocity: velocity, color: color,
+            size: size, life: life, maxLife: life, drag: drag, active: true)
+        return
+    }
+}
+
+func spawnRockExplosion(game: &Game, rock: Rock) {
+    let count: Int = 12 + Int(rock.tier) * 8
+    for index in 0..count {
+        let direction = randomDirection(&game.rng)
+        let speed = randomRange(&game.rng, 3.0, 10.0 + Float32(rock.tier) * 3.0)
+        let hot = (index % 4) == 0
+        let color = if hot {
+            Vector3(x: 1.0, y: randomRange(&game.rng, 0.35, 0.75), z: 0.08)
+        } else {
+            Vector3(x: randomRange(&game.rng, 0.28, 0.58),
+                y: randomRange(&game.rng, 0.22, 0.42), z: randomRange(&game.rng, 0.18, 0.30))
+        }
+        addParticle(game, rock.position + direction * randomRange(&game.rng, 0.0, rock.radius * 0.45),
+            rock.velocity + direction * speed, color,
+            randomRange(&game.rng, 0.18, 0.48 + Float32(rock.tier) * 0.12),
+            randomRange(&game.rng, 0.45, 1.05), 1.7)
+    }
+}
+
+func spawnShipExplosion(game: &Game, basis: ShipBasis) {
+    for index in 0..52 {
+        var direction = randomDirection(&game.rng)
+        if index < 12 { direction = (basis.forward * randomRange(&game.rng, -0.7, 0.7) +
+            basis.right * randomRange(&game.rng, -1.0, 1.0) +
+            basis.up * randomRange(&game.rng, -0.7, 0.7)).normalized() }
+        let hot = (index % 3) != 0
+        let color = if hot {
+            Vector3(x: 1.0, y: randomRange(&game.rng, 0.2, 0.75), z: randomRange(&game.rng, 0.02, 0.18))
+        } else { Vector3(x: 0.12, y: 0.5, z: 1.0) }
+        addParticle(game, game.ship.position + direction * randomRange(&game.rng, 0.0, 1.4),
+            game.ship.velocity * 0.35 + direction * randomRange(&game.rng, 5.0, 20.0), color,
+            randomRange(&game.rng, 0.22, 0.72), randomRange(&game.rng, 0.55, 1.35), 1.25)
+    }
+}
+
+func spawnEngineTrail(game: &Game, basis: ShipBasis, dt: Float32) {
+    game.ship.trailTimer = game.ship.trailTimer - dt
+    if game.ship.trailTimer > 0.0 { return }
+    game.ship.trailTimer = game.ship.trailTimer + 0.022
+    let rear = game.ship.position - basis.forward * 2.15
+    for side in -1..2 {
+        let jitter = randomDirection(&game.rng) * randomRange(&game.rng, 0.0, 0.45)
+        addParticle(game, rear + basis.right * (Float32(side) * 0.42),
+            game.ship.velocity - basis.forward * randomRange(&game.rng, 7.0, 12.0) + jitter,
+            Vector3(x: randomRange(&game.rng, 0.12, 0.38), y: randomRange(&game.rng, 0.55, 0.9), z: 1.0),
+            randomRange(&game.rng, 0.16, 0.34), randomRange(&game.rng, 0.22, 0.42), 3.4)
+    }
+}
+
+func updateParticles(game: &Game, dt: Float32) {
+    for index in 0..MAX_PARTICLES {
+        if !game.particles[index].active { continue }
+        game.particles[index].life = game.particles[index].life - dt
+        if game.particles[index].life <= 0.0 { game.particles[index].active = false; continue }
+        game.particles[index].position = game.particles[index].position + game.particles[index].velocity * dt
+        game.particles[index].velocity = game.particles[index].velocity *
+            Math.max(0.0, 1.0 - game.particles[index].drag * dt)
+    }
+}
+
+func destroyRock(game: &Game, index: Int, events: &FrameEvents) {
+    let rock = game.rocks[index]
+    game.rocks[index].active = false
+    spawnRockExplosion(game, rock)
+    events.rocksDestroyed = events.rocksDestroyed + 1
+    if rock.tier == 2 {
+        game.score = game.score + 25
+    } else if rock.tier == 1 {
+        game.score = game.score + 60
+    } else {
+        game.score = game.score + 140
+    }
+    if rock.tier > 0 {
+        for _ in 0..2 {
+            spawnRock(game, rock.position, rock.velocity + randomDirection(&game.rng) * randomRange(&game.rng, 4.0, 8.0), rock.tier - 1)
+        }
+    }
+}
+
+func updateGame(game: &Game, controls: Controls, dt: Float32) -> FrameEvents {
+    var events = FrameEvents(shotsFired: 0, rocksDestroyed: 0, shipDestroyed: 0, thrusting: false)
+    updateParticles(game, dt)
+    if game.gameOver { return events }
+    if game.ship.fireCooldown > 0.0 { game.ship.fireCooldown = game.ship.fireCooldown - dt }
+    if game.ship.invulnerable > 0.0 { game.ship.invulnerable = game.ship.invulnerable - dt }
+
+    game.ship.yaw = game.ship.yaw + controls.lookYaw + controls.turnYaw * 1.65 * dt
+    game.ship.pitch = Math.clamp(game.ship.pitch + controls.lookPitch + controls.turnPitch * 1.35 * dt, -1.15, 1.15)
+    let desiredRoll = Math.clamp(controls.roll * 0.72 - controls.turnYaw * 0.42, -0.9, 0.9)
+    game.ship.roll = Math.lerp(game.ship.roll, desiredRoll, Math.clamp(dt * 6.0, 0.0, 1.0))
+    let basis = shipBasis(game.ship.yaw, game.ship.pitch, game.ship.roll)
+    if controls.thrust { game.ship.speed = game.ship.speed + 22.0 * dt }
+    if controls.brake { game.ship.speed = game.ship.speed * Math.max(0.0, 1.0 - dt * 2.8) }
+    game.ship.speed = Math.min(34.0, game.ship.speed) * Math.max(0.0, 1.0 - dt * 0.12)
+    if game.ship.speed < 0.01 { game.ship.speed = 0.0 }
+    // Arcade-flight invariant: travel follows the direction the ship's nose points.
+    // Velocity remains available to projectiles/camera, but is always derived from facing.
+    game.ship.velocity = basis.forward * game.ship.speed
+    game.ship.position = game.ship.position + game.ship.velocity * dt
+    game.ship.position = Vector3(x: wrap(game.ship.position.x), y: wrap(game.ship.position.y), z: wrap(game.ship.position.z))
+    if controls.thrust {
+        events.thrusting = true
+        spawnEngineTrail(game, basis, dt)
+    } else { game.ship.trailTimer = 0.0 }
+    if controls.fire && fire(game, basis) { events.shotsFired = events.shotsFired + 1 }
+
+    for shotIndex in 0..MAX_SHOTS {
+        if !game.shots[shotIndex].active { continue }
+        game.shots[shotIndex].life = game.shots[shotIndex].life - dt
+        if game.shots[shotIndex].life <= 0.0 { game.shots[shotIndex].active = false; continue }
+        let previousPosition = game.shots[shotIndex].position
+        let nextPosition = previousPosition + game.shots[shotIndex].velocity * dt
+        game.shots[shotIndex].position = nextPosition
+        for rockIndex in 0..MAX_ROCKS {
+            if !game.rocks[rockIndex].active { continue }
+            if segmentHitsSphere(previousPosition, nextPosition, game.rocks[rockIndex].position, game.rocks[rockIndex].radius + 0.25) {
+                game.shots[shotIndex].active = false
+                destroyRock(game, rockIndex, &events)
+                break
+            }
+        }
+    }
+
+    var living: Int32 = 0
+    for rockIndex in 0..MAX_ROCKS {
+        if !game.rocks[rockIndex].active { continue }
+        living = living + 1
+        game.rocks[rockIndex].spin = game.rocks[rockIndex].spin + game.rocks[rockIndex].spinSpeed * dt
+        game.rocks[rockIndex].position = game.rocks[rockIndex].position + game.rocks[rockIndex].velocity * dt
+        game.rocks[rockIndex].position = Vector3(x: wrap(game.rocks[rockIndex].position.x), y: wrap(game.rocks[rockIndex].position.y), z: wrap(game.rocks[rockIndex].position.z))
+        if game.ship.invulnerable <= 0.0 && game.ship.position.distance(to: game.rocks[rockIndex].position) < game.rocks[rockIndex].radius + 1.1 {
+            spawnShipExplosion(game, basis)
+            events.shipDestroyed = events.shipDestroyed + 1
+            game.lives = game.lives - 1
+            if game.lives <= 0 { game.gameOver = true }
+            game.ship.position = Vector3.zero()
+            game.ship.velocity = Vector3.zero()
+            game.ship.speed = 0.0
+            game.ship.invulnerable = 2.5
+        }
+    }
+    if living == 0 { game.wave = game.wave + 1; spawnWave(game) }
+
+    let desiredEye = game.ship.position - basis.forward * 11.5 + basis.up * 3.2
+    let desiredTarget = game.ship.position + basis.forward * 9.0 + game.ship.velocity * 0.08
+    let cameraBlend = Math.clamp(dt * 7.5, 0.0, 1.0)
+    game.camera.eye = game.camera.eye + (desiredEye - game.camera.eye) * cameraBlend
+    game.camera.target = game.camera.target + (desiredTarget - game.camera.target) * cameraBlend
+    return events
+}

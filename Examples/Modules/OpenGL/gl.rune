@@ -1,0 +1,435 @@
+// OpenGL types, constants, linked entry points, and context-loaded entry points.
+// Call `loadFunctions` after making a context current to initialize the
+// context-dependent entry points declared below.
+
+public alias GLenum = UInt32
+public alias GLbitfield = UInt32
+public alias GLuint = UInt32
+public alias GLint = Int32
+public alias GLsizei = Int32
+public alias GLboolean = UInt8
+public alias GLfloat = Float32
+public alias GLdouble = Float64
+public alias GLclampf = Float32
+
+// Boolean
+public const FALSE: GLboolean = 0 // GL_FALSE
+public const TRUE: GLboolean = 1 // GL_TRUE
+
+// Clear buffer bits
+public const DEPTH_BUFFER_BIT: GLbitfield = 0x00000100 // GL_DEPTH_BUFFER_BIT
+public const STENCIL_BUFFER_BIT: GLbitfield = 0x00000400 // GL_STENCIL_BUFFER_BIT
+public const COLOR_BUFFER_BIT: GLbitfield = 0x00004000 // GL_COLOR_BUFFER_BIT
+
+// Primitive types
+public const POINTS: GLenum = 0x0000 // GL_POINTS
+public const LINES: GLenum = 0x0001 // GL_LINES
+public const LINE_LOOP: GLenum = 0x0002 // GL_LINE_LOOP
+public const LINE_STRIP: GLenum = 0x0003 // GL_LINE_STRIP
+public const TRIANGLES: GLenum = 0x0004 // GL_TRIANGLES
+public const TRIANGLE_STRIP: GLenum = 0x0005 // GL_TRIANGLE_STRIP
+public const TRIANGLE_FAN: GLenum = 0x0006 // GL_TRIANGLE_FAN
+
+// Vertex attribute element types
+public const BYTE: GLenum = 0x1400 // GL_BYTE
+public const UNSIGNED_BYTE: GLenum = 0x1401 // GL_UNSIGNED_BYTE
+public const SHORT: GLenum = 0x1402 // GL_SHORT
+public const UNSIGNED_SHORT: GLenum = 0x1403 // GL_UNSIGNED_SHORT
+public const INT: GLenum = 0x1404 // GL_INT
+public const UNSIGNED_INT: GLenum = 0x1405 // GL_UNSIGNED_INT
+public const FLOAT: GLenum = 0x1406 // GL_FLOAT
+
+// Depth/alpha/stencil comparison functions
+public const NEVER: GLenum = 0x0200 // GL_NEVER
+public const LESS: GLenum = 0x0201 // GL_LESS
+public const EQUAL: GLenum = 0x0202 // GL_EQUAL
+public const LEQUAL: GLenum = 0x0203 // GL_LEQUAL
+public const GREATER: GLenum = 0x0204 // GL_GREATER
+public const NOTEQUAL: GLenum = 0x0205 // GL_NOTEQUAL
+public const GEQUAL: GLenum = 0x0206 // GL_GEQUAL
+public const ALWAYS: GLenum = 0x0207 // GL_ALWAYS
+
+// Capabilities
+public const CULL_FACE: GLenum = 0x0B44 // GL_CULL_FACE
+public const DEPTH_TEST: GLenum = 0x0B71 // GL_DEPTH_TEST
+public const STENCIL_TEST: GLenum = 0x0B90 // GL_STENCIL_TEST
+public const BLEND: GLenum = 0x0BE2 // GL_BLEND
+public const MULTISAMPLE: GLenum = 0x809D // GL_MULTISAMPLE
+public const PROGRAM_POINT_SIZE: GLenum = 0x8642 // GL_PROGRAM_POINT_SIZE
+
+// Polygon face and winding
+public const FRONT: GLenum = 0x0404 // GL_FRONT
+public const BACK: GLenum = 0x0405 // GL_BACK
+public const FRONT_AND_BACK: GLenum = 0x0408 // GL_FRONT_AND_BACK
+public const CW: GLenum = 0x0900 // GL_CW
+public const CCW: GLenum = 0x0901 // GL_CCW
+
+public const ALPHA: GLenum = 0x1906 // GL_ALPHA
+public const UNPACK_ALIGNMENT: GLenum = 0x0CF5 // GL_UNPACK_ALIGNMENT
+
+// Errors
+public const NO_ERROR: GLenum = 0 // GL_NO_ERROR
+public const INVALID_ENUM: GLenum = 0x0500 // GL_INVALID_ENUM
+public const INVALID_VALUE: GLenum = 0x0501 // GL_INVALID_VALUE
+public const INVALID_OPERATION: GLenum = 0x0502 // GL_INVALID_OPERATION
+public const STACK_OVERFLOW: GLenum = 0x0503 // GL_STACK_OVERFLOW
+public const STACK_UNDERFLOW: GLenum = 0x0504 // GL_STACK_UNDERFLOW
+public const OUT_OF_MEMORY: GLenum = 0x0505 // GL_OUT_OF_MEMORY
+
+// Buffer objects
+public const ARRAY_BUFFER: GLenum = 0x8892 // GL_ARRAY_BUFFER
+public const ELEMENT_ARRAY_BUFFER: GLenum = 0x8893 // GL_ELEMENT_ARRAY_BUFFER
+public const STREAM_DRAW: GLenum = 0x88E0 // GL_STREAM_DRAW
+public const STATIC_DRAW: GLenum = 0x88E4 // GL_STATIC_DRAW
+public const DYNAMIC_DRAW: GLenum = 0x88E8 // GL_DYNAMIC_DRAW
+
+// Textures
+public const TEXTURE_2D: GLenum = 0x0DE1 // GL_TEXTURE_2D
+public const TEXTURE0: GLenum = 0x84C0 // GL_TEXTURE0
+public const TEXTURE_MIN_FILTER: GLenum = 0x2801 // GL_TEXTURE_MIN_FILTER
+public const TEXTURE_MAG_FILTER: GLenum = 0x2800 // GL_TEXTURE_MAG_FILTER
+public const TEXTURE_WRAP_S: GLenum = 0x2802 // GL_TEXTURE_WRAP_S
+public const TEXTURE_WRAP_T: GLenum = 0x2803 // GL_TEXTURE_WRAP_T
+public const NEAREST: GLenum = 0x2600 // GL_NEAREST
+public const LINEAR: GLenum = 0x2601 // GL_LINEAR
+public const LINEAR_MIPMAP_LINEAR: GLenum = 0x2703 // GL_LINEAR_MIPMAP_LINEAR
+public const REPEAT: GLenum = 0x2901 // GL_REPEAT
+public const CLAMP_TO_EDGE: GLenum = 0x812F // GL_CLAMP_TO_EDGE
+public const RED: GLenum = 0x1903 // GL_RED
+public const RGB: GLenum = 0x1907 // GL_RGB
+public const RGBA: GLenum = 0x1908 // GL_RGBA
+public const RGBA8: GLenum = 0x8058 // GL_RGBA8
+public const RGBA16F: GLenum = 0x881A // GL_RGBA16F
+
+// Blending
+public const ZERO: GLenum = 0 // GL_ZERO
+public const ONE: GLenum = 1 // GL_ONE
+public const SRC_ALPHA: GLenum = 0x0302 // GL_SRC_ALPHA
+public const ONE_MINUS_SRC_ALPHA: GLenum = 0x0303 // GL_ONE_MINUS_SRC_ALPHA
+public const FUNC_ADD: GLenum = 0x8006 // GL_FUNC_ADD
+
+// Framebuffers and renderbuffers
+public const FRAMEBUFFER: GLenum = 0x8D40 // GL_FRAMEBUFFER
+public const RENDERBUFFER: GLenum = 0x8D41 // GL_RENDERBUFFER
+public const COLOR_ATTACHMENT0: GLenum = 0x8CE0 // GL_COLOR_ATTACHMENT0
+public const DEPTH_ATTACHMENT: GLenum = 0x8D00 // GL_DEPTH_ATTACHMENT
+public const DEPTH_COMPONENT24: GLenum = 0x81A6 // GL_DEPTH_COMPONENT24
+public const FRAMEBUFFER_COMPLETE: GLenum = 0x8CD5 // GL_FRAMEBUFFER_COMPLETE
+
+// Shaders and programs
+public const FRAGMENT_SHADER: GLenum = 0x8B30 // GL_FRAGMENT_SHADER
+public const VERTEX_SHADER: GLenum = 0x8B31 // GL_VERTEX_SHADER
+public const COMPILE_STATUS: GLenum = 0x8B81 // GL_COMPILE_STATUS
+public const LINK_STATUS: GLenum = 0x8B82 // GL_LINK_STATUS
+
+@symbol alias CreateShaderProc = (GLenum) -> GLuint
+@symbol alias ShaderSourceProc = (GLuint, GLsizei, *(*Int8), *GLint) -> Void
+@symbol alias CompileShaderProc = (GLuint) -> Void
+@symbol alias GetShaderivProc = (GLuint, GLenum, *GLint) -> Void
+@symbol alias GetShaderInfoLogProc = (GLuint, GLsizei, *GLsizei, *Int8) -> Void
+@symbol alias CreateProgramProc = () -> GLuint
+@symbol alias AttachShaderProc = (GLuint, GLuint) -> Void
+@symbol alias LinkProgramProc = (GLuint) -> Void
+@symbol alias GetProgramivProc = (GLuint, GLenum, *GLint) -> Void
+@symbol alias GetProgramInfoLogProc = (GLuint, GLsizei, *GLsizei, *Int8) -> Void
+@symbol alias UseProgramProc = (GLuint) -> Void
+@symbol alias DeleteShaderProc = (GLuint) -> Void
+@symbol alias DeleteProgramProc = (GLuint) -> Void
+@symbol alias GenBuffersProc = (GLsizei, *GLuint) -> Void
+@symbol alias BindBufferProc = (GLenum, GLuint) -> Void
+@symbol alias BufferDataProc = (GLenum, Int, *Byte, GLenum) -> Void
+@symbol alias BufferSubDataProc = (GLenum, Int, Int, *Byte) -> Void
+@symbol alias DeleteBuffersProc = (GLsizei, *GLuint) -> Void
+@symbol alias GenVertexArraysProc = (GLsizei, *GLuint) -> Void
+@symbol alias BindVertexArrayProc = (GLuint) -> Void
+@symbol alias DeleteVertexArraysProc = (GLsizei, *GLuint) -> Void
+@symbol alias GetAttribLocationProc = (GLuint, CStringSlice) -> GLint
+@symbol alias GetUniformLocationProc = (GLuint, CStringSlice) -> GLint
+@symbol alias EnableVertexAttribArrayProc = (GLuint) -> Void
+@symbol alias DisableVertexAttribArrayProc = (GLuint) -> Void
+@symbol alias VertexAttribPointerProc = (GLuint, GLint, GLenum, GLboolean, GLsizei, *Byte) -> Void
+@symbol alias UniformMatrix4fvProc = (GLint, GLsizei, GLboolean, *GLfloat) -> Void
+@symbol alias Uniform1iProc = (GLint, GLint) -> Void
+@symbol alias Uniform1fProc = (GLint, GLfloat) -> Void
+@symbol alias Uniform2fProc = (GLint, GLfloat, GLfloat) -> Void
+@symbol alias Uniform3fProc = (GLint, GLfloat, GLfloat, GLfloat) -> Void
+@symbol alias Uniform4fProc = (GLint, GLfloat, GLfloat, GLfloat, GLfloat) -> Void
+@symbol alias GenTexturesProc = (GLsizei, *GLuint) -> Void
+@symbol alias BindTextureProc = (GLenum, GLuint) -> Void
+@symbol alias TexImage2DProc = (GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, *Byte) -> Void
+@symbol alias TexParameteriProc = (GLenum, GLenum, GLint) -> Void
+@symbol alias ActiveTextureProc = (GLenum) -> Void
+@symbol alias GenerateMipmapProc = (GLenum) -> Void
+@symbol alias DeleteTexturesProc = (GLsizei, *GLuint) -> Void
+@symbol alias BlendFuncProc = (GLenum, GLenum) -> Void
+@symbol alias BlendEquationProc = (GLenum) -> Void
+@symbol alias GenFramebuffersProc = (GLsizei, *GLuint) -> Void
+@symbol alias BindFramebufferProc = (GLenum, GLuint) -> Void
+@symbol alias FramebufferTexture2DProc = (GLenum, GLenum, GLenum, GLuint, GLint) -> Void
+@symbol alias CheckFramebufferStatusProc = (GLenum) -> GLenum
+@symbol alias DeleteFramebuffersProc = (GLsizei, *GLuint) -> Void
+@symbol alias GenRenderbuffersProc = (GLsizei, *GLuint) -> Void
+@symbol alias BindRenderbufferProc = (GLenum, GLuint) -> Void
+@symbol alias RenderbufferStorageProc = (GLenum, GLenum, GLsizei, GLsizei) -> Void
+@symbol alias FramebufferRenderbufferProc = (GLenum, GLenum, GLenum, GLuint) -> Void
+@symbol alias DeleteRenderbuffersProc = (GLsizei, *GLuint) -> Void
+
+var createShaderProc: CreateShaderProc
+var shaderSourceProc: ShaderSourceProc
+var compileShaderProc: CompileShaderProc
+var getShaderivProc: GetShaderivProc
+var getShaderInfoLogProc: GetShaderInfoLogProc
+var createProgramProc: CreateProgramProc
+var attachShaderProc: AttachShaderProc
+var linkProgramProc: LinkProgramProc
+var getProgramivProc: GetProgramivProc
+var getProgramInfoLogProc: GetProgramInfoLogProc
+var useProgramProc: UseProgramProc
+var deleteShaderProc: DeleteShaderProc
+var deleteProgramProc: DeleteProgramProc
+var genBuffersProc: GenBuffersProc
+var bindBufferProc: BindBufferProc
+var bufferDataProc: BufferDataProc
+var bufferSubDataProc: BufferSubDataProc
+var deleteBuffersProc: DeleteBuffersProc
+var genVertexArraysProc: GenVertexArraysProc
+var bindVertexArrayProc: BindVertexArrayProc
+var deleteVertexArraysProc: DeleteVertexArraysProc
+var getAttribLocationProc: GetAttribLocationProc
+var getUniformLocationProc: GetUniformLocationProc
+var enableVertexAttribArrayProc: EnableVertexAttribArrayProc
+var disableVertexAttribArrayProc: DisableVertexAttribArrayProc
+var vertexAttribPointerProc: VertexAttribPointerProc
+var uniformMatrix4fvProc: UniformMatrix4fvProc
+var uniform1iProc: Uniform1iProc
+var uniform1fProc: Uniform1fProc
+var uniform2fProc: Uniform2fProc
+var uniform3fProc: Uniform3fProc
+var uniform4fProc: Uniform4fProc
+var genTexturesProc: GenTexturesProc
+var bindTextureProc: BindTextureProc
+var texImage2DProc: TexImage2DProc
+var texParameteriProc: TexParameteriProc
+var activeTextureProc: ActiveTextureProc
+var generateMipmapProc: GenerateMipmapProc
+var deleteTexturesProc: DeleteTexturesProc
+var blendFuncProc: BlendFuncProc
+var blendEquationProc: BlendEquationProc
+var genFramebuffersProc: GenFramebuffersProc
+var bindFramebufferProc: BindFramebufferProc
+var framebufferTexture2DProc: FramebufferTexture2DProc
+var checkFramebufferStatusProc: CheckFramebufferStatusProc
+var deleteFramebuffersProc: DeleteFramebuffersProc
+var genRenderbuffersProc: GenRenderbuffersProc
+var bindRenderbufferProc: BindRenderbufferProc
+var renderbufferStorageProc: RenderbufferStorageProc
+var framebufferRenderbufferProc: FramebufferRenderbufferProc
+var deleteRenderbuffersProc: DeleteRenderbuffersProc
+
+public func createShader(kind: GLenum) -> GLuint {
+    return createShaderProc(kind)
+}
+public func shaderSource(shader: GLuint, count: GLsizei, strings: *(*Int8), lengths: *GLint) -> Void {
+    shaderSourceProc(shader, count, strings, lengths)
+}
+public func compileShader(shader: GLuint) -> Void {
+    compileShaderProc(shader)
+}
+public func getShaderiv(shader: GLuint, pname: GLenum, params: *GLint) -> Void {
+    getShaderivProc(shader, pname, params)
+}
+public func getShaderInfoLog(shader: GLuint, maxLength: GLsizei, length: *GLsizei, infoLog: *Int8) -> Void {
+    getShaderInfoLogProc(shader, maxLength, length, infoLog)
+}
+public func createProgram() -> GLuint {
+    return createProgramProc()
+}
+public func attachShader(program: GLuint, shader: GLuint) -> Void {
+    attachShaderProc(program, shader)
+}
+public func linkProgram(program: GLuint) -> Void {
+    linkProgramProc(program)
+}
+public func getProgramiv(program: GLuint, pname: GLenum, params: *GLint) -> Void {
+    getProgramivProc(program, pname, params)
+}
+public func getProgramInfoLog(program: GLuint, maxLength: GLsizei, length: *GLsizei, infoLog: *Int8) -> Void {
+    getProgramInfoLogProc(program, maxLength, length, infoLog)
+}
+public func useProgram(program: GLuint) -> Void {
+    useProgramProc(program)
+}
+public func deleteShader(shader: GLuint) -> Void {
+    deleteShaderProc(shader)
+}
+public func deleteProgram(program: GLuint) -> Void {
+    deleteProgramProc(program)
+}
+public func genBuffers(count: GLsizei, buffers: *GLuint) -> Void {
+    genBuffersProc(count, buffers)
+}
+public func bindBuffer(target: GLenum, buffer: GLuint) -> Void {
+    bindBufferProc(target, buffer)
+}
+public func bufferData(target: GLenum, size: Int, data: *Byte, usage: GLenum) -> Void {
+    bufferDataProc(target, size, data, usage)
+}
+public func bufferSubData(target: GLenum, offset: Int, size: Int, data: *Byte) -> Void {
+    bufferSubDataProc(target, offset, size, data)
+}
+public func deleteBuffers(count: GLsizei, buffers: *GLuint) -> Void {
+    deleteBuffersProc(count, buffers)
+}
+public func genVertexArrays(count: GLsizei, arrays: *GLuint) -> Void {
+    genVertexArraysProc(count, arrays)
+}
+public func bindVertexArray(array: GLuint) -> Void {
+    bindVertexArrayProc(array)
+}
+public func deleteVertexArrays(count: GLsizei, arrays: *GLuint) -> Void {
+    deleteVertexArraysProc(count, arrays)
+}
+public func getAttribLocation(program: GLuint, name: CStringSlice) -> GLint {
+    return getAttribLocationProc(program, name)
+}
+public func getUniformLocation(program: GLuint, name: CStringSlice) -> GLint {
+    return getUniformLocationProc(program, name)
+}
+public func enableVertexAttribArray(index: GLuint) -> Void {
+    enableVertexAttribArrayProc(index)
+}
+public func disableVertexAttribArray(index: GLuint) -> Void {
+    disableVertexAttribArrayProc(index)
+}
+public func vertexAttribPointer(index: GLuint, size: GLint, kind: GLenum, normalized: GLboolean, stride: GLsizei, pointer: *Byte) -> Void {
+    vertexAttribPointerProc(index, size, kind, normalized, stride, pointer)
+}
+public func uniformMatrix4fv(location: GLint, count: GLsizei, transpose: GLboolean, value: *GLfloat) -> Void {
+    uniformMatrix4fvProc(location, count, transpose, value)
+}
+public func uniform1i(location: GLint, value: GLint) -> Void {
+    uniform1iProc(location, value)
+}
+public func uniform1f(location: GLint, value: GLfloat) -> Void {
+    uniform1fProc(location, value)
+}
+public func uniform2f(location: GLint, x: GLfloat, y: GLfloat) -> Void {
+    uniform2fProc(location, x, y)
+}
+public func uniform3f(location: GLint, x: GLfloat, y: GLfloat, z: GLfloat) -> Void {
+    uniform3fProc(location, x, y, z)
+}
+public func uniform4f(location: GLint, x: GLfloat, y: GLfloat, z: GLfloat, w: GLfloat) -> Void {
+    uniform4fProc(location, x, y, z, w)
+}
+public func genTextures(count: GLsizei, textures: *GLuint) -> Void {
+    genTexturesProc(count, textures)
+}
+public func bindTexture(target: GLenum, texture: GLuint) -> Void {
+    bindTextureProc(target, texture)
+}
+public func texImage2D(target: GLenum, level: GLint, internalFormat: GLint, width: GLsizei, height: GLsizei, border: GLint, format: GLenum, kind: GLenum, pixels: *Byte) -> Void {
+    texImage2DProc(target, level, internalFormat, width, height, border, format, kind, pixels)
+}
+public func texParameteri(target: GLenum, pname: GLenum, value: GLint) -> Void {
+    texParameteriProc(target, pname, value)
+}
+public func activeTexture(texture: GLenum) -> Void {
+    activeTextureProc(texture)
+}
+public func generateMipmap(target: GLenum) -> Void {
+    generateMipmapProc(target)
+}
+public func deleteTextures(count: GLsizei, textures: *GLuint) -> Void {
+    deleteTexturesProc(count, textures)
+}
+public func blendFunc(source: GLenum, destination: GLenum) -> Void {
+    blendFuncProc(source, destination)
+}
+public func blendEquation(mode: GLenum) -> Void {
+    blendEquationProc(mode)
+}
+public func genFramebuffers(count: GLsizei, framebuffers: *GLuint) -> Void {
+    genFramebuffersProc(count, framebuffers)
+}
+public func bindFramebuffer(target: GLenum, framebuffer: GLuint) -> Void {
+    bindFramebufferProc(target, framebuffer)
+}
+public func framebufferTexture2D(target: GLenum, attachment: GLenum, textureTarget: GLenum, texture: GLuint, level: GLint) -> Void {
+    framebufferTexture2DProc(target, attachment, textureTarget, texture, level)
+}
+public func checkFramebufferStatus(target: GLenum) -> GLenum {
+    return checkFramebufferStatusProc(target)
+}
+public func deleteFramebuffers(count: GLsizei, framebuffers: *GLuint) -> Void {
+    deleteFramebuffersProc(count, framebuffers)
+}
+public func genRenderbuffers(count: GLsizei, renderbuffers: *GLuint) -> Void {
+    genRenderbuffersProc(count, renderbuffers)
+}
+public func bindRenderbuffer(target: GLenum, renderbuffer: GLuint) -> Void {
+    bindRenderbufferProc(target, renderbuffer)
+}
+public func renderbufferStorage(target: GLenum, internalFormat: GLenum, width: GLsizei, height: GLsizei) -> Void {
+    renderbufferStorageProc(target, internalFormat, width, height)
+}
+public func framebufferRenderbuffer(target: GLenum, attachment: GLenum, renderbufferTarget: GLenum, renderbuffer: GLuint) -> Void {
+    framebufferRenderbufferProc(target, attachment, renderbufferTarget, renderbuffer)
+}
+public func deleteRenderbuffers(count: GLsizei, renderbuffers: *GLuint) -> Void {
+    deleteRenderbuffersProc(count, renderbuffers)
+}
+
+public func loadFunctions(getProcAddress: (CStringSlice) -> &Byte?) {
+    createShaderProc = getProcAddress("glCreateShader")! as CreateShaderProc
+    shaderSourceProc = getProcAddress("glShaderSource")! as ShaderSourceProc
+    compileShaderProc = getProcAddress("glCompileShader")! as CompileShaderProc
+    getShaderivProc = getProcAddress("glGetShaderiv")! as GetShaderivProc
+    getShaderInfoLogProc = getProcAddress("glGetShaderInfoLog")! as GetShaderInfoLogProc
+    createProgramProc = getProcAddress("glCreateProgram")! as CreateProgramProc
+    attachShaderProc = getProcAddress("glAttachShader")! as AttachShaderProc
+    linkProgramProc = getProcAddress("glLinkProgram")! as LinkProgramProc
+    getProgramivProc = getProcAddress("glGetProgramiv")! as GetProgramivProc
+    getProgramInfoLogProc = getProcAddress("glGetProgramInfoLog")! as GetProgramInfoLogProc
+    useProgramProc = getProcAddress("glUseProgram")! as UseProgramProc
+    deleteShaderProc = getProcAddress("glDeleteShader")! as DeleteShaderProc
+    deleteProgramProc = getProcAddress("glDeleteProgram")! as DeleteProgramProc
+    genBuffersProc = getProcAddress("glGenBuffers")! as GenBuffersProc
+    bindBufferProc = getProcAddress("glBindBuffer")! as BindBufferProc
+    bufferDataProc = getProcAddress("glBufferData")! as BufferDataProc
+    bufferSubDataProc = getProcAddress("glBufferSubData")! as BufferSubDataProc
+    deleteBuffersProc = getProcAddress("glDeleteBuffers")! as DeleteBuffersProc
+    genVertexArraysProc = getProcAddress("glGenVertexArrays")! as GenVertexArraysProc
+    bindVertexArrayProc = getProcAddress("glBindVertexArray")! as BindVertexArrayProc
+    deleteVertexArraysProc = getProcAddress("glDeleteVertexArrays")! as DeleteVertexArraysProc
+    getAttribLocationProc = getProcAddress("glGetAttribLocation")! as GetAttribLocationProc
+    getUniformLocationProc = getProcAddress("glGetUniformLocation")! as GetUniformLocationProc
+    enableVertexAttribArrayProc = getProcAddress("glEnableVertexAttribArray")! as EnableVertexAttribArrayProc
+    disableVertexAttribArrayProc = getProcAddress("glDisableVertexAttribArray")! as DisableVertexAttribArrayProc
+    vertexAttribPointerProc = getProcAddress("glVertexAttribPointer")! as VertexAttribPointerProc
+    uniformMatrix4fvProc = getProcAddress("glUniformMatrix4fv")! as UniformMatrix4fvProc
+    uniform1iProc = getProcAddress("glUniform1i")! as Uniform1iProc
+    uniform1fProc = getProcAddress("glUniform1f")! as Uniform1fProc
+    uniform2fProc = getProcAddress("glUniform2f")! as Uniform2fProc
+    uniform3fProc = getProcAddress("glUniform3f")! as Uniform3fProc
+    uniform4fProc = getProcAddress("glUniform4f")! as Uniform4fProc
+    genTexturesProc = getProcAddress("glGenTextures")! as GenTexturesProc
+    bindTextureProc = getProcAddress("glBindTexture")! as BindTextureProc
+    texImage2DProc = getProcAddress("glTexImage2D")! as TexImage2DProc
+    texParameteriProc = getProcAddress("glTexParameteri")! as TexParameteriProc
+    activeTextureProc = getProcAddress("glActiveTexture")! as ActiveTextureProc
+    generateMipmapProc = getProcAddress("glGenerateMipmap")! as GenerateMipmapProc
+    deleteTexturesProc = getProcAddress("glDeleteTextures")! as DeleteTexturesProc
+    blendFuncProc = getProcAddress("glBlendFunc")! as BlendFuncProc
+    blendEquationProc = getProcAddress("glBlendEquation")! as BlendEquationProc
+    genFramebuffersProc = getProcAddress("glGenFramebuffers")! as GenFramebuffersProc
+    bindFramebufferProc = getProcAddress("glBindFramebuffer")! as BindFramebufferProc
+    framebufferTexture2DProc = getProcAddress("glFramebufferTexture2D")! as FramebufferTexture2DProc
+    checkFramebufferStatusProc = getProcAddress("glCheckFramebufferStatus")! as CheckFramebufferStatusProc
+    deleteFramebuffersProc = getProcAddress("glDeleteFramebuffers")! as DeleteFramebuffersProc
+    genRenderbuffersProc = getProcAddress("glGenRenderbuffers")! as GenRenderbuffersProc
+    bindRenderbufferProc = getProcAddress("glBindRenderbuffer")! as BindRenderbufferProc
+    renderbufferStorageProc = getProcAddress("glRenderbufferStorage")! as RenderbufferStorageProc
+    framebufferRenderbufferProc = getProcAddress("glFramebufferRenderbuffer")! as FramebufferRenderbufferProc
+    deleteRenderbuffersProc = getProcAddress("glDeleteRenderbuffers")! as DeleteRenderbuffersProc
+}

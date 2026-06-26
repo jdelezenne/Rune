@@ -1,0 +1,372 @@
+// Interactive Mandelbrot set explorer: drag to pan, scroll or +/- to zoom.
+//
+// Controls:
+//   Left drag / arrow keys  - pan
+//   +/- / = / up / down     - zoom
+//   R                       - reset view
+//   Escape / close          - quit
+
+import Standard.*
+import SDL3
+
+const WIDTH: Int32 = 640
+const HEIGHT: Int32 = 480
+const ROW_BYTES: Int = 2560
+const MAX_ITER: Int = 128
+const PIXELS_PER_TICK: Int32 = 2048
+const ESCAPE_RADIUS: Float64 = 4.0
+const PALETTE_SIZE: Int = 16
+
+struct View {
+    var centerX: Float64
+    var centerY: Float64
+    var zoom: Float64
+}
+
+struct RenderState {
+    var row: Int32
+    var col: Int32
+    var active: Bool
+}
+
+func defaultView() -> View {
+    // zoom maps to visible scale via 2/zoom; 1.0 shows the classic wide shot with color.
+    return View(centerX: -0.5, centerY: 0.0, zoom: 1.0)
+}
+
+func resetView(view: &View) {
+    view.centerX = -0.5
+    view.centerY = 0.0
+    view.zoom = 1.0
+}
+
+func resetRender(state: &RenderState) {
+    state.row = 0
+    state.col = 0
+    state.active = true
+}
+
+func scaleFor(zoom: Float64) -> Float64 {
+    return 2.0 / zoom
+}
+
+func aspectRatio() -> Float64 {
+    return Float64(WIDTH) / Float64(HEIGHT)
+}
+
+func complexAt(view: View, x: Float32, y: Float32) -> (real: Float64, imag: Float64) {
+    let scale = scaleFor(view.zoom)
+    let aspect = aspectRatio()
+    let normalizedX = Float64(x) / Float64(WIDTH) - 0.5
+    let normalizedY = Float64(y) / Float64(HEIGHT) - 0.5
+    let real = view.centerX + normalizedX * scale * aspect
+    let imag = view.centerY + normalizedY * scale
+    return (real: real, imag: imag)
+}
+
+func zoomAt(view: &View, factor: Float64, focusX: Float32, focusY: Float32) {
+    let aspect = aspectRatio()
+    let mapped = complexAt(
+        View(centerX: view.centerX, centerY: view.centerY, zoom: view.zoom),
+        focusX,
+        focusY)
+
+    view.zoom = view.zoom * factor
+    if view.zoom < 0.25 {
+        view.zoom = 0.25
+    } else if view.zoom > 1.0e12 {
+        view.zoom = 1.0e12
+    }
+
+    let newScale = scaleFor(view.zoom)
+    let normalizedFocusX = Float64(focusX) / Float64(WIDTH) - 0.5
+    let normalizedFocusY = Float64(focusY) / Float64(HEIGHT) - 0.5
+    view.centerX = mapped.real - normalizedFocusX * newScale * aspect
+    view.centerY = mapped.imag - normalizedFocusY * newScale
+}
+
+func panBy(view: &View, dx: Float32, dy: Float32) {
+    let scale = scaleFor(view.zoom)
+    let aspect = aspectRatio()
+    view.centerX = view.centerX - Float64(dx) * scale * aspect / Float64(WIDTH)
+    view.centerY = view.centerY - Float64(dy) * scale / Float64(HEIGHT)
+}
+
+func mandelbrotIterations(cx: Float64, cy: Float64) -> Int {
+    var zx: Float64 = 0.0
+    var zy: Float64 = 0.0
+    var iter: Int = 0
+
+    while iter < MAX_ITER {
+        let zx2 = zx * zx
+        let zy2 = zy * zy
+        if zx2 + zy2 > ESCAPE_RADIUS {
+            break
+        }
+
+        let temp = zx2 - zy2 + cx
+        zy = 2.0 * zx * zy + cy
+        zx = temp
+        iter = iter + 1
+    }
+
+    return iter
+}
+
+func paletteColor(iter: Int) -> (red: UInt8, green: UInt8, blue: UInt8) {
+    if iter >= MAX_ITER {
+        return (red: UInt8(0), green: UInt8(0), blue: UInt8(0))
+    }
+
+    let index = iter % PALETTE_SIZE
+    if index == 0 {
+        return (red: UInt8(25), green: UInt8(7), blue: UInt8(26))
+    }
+
+    if index == 1 {
+        return (red: UInt8(48), green: UInt8(25), blue: UInt8(52))
+    }
+
+    if index == 2 {
+        return (red: UInt8(67), green: UInt8(40), blue: UInt8(74))
+    }
+
+    if index == 3 {
+        return (red: UInt8(86), green: UInt8(58), blue: UInt8(97))
+    }
+
+    if index == 4 {
+        return (red: UInt8(106), green: UInt8(76), blue: UInt8(120))
+    }
+
+    if index == 5 {
+        return (red: UInt8(128), green: UInt8(97), blue: UInt8(141))
+    }
+
+    if index == 6 {
+        return (red: UInt8(156), green: UInt8(120), blue: UInt8(156))
+    }
+
+    if index == 7 {
+        return (red: UInt8(188), green: UInt8(145), blue: UInt8(166))
+    }
+
+    if index == 8 {
+        return (red: UInt8(219), green: UInt8(173), blue: UInt8(173))
+    }
+
+    if index == 9 {
+        return (red: UInt8(239), green: UInt8(203), blue: UInt8(164))
+    }
+
+    if index == 10 {
+        return (red: UInt8(247), green: UInt8(227), blue: UInt8(132))
+    }
+
+    if index == 11 {
+        return (red: UInt8(236), green: UInt8(240), blue: UInt8(96))
+    }
+
+    if index == 12 {
+        return (red: UInt8(199), green: UInt8(233), blue: UInt8(87))
+    }
+
+    if index == 13 {
+        return (red: UInt8(145), green: UInt8(213), blue: UInt8(97))
+    }
+
+    if index == 14 {
+        return (red: UInt8(82), green: UInt8(185), blue: UInt8(120))
+    }
+
+    return (red: UInt8(35), green: UInt8(145), blue: UInt8(122))
+}
+
+func writePixel(pixels: &Byte, px: Int, iter: Int) {
+    let color = paletteColor(iter)
+    let base = (Int(pixels) + px * 4) as &Byte
+    Memory.fill(destination: base, value: color.red, byteCount: 1)
+    Memory.fill(destination: (Int(base) + 1) as &Byte, value: color.green, byteCount: 1)
+    Memory.fill(destination: (Int(base) + 2) as &Byte, value: color.blue, byteCount: 1)
+    Memory.fill(destination: (Int(base) + 3) as &Byte, value: UInt8(255), byteCount: 1)
+}
+
+func uploadRowSpan(texture: &SDL3.Texture?, pixels: &Byte, row: Int32, colCount: Int32) {
+    if colCount <= 0 {
+        return
+    }
+
+    var rect = SDL3.Rect(x: 0, y: row, w: colCount, h: 1)
+    if !SDL3.updateTexture(texture, &rect, pixels, WIDTH * 4) {
+        Console.printLine("SDL_UpdateTexture failed: ${SDL3.getError()!}")
+    }
+}
+
+func renderMandelbrotTick(
+    view: View,
+    texture: &SDL3.Texture?,
+    pixels: &Byte,
+    state: &RenderState) {
+    if !state.active {
+        return
+    }
+
+    let scale = scaleFor(view.zoom)
+    let aspect = aspectRatio()
+    var budget = PIXELS_PER_TICK
+    var uploadedCol: Int32 = state.col
+
+    while budget > 0 && state.row < HEIGHT {
+        let normalizedRow = Float64(state.row) / Float64(HEIGHT) - 0.5
+        let complexY = view.centerY + normalizedRow * scale
+        let normalizedCol = Float64(state.col) / Float64(WIDTH) - 0.5
+        let complexX = view.centerX + normalizedCol * scale * aspect
+        let iterationCount = mandelbrotIterations(complexX, complexY)
+        writePixel(pixels, Int(state.col), iterationCount)
+
+        state.col = state.col + 1
+        budget = budget - 1
+
+        if state.col >= WIDTH {
+            uploadRowSpan(texture, pixels, state.row, WIDTH)
+            state.row = state.row + 1
+            state.col = 0
+            uploadedCol = 0
+        }
+    }
+
+    if state.col > uploadedCol {
+        uploadRowSpan(texture, pixels, state.row, state.col)
+    }
+
+    if state.row >= HEIGHT {
+        state.active = false
+    }
+}
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var texture: &SDL3.Texture? = nil
+var rowStorage: [UInt8, ROW_BYTES] = []
+var view = defaultView()
+var renderState = RenderState(row: 0, col: 0, active: true)
+var dragging = false
+var prevMouseX: Float32 = 0.0
+var prevMouseY: Float32 = 0.0
+var event = SDL3.Event()
+var running = true
+
+func mainLoop() {
+    while SDL3.pollEvent(&event) {
+        if event.type == SDL3.EventType.quit {
+            running = false
+        } else if event.type == SDL3.EventType.keyDown && event.down {
+            if event.scancode == SDL3.Scancode.escape {
+                running = false
+            } else if event.scancode == SDL3.Scancode.r {
+                resetView(&view)
+                resetRender(&renderState)
+            } else {
+                let focusX = Float32(WIDTH) / 2.0
+                let focusY = Float32(HEIGHT) / 2.0
+                if event.scancode == SDL3.Scancode.equals ||
+                    event.scancode == SDL3.Scancode.kpPlus ||
+                    event.scancode == SDL3.Scancode.up {
+                    zoomAt(&view, 1.25, focusX, focusY)
+                    resetRender(&renderState)
+                } else if event.scancode == SDL3.Scancode.minus ||
+                    event.scancode == SDL3.Scancode.down {
+                    zoomAt(&view, 0.8, focusX, focusY)
+                    resetRender(&renderState)
+                } else if event.scancode == SDL3.Scancode.left {
+                    panBy(&view, -32.0, 0.0)
+                    resetRender(&renderState)
+                } else if event.scancode == SDL3.Scancode.right {
+                    panBy(&view, 32.0, 0.0)
+                    resetRender(&renderState)
+                }
+            }
+        }
+    }
+
+    if !running {
+        SDL3.destroyTexture(texture)
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        Console.printLine("Mandelbrot finished.")
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    var mouseX: Float32 = 0.0
+    var mouseY: Float32 = 0.0
+    let buttons = SDL3.MouseButton(SDL3.getMouseState(&mouseX, &mouseY))
+    let leftDown = (buttons & SDL3.MouseButton.leftMask) != SDL3.MouseButton(0)
+    if leftDown {
+        if dragging {
+            panBy(&view, mouseX - prevMouseX, mouseY - prevMouseY)
+            resetRender(&renderState)
+        } else {
+            dragging = true
+        }
+    } else {
+        dragging = false
+    }
+    prevMouseX = mouseX
+    prevMouseY = mouseY
+
+    let pixels = rowStorage.bytes
+    renderMandelbrotTick(view, texture, pixels, &renderState)
+
+    SDL3.setRenderDrawColor(renderer, 0, 0, 0, 255)
+    SDL3.renderClear(renderer)
+    var dest = SDL3.FRect(x: 0.0, y: 0.0, w: Float32(WIDTH), h: Float32(HEIGHT))
+    SDL3.renderTexture(renderer, texture, nil, &dest)
+    SDL3.renderPresent(renderer)
+    SDL3.delay(16)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Mandelbrot", WIDTH, HEIGHT, 0, &window, &renderer) {
+        Console.printLine("SDL_CreateWindowAndRenderer failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    texture = SDL3.createTexture(
+        renderer,
+        SDL3.PixelFormat.rgba8888,
+        SDL3.TextureAccess.static,
+        WIDTH,
+        HEIGHT)
+    if texture == nil {
+        Console.printLine("SDL_CreateTexture failed: ${SDL3.getError()!}")
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.setTextureBlendMode(texture, SDL3.BlendMode.none) {
+        Console.printLine("SDL_SetTextureBlendMode failed: ${SDL3.getError()!}")
+    }
+
+    Console.printLine("Mandelbrot: drag to pan, +/- to zoom, R reset, Esc quit.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

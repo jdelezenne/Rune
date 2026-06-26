@@ -1,0 +1,21 @@
+import Standard.*
+
+const SCREEN_W: Int32 = 1024
+const SCREEN_H: Int32 = 640
+const LEVEL_W: Int = 21
+const LEVEL_H: Int = 21
+const LEVEL_CELLS: Int = 441
+
+func clampFloat(value: Float32, low: Float32, high: Float32) -> Float32 {
+    return Math.max(low, Math.min(value, high))
+}
+
+func signOf(value: Float32) -> Float32 {
+    if value > 0.0 {
+        return 1.0
+    } else if value < 0.0 {
+        return -1.0
+    }
+
+    return 0.0
+}

@@ -1,0 +1,54 @@
+/// Builtin Option type.
+/// The Option type represents an optional value that may or may not be present.
+/// Option<T> can be either:
+/// - None (represented by nil)
+/// - Some(T) (contains a value of type T)
+///
+/// Note: Option<T> can be written as T? as a shorthand syntax.
+/// Example: Int? is equivalent to Option<Int>.
+public union Option<T> {
+    none
+    some(T)
+}
+
+public extension Option<T> {
+    /// Returns whether this option contains a value.
+    public func hasValue() -> Bool {
+        match self {
+            .some(value) => return true
+            .none => return false
+        }
+    }
+
+    /// Returns the contained value, panicking if `None`.
+    public func unwrap() -> T {
+        match self {
+            .some(value) => return value
+            .none => #panic("Option.unwrap() called on nil")
+        }
+    }
+
+    /// Returns the contained value, or `defaultValue` if `None`.
+    /// @param defaultValue Value returned when this option is `None`.
+    public func unwrapOr(defaultValue: T) -> T {
+        match self {
+            .some(value) => return value
+            .none => return defaultValue
+        }
+    }
+
+    /// Returns this option if it contains a value, otherwise returns `other`.
+    /// @param other Fallback option.
+    public func orElse(other: Option<T>) -> Option<T> {
+        match self {
+            .some(value) => return self
+            .none => return other
+        }
+    }
+}
+
+public extension Option<T> implements NilLiteralConvertible {
+    public init(nilLiteral: NilLiteral) {
+        self = .none
+    }
+}

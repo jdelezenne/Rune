@@ -1,0 +1,11 @@
+@symbol("_mkdir")
+public func mkdir(path: CStringSlice?, mode: Int32) -> Int32
+
+@symbol("_rmdir")
+public func rmdir(path: CStringSlice?) -> Int32
+
+@symbol("_getcwd")
+public func getcwd(buffer: &Byte?, size: UInt) -> CStringSlice?
+
+@symbol("_chdir")
+public func chdir(path: CStringSlice?) -> Int32

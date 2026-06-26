@@ -1,0 +1,41 @@
+import Standard.*
+
+func sendText(stream: &TcpStream, text: String) throws(String) {
+    let length = UInt(text.length)
+    if length == 0 {
+        return
+    }
+
+    let buffer = try! Memory.systemAllocate(size: length)
+    let copied = text.copyBytes(destination: buffer, maxLength: length)
+    _ = try stream.writeAll(data: buffer, length: copied)
+    Memory.systemDeallocate(address: buffer)
+}
+
+func appendReceivedText(stream: &TcpStream, receiveText: String, buffer: &Byte) throws(String) -> (text: String, closed: Bool, changed: Bool) {
+    let received = try stream.readAvailable(buffer: buffer, length: NETWORK_BUFFER_SIZE)
+    if received == nil {
+        return (text: receiveText, closed: false, changed: false)
+    }
+    if received! == 0 {
+        return (text: receiveText, closed: true, changed: true)
+    }
+
+    let chunk = String.fromBytes(source: buffer, length: UInt(received!))
+    return (text: receiveText + chunk, closed: false, changed: true)
+}
+
+func takeLine(text: String) -> (line: String, rest: String, found: Bool) {
+    var index = 0
+    while index < text.count {
+        let character = text[index]
+        if character.codePoint == 10 {
+            let line = text.substring(start: 0, end: index)
+            let rest = index + 1 < text.count ? text.substring(start: index + 1, end: text.count) : ""
+            return (line: line, rest: rest, found: true)
+        }
+        index = index + 1
+    }
+
+    return (line: "", rest: text, found: false)
+}

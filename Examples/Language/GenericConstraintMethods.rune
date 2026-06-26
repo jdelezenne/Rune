@@ -1,0 +1,33 @@
+import Standard.*
+
+interface Priced {
+    func price(quantity: Int) -> Int
+}
+
+struct Widget implements Priced {
+    var unit: Int
+    public func price(quantity: Int) -> Int { return unit * quantity }
+}
+
+struct Bundle implements Priced {
+    var flat: Int
+    public func price(quantity: Int) -> Int { return flat + quantity }
+}
+
+// Calls an interface requirement (a method, with an argument) on a value of a
+// constrained generic type. Dispatches to the concrete type's witness.
+func totalPrice<T extends Priced>(item: T, quantity: Int) -> Int {
+    return item.price(quantity: quantity)
+}
+
+func main() -> Int {
+    if totalPrice<Widget>(item: Widget(unit: 4), quantity: 3) != 12 {
+        return 1
+    }
+
+    if totalPrice<Bundle>(item: Bundle(flat: 100), quantity: 5) != 105 {
+        return 2
+    }
+
+    return 0
+}

@@ -1,0 +1,17 @@
+func clamp(x: Int, min: Int = 0, max: Int = 100) -> Int {
+    if x < min {
+        return min
+    } else if x > max {
+        return max
+    } else {
+        return x
+    }
+}
+
+func main() -> Int {
+    if clamp(x: 6, min: 2) != 6 {
+        return 1
+    }
+
+    return 0
+}

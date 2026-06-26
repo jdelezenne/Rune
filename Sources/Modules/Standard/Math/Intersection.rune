@@ -1,0 +1,359 @@
+/// Pairwise intersection tests between the geometry primitives, gathered in one
+/// place so there is a single implementation of each test (rather than the same
+/// logic duplicated across, say, `Box.intersects(sphere:)` and
+/// `Sphere.intersects(box:)`). The shape types keep ergonomic convenience
+/// methods that delegate here.
+///
+/// Naming: `ray<Shape>` raycasts return the hit distance along the ray as a
+/// `Float32?` (nil = miss), assuming a unit-length ray direction. `<a><B>`
+/// overlap tests return a Bool.
+///
+/// Not yet covered (need a segment-vs-box distance routine): capsule-vs-box and
+/// capsule-vs-oriented-box.
+public static Intersection {
+    //region Raycasts
+
+    /// Ray against a plane.
+    public func rayPlane(ray: Ray, plane: Plane) -> Float32? {
+        let denom = ray.direction.dot(other: plane.normal)
+        if Math.abs(denom) < Math.EPSILON_F32 {
+            return nil
+        }
+        let t = (plane.distance - ray.origin.dot(other: plane.normal)) / denom
+        if t < 0.0 {
+            return nil
+        }
+        return t
+    }
+
+    /// Ray against a sphere (nearest forward hit).
+    public func raySphere(ray: Ray, sphere: Sphere) -> Float32? {
+        let oc = ray.origin - sphere.center
+        let b = oc.dot(other: ray.direction)
+        let c = oc.dot(other: oc) - sphere.radius * sphere.radius
+        let discriminant = b * b - c
+        if discriminant < 0.0 {
+            return nil
+        }
+        let sqrtD = Math.sqrt(discriminant)
+        let near = 0.0 - b - sqrtD
+        if near >= 0.0 {
+            return near
+        }
+        let far = 0.0 - b + sqrtD
+        if far >= 0.0 {
+            return far
+        }
+        return nil
+    }
+
+    /// Ray against a triangle (Möller-Trumbore).
+    public func rayTriangle(ray: Ray, triangle: Triangle) -> Float32? {
+        let edge1 = triangle.b - triangle.a
+        let edge2 = triangle.c - triangle.a
+        let h = ray.direction.cross(other: edge2)
+        let det = edge1.dot(other: h)
+        if Math.abs(det) < Math.EPSILON_F32 {
+            return nil
+        }
+        let invDet = 1.0 / det
+        let s = ray.origin - triangle.a
+        let u = invDet * s.dot(other: h)
+        if u < 0.0 || u > 1.0 {
+            return nil
+        }
+        let q = s.cross(other: edge1)
+        let v = invDet * ray.direction.dot(other: q)
+        if v < 0.0 || u + v > 1.0 {
+            return nil
+        }
+        let t = invDet * edge2.dot(other: q)
+        if t < Math.EPSILON_F32 {
+            return nil
+        }
+        return t
+    }
+
+    /// Ray against an axis-aligned box (slab method).
+    public func rayBox(ray: Ray, box: Box) -> Float32? {
+        var tmin: Float32 = 0.0 - 1.0e30
+        var tmax: Float32 = 1.0e30
+
+        // X slab
+        if Math.abs(ray.direction.x) < Math.EPSILON_F32 {
+            if ray.origin.x < box.min.x || ray.origin.x > box.max.x { return nil }
+        } else {
+            let inv = 1.0 / ray.direction.x
+            var t1 = (box.min.x - ray.origin.x) * inv
+            var t2 = (box.max.x - ray.origin.x) * inv
+            if t1 > t2 { let tmp = t1; t1 = t2; t2 = tmp }
+            if t1 > tmin { tmin = t1 }
+            if t2 < tmax { tmax = t2 }
+            if tmin > tmax { return nil }
+        }
+
+        // Y slab
+        if Math.abs(ray.direction.y) < Math.EPSILON_F32 {
+            if ray.origin.y < box.min.y || ray.origin.y > box.max.y { return nil }
+        } else {
+            let inv = 1.0 / ray.direction.y
+            var t1 = (box.min.y - ray.origin.y) * inv
+            var t2 = (box.max.y - ray.origin.y) * inv
+            if t1 > t2 { let tmp = t1; t1 = t2; t2 = tmp }
+            if t1 > tmin { tmin = t1 }
+            if t2 < tmax { tmax = t2 }
+            if tmin > tmax { return nil }
+        }
+
+        // Z slab
+        if Math.abs(ray.direction.z) < Math.EPSILON_F32 {
+            if ray.origin.z < box.min.z || ray.origin.z > box.max.z { return nil }
+        } else {
+            let inv = 1.0 / ray.direction.z
+            var t1 = (box.min.z - ray.origin.z) * inv
+            var t2 = (box.max.z - ray.origin.z) * inv
+            if t1 > t2 { let tmp = t1; t1 = t2; t2 = tmp }
+            if t1 > tmin { tmin = t1 }
+            if t2 < tmax { tmax = t2 }
+            if tmin > tmax { return nil }
+        }
+
+        if tmax < 0.0 {
+            return nil
+        }
+        if tmin < 0.0 {
+            return tmax
+        }
+        return tmin
+    }
+
+    /// Ray against an oriented box (transforms the ray into box space and runs
+    /// the AABB slab test).
+    public func rayOrientedBox(ray: Ray, box: OrientedBox) -> Float32? {
+        let inv = box.orientation.conjugate()
+        let localOrigin = inv.rotate(vector: ray.origin - box.center)
+        let localDir = inv.rotate(vector: ray.direction)
+        let localBox = Box(min: -box.halfExtents, max: box.halfExtents)
+        return rayBox(ray: Ray(origin: localOrigin, direction: localDir), box: localBox)
+    }
+
+    /// Ray against a capsule (finite cylinder plus two hemispherical caps).
+    /// Returns the nearest forward hit; assumes the ray origin is outside.
+    public func rayCapsule(ray: Ray, capsule: Capsule) -> Float32? {
+        let pa = capsule.segment.start
+        let pb = capsule.segment.end
+        let r = capsule.radius
+        let ro = ray.origin
+        let rd = ray.direction
+
+        let ba = pb - pa
+        let oa = ro - pa
+        let baba = ba.dot(other: ba)
+        let bard = ba.dot(other: rd)
+        let baoa = ba.dot(other: oa)
+        let rdoa = rd.dot(other: oa)
+        let oaoa = oa.dot(other: oa)
+
+        let a = baba - bard * bard
+
+        if Math.abs(a) < Math.EPSILON_F32 {
+            // Ray parallel to the axis: it can only enter through an end cap.
+            return nearestCapHit(ro: ro, rd: rd, pa: pa, pb: pb, r: r)
+        }
+
+        let b = baba * rdoa - baoa * bard
+        let c = baba * oaoa - baoa * baoa - r * r * baba
+        let h = b * b - a * c
+        if h < 0.0 {
+            // Misses the infinite cylinder, so misses the capsule.
+            return nil
+        }
+
+        let t = (0.0 - b - Math.sqrt(h)) / a
+        let y = baoa + t * bard
+        if y > 0.0 && y < baba {
+            // Hit is on the cylindrical body.
+            if t >= 0.0 {
+                return t
+            }
+            return nil
+        }
+
+        // Hit is beyond an end; test the nearer cap sphere.
+        let oc = if y <= 0.0 { oa } else { ro - pb }
+        let bb = rd.dot(other: oc)
+        let cc = oc.dot(other: oc) - r * r
+        let hh = bb * bb - cc
+        if hh < 0.0 {
+            return nil
+        }
+        let tc = 0.0 - bb - Math.sqrt(hh)
+        if tc >= 0.0 {
+            return tc
+        }
+        return nil
+    }
+
+    /// Nearest forward hit against the two cap spheres of a capsule.
+    func nearestCapHit(ro: Vector3, rd: Vector3, pa: Vector3, pb: Vector3, r: Float32) -> Float32? {
+        var best: Float32 = 1.0e30
+        var found = false
+
+        let oa = ro - pa
+        let b0 = rd.dot(other: oa)
+        let c0 = oa.dot(other: oa) - r * r
+        let h0 = b0 * b0 - c0
+        if h0 >= 0.0 {
+            let t0 = 0.0 - b0 - Math.sqrt(h0)
+            if t0 >= 0.0 && t0 < best { best = t0; found = true }
+        }
+
+        let ob = ro - pb
+        let b1 = rd.dot(other: ob)
+        let c1 = ob.dot(other: ob) - r * r
+        let h1 = b1 * b1 - c1
+        if h1 >= 0.0 {
+            let t1 = 0.0 - b1 - Math.sqrt(h1)
+            if t1 >= 0.0 && t1 < best { best = t1; found = true }
+        }
+
+        if found {
+            return best
+        }
+        return nil
+    }
+
+    //endregion
+
+    //region Overlap Tests (3D)
+
+    public func sphereSphere(a: Sphere, b: Sphere) -> Bool {
+        let sumR = a.radius + b.radius
+        return a.center.distanceSquared(to: b.center) <= sumR * sumR
+    }
+
+    public func sphereBox(sphere: Sphere, box: Box) -> Bool {
+        let closest = box.closestPoint(point: sphere.center)
+        return closest.distanceSquared(to: sphere.center) <= sphere.radius * sphere.radius
+    }
+
+    public func sphereOrientedBox(sphere: Sphere, box: OrientedBox) -> Bool {
+        let closest = box.closestPoint(point: sphere.center)
+        return closest.distanceSquared(to: sphere.center) <= sphere.radius * sphere.radius
+    }
+
+    public func sphereCapsule(sphere: Sphere, capsule: Capsule) -> Bool {
+        return capsule.segment.distance(point: sphere.center) <= sphere.radius + capsule.radius
+    }
+
+    public func boxBox(a: Box, b: Box) -> Bool {
+        return a.min.x <= b.max.x && a.max.x >= b.min.x
+            && a.min.y <= b.max.y && a.max.y >= b.min.y
+            && a.min.z <= b.max.z && a.max.z >= b.min.z
+    }
+
+    public func capsuleCapsule(a: Capsule, b: Capsule) -> Bool {
+        return a.segment.distance(other: b.segment) <= a.radius + b.radius
+    }
+
+    /// Oriented-box vs oriented-box via the separating-axis theorem (Ericson's
+    /// 15-axis test).
+    public func orientedBoxOrientedBox(a: OrientedBox, b: OrientedBox) -> Bool {
+        let ra = a.orientation.toMatrix3()
+        let rb = b.orientation.toMatrix3()
+
+        let a0 = Vector3(x: ra.m[0], y: ra.m[1], z: ra.m[2])
+        let a1 = Vector3(x: ra.m[3], y: ra.m[4], z: ra.m[5])
+        let a2 = Vector3(x: ra.m[6], y: ra.m[7], z: ra.m[8])
+        let b0 = Vector3(x: rb.m[0], y: rb.m[1], z: rb.m[2])
+        let b1 = Vector3(x: rb.m[3], y: rb.m[4], z: rb.m[5])
+        let b2 = Vector3(x: rb.m[6], y: rb.m[7], z: rb.m[8])
+
+        let R00 = a0.dot(other: b0); let R01 = a0.dot(other: b1); let R02 = a0.dot(other: b2)
+        let R10 = a1.dot(other: b0); let R11 = a1.dot(other: b1); let R12 = a1.dot(other: b2)
+        let R20 = a2.dot(other: b0); let R21 = a2.dot(other: b1); let R22 = a2.dot(other: b2)
+
+        let tw = b.center - a.center
+        let t0 = tw.dot(other: a0)
+        let t1 = tw.dot(other: a1)
+        let t2 = tw.dot(other: a2)
+
+        let e = Math.EPSILON_F32
+        let A00 = Math.abs(R00) + e; let A01 = Math.abs(R01) + e; let A02 = Math.abs(R02) + e
+        let A10 = Math.abs(R10) + e; let A11 = Math.abs(R11) + e; let A12 = Math.abs(R12) + e
+        let A20 = Math.abs(R20) + e; let A21 = Math.abs(R21) + e; let A22 = Math.abs(R22) + e
+
+        let ea0 = a.halfExtents.x; let ea1 = a.halfExtents.y; let ea2 = a.halfExtents.z
+        let eb0 = b.halfExtents.x; let eb1 = b.halfExtents.y; let eb2 = b.halfExtents.z
+
+        // Face axes of A
+        if Math.abs(t0) > ea0 + eb0 * A00 + eb1 * A01 + eb2 * A02 { return false }
+        if Math.abs(t1) > ea1 + eb0 * A10 + eb1 * A11 + eb2 * A12 { return false }
+        if Math.abs(t2) > ea2 + eb0 * A20 + eb1 * A21 + eb2 * A22 { return false }
+
+        // Face axes of B
+        if Math.abs(t0 * R00 + t1 * R10 + t2 * R20) > eb0 + ea0 * A00 + ea1 * A10 + ea2 * A20 { return false }
+        if Math.abs(t0 * R01 + t1 * R11 + t2 * R21) > eb1 + ea0 * A01 + ea1 * A11 + ea2 * A21 { return false }
+        if Math.abs(t0 * R02 + t1 * R12 + t2 * R22) > eb2 + ea0 * A02 + ea1 * A12 + ea2 * A22 { return false }
+
+        // Edge cross-product axes
+        if Math.abs(t2 * R10 - t1 * R20) > ea1 * A20 + ea2 * A10 + eb1 * A02 + eb2 * A01 { return false }
+        if Math.abs(t2 * R11 - t1 * R21) > ea1 * A21 + ea2 * A11 + eb0 * A02 + eb2 * A00 { return false }
+        if Math.abs(t2 * R12 - t1 * R22) > ea1 * A22 + ea2 * A12 + eb0 * A01 + eb1 * A00 { return false }
+        if Math.abs(t0 * R20 - t2 * R00) > ea0 * A20 + ea2 * A00 + eb1 * A12 + eb2 * A11 { return false }
+        if Math.abs(t0 * R21 - t2 * R01) > ea0 * A21 + ea2 * A01 + eb0 * A12 + eb2 * A10 { return false }
+        if Math.abs(t0 * R22 - t2 * R02) > ea0 * A22 + ea2 * A02 + eb0 * A11 + eb1 * A10 { return false }
+        if Math.abs(t1 * R00 - t0 * R10) > ea0 * A10 + ea1 * A00 + eb1 * A22 + eb2 * A21 { return false }
+        if Math.abs(t1 * R01 - t0 * R11) > ea0 * A11 + ea1 * A01 + eb0 * A22 + eb2 * A20 { return false }
+        if Math.abs(t1 * R02 - t0 * R12) > ea0 * A12 + ea1 * A02 + eb0 * A21 + eb1 * A20 { return false }
+
+        return true
+    }
+
+    //endregion
+
+    //region Overlap Tests (2D)
+
+    public func circleCircle(a: Circle, b: Circle) -> Bool {
+        let sumR = a.radius + b.radius
+        return a.center.distanceSquared(to: b.center) <= sumR * sumR
+    }
+
+    public func rectRect(a: Rect, b: Rect) -> Bool {
+        return a.x < b.x + b.width && a.x + a.width > b.x
+            && a.y < b.y + b.height && a.y + a.height > b.y
+    }
+
+    public func circleRect(circle: Circle, rect: Rect) -> Bool {
+        let cx = Math.clamp(circle.center.x, rect.x, rect.x + rect.width)
+        let cy = Math.clamp(circle.center.y, rect.y, rect.y + rect.height)
+        let closest = Vector2(x: cx, y: cy)
+        return closest.distanceSquared(to: circle.center) <= circle.radius * circle.radius
+    }
+
+    /// Convex polygon vs convex polygon via the separating-axis theorem.
+    public func polygonPolygon(a: Polygon2D, b: Polygon2D) -> Bool {
+        if polygonSeparated(a: a, b: b) {
+            return false
+        }
+        if polygonSeparated(a: b, b: a) {
+            return false
+        }
+        return true
+    }
+
+    /// Whether any edge normal of `a` separates it from `b`.
+    func polygonSeparated(a: Polygon2D, b: Polygon2D) -> Bool {
+        for i in 0..a.count() {
+            let axis = a.edgeNormal(index: i)
+            let pa = a.projectOnto(axis: axis)
+            let pb = b.projectOnto(axis: axis)
+            if pa.y < pb.x || pb.y < pa.x {
+                return true
+            }
+        }
+        return false
+    }
+
+    //endregion
+}

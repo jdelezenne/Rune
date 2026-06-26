@@ -1,0 +1,82 @@
+func main() -> Int {
+    // Half-open range: 0 + 1 + 2 + 3 + 4 = 10
+    var sum = 0
+    for i in 0..5 {
+        sum = sum + i
+    }
+
+    // Sum 1..=5 with an inclusive range: 1 + 2 + 3 + 4 + 5 = 15
+    var sumInclusive = 0
+    for i in 1..=5 {
+        sumInclusive = sumInclusive + i
+    }
+
+    // Stepped iteration: 0 + 2 + 4 + 6 + 8 = 20
+    var sumStride = 0
+    for i in 0..10 by 2 {
+        sumStride = sumStride + i
+    }
+
+    // Element iteration: sum each value without using an index.
+    let values: Array<Int> = [3, 1, 4, 1, 5]
+    var sumElements = 0
+    for value in values {
+        sumElements = sumElements + value
+    }
+
+    // Immutable reference iteration: read elements without copying.
+    var sumBorrowed = 0
+    for value in *values {
+        sumBorrowed = sumBorrowed + value^
+    }
+
+    // Mutable reference iteration: update elements in place.
+    var mutableValues: Array<Int> = [1, 2, 3]
+    for value in &mutableValues {
+        value^ = value^ + 10
+    }
+
+    var sumMutated = 0
+    for value in mutableValues {
+        sumMutated = sumMutated + value
+    }
+
+    // Value iteration over reference elements: copies the reference stored
+    // in the array, not a reference to the array slot.
+    var first = 2
+    var second = 4
+    let references: Array<&Int> = [&first, &second]
+    for reference in references {
+        reference^ = reference^ + 3
+    }
+
+    if sum != 10 {
+        return 1
+    }
+
+    if sumInclusive != 15 {
+        return 2
+    }
+
+    if sumStride != 20 {
+        return 3
+    }
+
+    if sumElements != 14 {
+        return 4
+    }
+
+    if sumBorrowed != 14 {
+        return 5
+    }
+
+    if sumMutated != 36 {
+        return 6
+    }
+
+    if first != 5 || second != 7 {
+        return 7
+    }
+
+    return 0
+}

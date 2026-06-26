@@ -1,0 +1,113 @@
+import Standard.*
+
+func requireFilesystem(scratch: Storage.Path, nested: Storage.Path) throws(Storage.StorageError) -> Int {
+    try Storage.FileSystem.createDirectory(path: scratch)
+    try Storage.FileSystem.createDirectory(path: nested)
+
+    if !Storage.FileSystem.exists(path: scratch) {
+        return 10
+    }
+    if !Storage.FileSystem.isDirectory(path: scratch) {
+        return 11
+    }
+
+    let directoryMetadata = try Storage.FileSystem.getMetadata(path: scratch)
+    if directoryMetadata.kind != Storage.FileKind.directory {
+        return 12
+    }
+
+    var iterator = try Storage.DirectoryIterator.openAt(path: scratch)
+    var entry = Storage.DirectoryEntry(path: scratch, kind: Storage.FileKind.other)
+    var directories = 0
+    while iterator.next(entry: &entry) {
+        if entry.kind == Storage.FileKind.directory {
+            directories = directories + 1
+        }
+    }
+    if directories < 1 {
+        return 13
+    }
+
+    return 0
+}
+
+func requireFileIO(base: Storage.Path, copy: Storage.Path, renamed: Storage.Path) throws(Storage.StorageError) -> Int {
+    let text = "storage smoke\n"
+    var bytes: [Byte, 64] = []
+    let copied = text.copyBytes(destination: bytes.bytes, maxLength: UInt(text.length))
+    let slice = Slice<Byte>(elements: bytes.bytes, count: Int(copied))
+
+    var file = try Storage.File.openAt(
+        path: base,
+        flags: Storage.FileOpenFlags.write | Storage.FileOpenFlags.create | Storage.FileOpenFlags.truncate)
+    try file.writeAll(bytes: slice)
+    try file.flush()
+    if try file.tell() != UInt64(text.length) {
+        return 20
+    }
+    if try file.size() != UInt64(text.length) {
+        return 21
+    }
+
+    var reader = try Storage.File.openAt(path: base, flags: Storage.FileOpenFlags.read)
+    let roundTrip = try reader.readToString()
+    if roundTrip != text {
+        return 22
+    }
+
+    let metadata = try Storage.FileSystem.getMetadata(path: base)
+    if metadata.kind != Storage.FileKind.file || metadata.size != UInt64(text.length) {
+        return 23
+    }
+
+    try Storage.FileSystem.copyFile(from: base, to: copy)
+    if !Storage.FileSystem.exists(path: copy) || !Storage.FileSystem.isFile(path: copy) {
+        return 24
+    }
+
+    try Storage.FileSystem.rename(from: copy, to: renamed)
+    if Storage.FileSystem.exists(path: copy) || !Storage.FileSystem.exists(path: renamed) {
+        return 25
+    }
+
+    return 0
+}
+
+func main() -> Int {
+    let scratchText = Environment.temporaryDirectory + "/rune-storage-smoke-" + Environment.processId.toString()
+    let scratch = Storage.Path(scratchText)
+    let nested = Storage.Path(scratchText + "/nested")
+    let base = Storage.Path(scratchText + "/storage-smoke.txt")
+    let copy = Storage.Path(scratchText + "/storage-smoke.copy")
+    let renamed = Storage.Path(scratchText + "/storage-smoke.renamed")
+
+    do {
+        if Storage.FileSystem.exists(path: scratch) {
+            try Storage.FileSystem.removeDirectory(path: scratch)
+        }
+
+        let filesystemResult = try requireFilesystem(scratch: scratch, nested: nested)
+        if filesystemResult != 0 {
+            return filesystemResult
+        }
+
+        let fileResult = try requireFileIO(base: base, copy: copy, renamed: renamed)
+        if fileResult != 0 {
+            return fileResult
+        }
+
+        try Storage.FileSystem.removeFile(path: renamed)
+        try Storage.FileSystem.removeFile(path: base)
+        try Storage.FileSystem.removeDirectory(path: nested)
+        try Storage.FileSystem.removeDirectory(path: scratch)
+        if Storage.FileSystem.exists(path: scratch) {
+            return 30
+        }
+
+        return 0
+    }
+    catch let error {
+        Console.printLine(error.toString())
+        return 100
+    }
+}

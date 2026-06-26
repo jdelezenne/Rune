@@ -1,0 +1,68 @@
+/// Wall-clock timestamp stored as nanoseconds since the Unix epoch.
+///
+/// System time can move backward or forward when the operating system clock is
+/// adjusted. Use `Instant` for monotonic measurement and deadlines.
+@layout(kind: c)
+public struct SystemTime {
+    public var unixNanoseconds: Int64 = 0
+
+    @runtime("rune_system_time_unix_nanoseconds_from_seconds")
+    private static func unixNanosecondsInternal(fromSeconds: Float64) -> Int64
+
+    @runtime("rune_system_time_unix_seconds_from_nanoseconds")
+    private static func secondsInternal(fromUnixNanoseconds: Int64) -> Float64
+
+    @runtime("rune_system_time_now_unix_nanoseconds")
+    private static func nowUnixNanosecondsInternal() -> Int64
+
+    public init(unixNanoseconds: Int64) {
+        self.unixNanoseconds = unixNanoseconds
+    }
+
+    public init(secondsSinceUnixEpoch: Float64) {
+        unixNanoseconds = SystemTime.unixNanosecondsInternal(fromSeconds: secondsSinceUnixEpoch)
+    }
+
+    public static func now() -> SystemTime {
+        return SystemTime(unixNanoseconds: SystemTime.nowUnixNanosecondsInternal())
+    }
+
+    public secondsSinceUnixEpoch: Float64 {
+        get {
+            return SystemTime.secondsInternal(fromUnixNanoseconds: unixNanoseconds)
+        }
+    }
+
+    public func advanced(duration: Duration) -> SystemTime {
+        return SystemTime(unixNanoseconds: unixNanoseconds + duration.nanoseconds)
+    }
+
+    public func durationSince(earlier: SystemTime) -> Duration {
+        return Duration.fromNanoseconds(value: unixNanoseconds - earlier.unixNanoseconds)
+    }
+
+    public static operator +(lhs: SystemTime, rhs: Duration) -> SystemTime {
+        return lhs.advanced(duration: rhs)
+    }
+
+    public static operator -(lhs: SystemTime, rhs: Duration) -> SystemTime {
+        return lhs.advanced(duration: Duration.fromNanoseconds(value: 0 - rhs.nanoseconds))
+    }
+
+    public static operator -(lhs: SystemTime, rhs: SystemTime) -> Duration {
+        return lhs.durationSince(earlier: rhs)
+    }
+
+}
+
+public extension SystemTime implements Equatable {
+    public static operator ==(lhs: SystemTime, rhs: SystemTime) -> Bool {
+        return lhs.unixNanoseconds == rhs.unixNanoseconds
+    }
+}
+
+public extension SystemTime implements Comparable {
+    public static operator <=>(lhs: SystemTime, rhs: SystemTime) -> Ordering {
+        return lhs.unixNanoseconds <=> rhs.unixNanoseconds
+    }
+}

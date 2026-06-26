@@ -1,0 +1,40 @@
+// UDP echo server.
+//
+// Run:
+//   rune run Examples/Programs/Network/UdpEchoServer.rune
+//
+// Then run Examples/Programs/Network/UdpEchoClient.rune in another terminal.
+
+import Standard.*
+
+const HOST: String = "0.0.0.0"
+const PORT: UInt16 = 9101
+const BUFFER_SIZE: UInt = 4096
+
+func runServer() throws(String) -> Int {
+    var socket = try UdpSocket.bind(host: HOST, port: PORT)
+    let buffer = try! Memory.systemAllocate(size: BUFFER_SIZE)
+
+    Console.printLine("UDP echo server listening on ${socket.localAddress}")
+
+    while true {
+        let datagram = try socket.receiveFrom(buffer: buffer, length: BUFFER_SIZE)
+        _ = try socket.sendTo(
+            data: buffer,
+            length: UInt(datagram.byteCount),
+            address: datagram.remoteAddress)
+        Console.printLine("echoed ${datagram.byteCount} bytes to ${datagram.remoteAddress.host}:${datagram.remoteAddress.port}")
+    }
+
+    return 0
+}
+
+func main() -> Int {
+    do {
+        return runServer()
+    }
+    catch let error {
+        Console.printLine("udp echo server error: ${error}")
+        return 1
+    }
+}

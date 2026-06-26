@@ -1,0 +1,96 @@
+@symbol("SDL_GLContextState")
+public distinct GLContext
+
+public enum GLAttribute: Int32 {
+    redSize = 0 // SDL_GL_RED_SIZE
+    greenSize = 1 // SDL_GL_GREEN_SIZE
+    blueSize = 2 // SDL_GL_BLUE_SIZE
+    alphaSize = 3 // SDL_GL_ALPHA_SIZE
+    bufferSize = 4 // SDL_GL_BUFFER_SIZE
+    doubleBuffer = 5 // SDL_GL_DOUBLEBUFFER
+    depthSize = 6 // SDL_GL_DEPTH_SIZE
+    stencilSize = 7 // SDL_GL_STENCIL_SIZE
+    accumRedSize = 8 // SDL_GL_ACCUM_RED_SIZE
+    accumGreenSize = 9 // SDL_GL_ACCUM_GREEN_SIZE
+    accumBlueSize = 10 // SDL_GL_ACCUM_BLUE_SIZE
+    accumAlphaSize = 11 // SDL_GL_ACCUM_ALPHA_SIZE
+    stereo = 12 // SDL_GL_STEREO
+    multisampleBuffers = 13 // SDL_GL_MULTISAMPLEBUFFERS
+    multisampleSamples = 14 // SDL_GL_MULTISAMPLESAMPLES
+    acceleratedVisual = 15 // SDL_GL_ACCELERATED_VISUAL
+    retainedBacking = 16 // SDL_GL_RETAINED_BACKING
+    contextMajorVersion = 17 // SDL_GL_CONTEXT_MAJOR_VERSION
+    contextMinorVersion = 18 // SDL_GL_CONTEXT_MINOR_VERSION
+    contextFlags = 19 // SDL_GL_CONTEXT_FLAGS
+    contextProfileMask = 20 // SDL_GL_CONTEXT_PROFILE_MASK
+    shareWithCurrentContext = 21 // SDL_GL_SHARE_WITH_CURRENT_CONTEXT
+    framebufferSRGBCapable = 22 // SDL_GL_FRAMEBUFFER_SRGB_CAPABLE
+    contextReleaseBehavior = 23 // SDL_GL_CONTEXT_RELEASE_BEHAVIOR
+    contextResetNotification = 24 // SDL_GL_CONTEXT_RESET_NOTIFICATION
+    contextNoError = 25 // SDL_GL_CONTEXT_NO_ERROR
+    floatBuffers = 26 // SDL_GL_FLOATBUFFERS
+    eglPlatform = 27 // SDL_GL_EGL_PLATFORM
+}
+
+@flags
+public enum GLProfile: Int32 {
+    core = 1 // SDL_GL_CONTEXT_PROFILE_CORE
+    compatibility = 2 // SDL_GL_CONTEXT_PROFILE_COMPATIBILITY
+    es = 4 // SDL_GL_CONTEXT_PROFILE_ES
+}
+
+@flags
+public enum GLContextFlag: Int32 {
+    debug = 1 // SDL_GL_CONTEXT_DEBUG_FLAG
+    forwardCompatible = 2 // SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG
+    robustAccess = 4 // SDL_GL_CONTEXT_ROBUST_ACCESS_FLAG
+    resetIsolation = 8 // SDL_GL_CONTEXT_RESET_ISOLATION_FLAG
+}
+
+@symbol("SDL_GL_LoadLibrary")
+public func glLoadLibrary(path: CStringSlice?) -> Bool
+
+@symbol("SDL_GL_UnloadLibrary")
+public func glUnloadLibrary() -> Void
+
+// Returns the raw C function pointer as an opaque address. Force-unwrap
+// the result and cast it to the real function-pointer type to call it,
+// Cast returned addresses to an explicit `@symbol` function alias before calling them.
+@symbol("SDL_GL_GetProcAddress")
+public func glGetProcAddress(proc: CStringSlice?) -> &Byte?
+
+@symbol("SDL_GL_ExtensionSupported")
+public func glExtensionSupported(extensionName: CStringSlice?) -> Bool
+
+@symbol("SDL_GL_ResetAttributes")
+public func glResetAttributes() -> Void
+
+@symbol("SDL_GL_SetAttribute")
+public func glSetAttribute(attr: GLAttribute, value: Int32) -> Bool
+
+@symbol("SDL_GL_GetAttribute")
+public func glGetAttribute(attr: GLAttribute, value: &Int32) -> Bool
+
+@symbol("SDL_GL_CreateContext")
+public func glCreateContext(window: &Window?) -> &GLContext?
+
+@symbol("SDL_GL_MakeCurrent")
+public func glMakeCurrent(window: &Window?, context: &GLContext?) -> Bool
+
+@symbol("SDL_GL_GetCurrentWindow")
+public func glGetCurrentWindow() -> &Window?
+
+@symbol("SDL_GL_GetCurrentContext")
+public func glGetCurrentContext() -> &GLContext?
+
+@symbol("SDL_GL_SetSwapInterval")
+public func glSetSwapInterval(interval: Int32) -> Bool
+
+@symbol("SDL_GL_GetSwapInterval")
+public func glGetSwapInterval(interval: &Int32) -> Bool
+
+@symbol("SDL_GL_SwapWindow")
+public func glSwapWindow(window: &Window?) -> Bool
+
+@symbol("SDL_GL_DestroyContext")
+public func glDestroyContext(context: &GLContext?) -> Bool

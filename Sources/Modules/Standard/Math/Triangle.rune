@@ -1,0 +1,110 @@
+/// Triangle defined by three vertices. Counter-clockwise winding (viewed from
+/// the front) yields an outward-facing normal. Supports area, normal, plane,
+/// barycentric coordinates, closest-point, containment, and ray intersection.
+@layout(kind: c)
+public struct Triangle {
+    public var a: Vector3
+    public var b: Vector3
+    public var c: Vector3
+
+    /// The unit normal (counter-clockwise winding faces the viewer).
+    public func normal() -> Vector3 {
+        return (b - a).cross(other: c - a).normalized()
+    }
+
+    public func area() -> Float32 {
+        return (b - a).cross(other: c - a).length() * 0.5
+    }
+
+    public func centroid() -> Vector3 {
+        return (a + b + c) * (1.0 / 3.0)
+    }
+
+    /// The plane containing the triangle.
+    public func plane() -> Plane {
+        return Plane.fromPoints(a: a, b: b, c: c)
+    }
+
+    /// Barycentric coordinates `(u, v, w)` of `point` such that
+    /// `point ≈ u*a + v*b + w*c` and `u + v + w == 1`.
+    public func barycentric(point: Vector3) -> Vector3 {
+        let v0 = b - a
+        let v1 = c - a
+        let v2 = point - a
+        let d00 = v0.dot(other: v0)
+        let d01 = v0.dot(other: v1)
+        let d11 = v1.dot(other: v1)
+        let d20 = v2.dot(other: v0)
+        let d21 = v2.dot(other: v1)
+        let denom = d00 * d11 - d01 * d01
+        if Math.abs(denom) < Math.EPSILON_F32 {
+            return Vector3(x: 1.0, y: 0.0, z: 0.0)
+        }
+        let v = (d11 * d20 - d01 * d21) / denom
+        let w = (d00 * d21 - d01 * d20) / denom
+        return Vector3(x: 1.0 - v - w, y: v, z: w)
+    }
+
+    /// Whether the projection of `point` onto the triangle's plane lies within
+    /// the triangle.
+    public func contains(point: Vector3) -> Bool {
+        let bary = barycentric(point: point)
+        let negEps = 0.0 - Math.EPSILON_F32
+        return bary.x >= negEps && bary.y >= negEps && bary.z >= negEps
+    }
+
+    /// The point on the triangle closest to `point` (Ericson's region method).
+    public func closestPoint(point: Vector3) -> Vector3 {
+        let ab = b - a
+        let ac = c - a
+        let ap = point - a
+        let d1 = ab.dot(other: ap)
+        let d2 = ac.dot(other: ap)
+        if d1 <= 0.0 && d2 <= 0.0 {
+            return a
+        }
+
+        let bp = point - b
+        let d3 = ab.dot(other: bp)
+        let d4 = ac.dot(other: bp)
+        if d3 >= 0.0 && d4 <= d3 {
+            return b
+        }
+
+        let vc = d1 * d4 - d3 * d2
+        if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+            let v = d1 / (d1 - d3)
+            return a + ab * v
+        }
+
+        let cp = point - c
+        let d5 = ab.dot(other: cp)
+        let d6 = ac.dot(other: cp)
+        if d6 >= 0.0 && d5 <= d6 {
+            return c
+        }
+
+        let vb = d5 * d2 - d1 * d6
+        if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+            let w = d2 / (d2 - d6)
+            return a + ac * w
+        }
+
+        let va = d3 * d6 - d5 * d4
+        if va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0 {
+            let w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+            return b + (c - b) * w
+        }
+
+        let denom = 1.0 / (va + vb + vc)
+        let v = vb * denom
+        let w = vc * denom
+        return a + ab * v + ac * w
+    }
+
+    /// Distance along `ray` to its intersection with the triangle, or nil when
+    /// the ray misses (Möller-Trumbore).
+    public func intersect(ray: Ray) -> Float32? {
+        return Intersection.rayTriangle(ray: ray, triangle: self)
+    }
+}

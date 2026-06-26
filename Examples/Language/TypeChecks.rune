@@ -1,0 +1,42 @@
+// `is` type-test on related struct types.
+//
+// A value's dynamic type is always a subtype of its static type, so a test
+// against the static type or one of its ancestors is statically true. These
+// upcast/self forms are lowered directly; runtime downcasts through an `open`
+// base (which need the dynamic type tag) are a separate step.
+
+open struct Shape {
+    var tag: Int
+    open func area() -> Int {
+        return 0
+    }
+}
+
+struct Circle extends Shape {
+    var radius: Int
+    override func area() -> Int {
+        return radius * radius
+    }
+}
+
+func main() -> Int {
+    let c = Circle(tag: 1, radius: 5)
+
+    // Test against the exact static type.
+    if !(c is Circle) {
+        return 1
+    }
+
+    // Test against an ancestor (upcast) — always true.
+    if !(c is Shape) {
+        return 2
+    }
+
+    // `is` yields an ordinary Bool usable in any value context.
+    let isShape: Bool = c is Shape
+    if !isShape {
+        return 3
+    }
+
+    return 0
+}

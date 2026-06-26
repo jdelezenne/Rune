@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "name": "Raycaster",
+  "kind": "executable",
+  "sources": [
+    "Math.rune",
+    "Level1.rune",
+    "Level2.rune",
+    "Level3.rune",
+    "World.rune",
+    "Render.rune",
+    "Main.rune"
+  ],
+  "dependencies": [
+    "../../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../../Modules/SDL3/SDL3.runemanifest"
+  ]
+}

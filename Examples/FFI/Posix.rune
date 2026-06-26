@@ -1,0 +1,9 @@
+@symbol
+func getpid() -> Int32
+
+@symbol
+func getuid() -> UInt32
+
+func main() {
+    #printLn("POSIX data from C: pid=${getpid()}, uid=${getuid()}")
+}

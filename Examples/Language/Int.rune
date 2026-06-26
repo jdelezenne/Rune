@@ -1,0 +1,13 @@
+func main() -> Int {
+    let sum = 10 + 5
+    let difference = sum - 3
+    let product = difference * 2
+    let quotient = product / 4
+    let remainder = product % 5
+
+    if quotient <= remainder || quotient + remainder != 10 {
+        return 1
+    }
+
+    return 0
+}

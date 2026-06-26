@@ -1,0 +1,271 @@
+import Standard.*
+import SDL3
+
+func handleClientEvent(event: SDL3.Event, running: &Bool) {
+    if event.type == SDL3.EventType.quit {
+        running^ = false
+        return
+    }
+
+    if event.type == SDL3.EventType.keyDown && event.down {
+        if event.scancode == SDL3.Scancode.escape {
+            running^ = false
+        }
+    }
+}
+
+func openClientGamepad() -> &SDL3.Gamepad? {
+    var count: Int32 = 0
+    let ids = SDL3.getGamepads(&count)
+    if ids == nil || count <= 0 {
+        return nil
+    }
+
+    let list = Slice<SDL3.JoystickId>(elements: ids!, count: Int(count))
+    let firstId = list[0]
+    SDL3.free(ids)
+    return SDL3.openGamepad(firstId)
+}
+
+func makeClientStarGame() -> Game {
+    var game = Game(
+        ship: makeShip(),
+        bullets: [],
+        asteroids: [],
+        particles: [],
+        stars: [],
+        score: 0,
+        lives: 0,
+        wave: 1,
+        pendingWave: false,
+        paused: false,
+        gameOver: false,
+        rng: Rng(state: 1),
+        trailPrimed: false)
+    seedRng(rng: &game.rng, seed: UInt32(SDL3.getTicks()))
+    initStars(game: &game)
+    return game
+}
+
+func networkAsteroidMatches(lhs: Asteroid, rhs: Asteroid) -> Bool {
+    if lhs.tier != rhs.tier {
+        return false
+    }
+
+    let deltaX = lhs.x - rhs.x
+    let deltaY = lhs.y - rhs.y
+    return deltaX * deltaX + deltaY * deltaY < 900.0
+}
+
+func hasMatchingNetworkAsteroid(asteroid: Asteroid, world: NetworkWorld) -> Bool {
+    for asteroidIndex in 0..world.asteroids.count {
+        if networkAsteroidMatches(lhs: asteroid, rhs: world.asteroids[asteroidIndex]) {
+            return true
+        }
+    }
+    return false
+}
+
+func findNetworkPlayer(world: NetworkWorld, playerId: Int32) -> Player? {
+    for playerIndex in 0..world.players.count {
+        if world.players[playerIndex].id == playerId {
+            return world.players[playerIndex]
+        }
+    }
+    return nil
+}
+
+func spawnNetworkShipExplosion(game: &Game, x: Float32, y: Float32, playerId: Int32) {
+    let color = playerColor(playerId: playerId)
+    for _ in 0..22 {
+        spawnParticle(game, x, y, color.red, color.green, color.blue, 160.0, 0.65, 2.0)
+        spawnParticle(game, x, y, 255, 210, 120, 130.0, 0.45, 1.6)
+    }
+}
+
+func spawnNetworkRespawnBurst(game: &Game, x: Float32, y: Float32, playerId: Int32) {
+    let color = playerColor(playerId: playerId)
+    for _ in 0..18 {
+        spawnParticle(game, x, y, color.red, color.green, color.blue, 90.0, 0.35, 1.4)
+    }
+}
+
+func applyNetworkEffects(previousWorld: NetworkWorld, nextWorld: NetworkWorld, game: &Game) {
+    for asteroidIndex in 0..previousWorld.asteroids.count {
+        let asteroid = previousWorld.asteroids[asteroidIndex]
+        if !hasMatchingNetworkAsteroid(asteroid: asteroid, world: nextWorld) {
+            burstExplosion(game, asteroid.x, asteroid.y, asteroid.tier)
+        }
+    }
+
+    for playerIndex in 0..previousWorld.players.count {
+        let previousPlayer = previousWorld.players[playerIndex]
+        let nextPlayer = findNetworkPlayer(world: nextWorld, playerId: previousPlayer.id)
+        if nextPlayer == nil {
+            if previousPlayer.ship.alive {
+                spawnNetworkShipExplosion(
+                    game: game,
+                    x: previousPlayer.ship.x,
+                    y: previousPlayer.ship.y,
+                    playerId: previousPlayer.id)
+            }
+            continue
+        }
+
+        let player = nextPlayer!
+        if player.lives < previousPlayer.lives || (previousPlayer.ship.alive && !player.ship.alive) {
+            spawnNetworkShipExplosion(
+                game: game,
+                x: previousPlayer.ship.x,
+                y: previousPlayer.ship.y,
+                playerId: previousPlayer.id)
+        }
+        if player.ship.alive && player.ship.invuln > 0.0 && previousPlayer.ship.invuln <= 0.0 {
+            spawnNetworkRespawnBurst(
+                game: game,
+                x: player.ship.x,
+                y: player.ship.y,
+                playerId: player.id)
+        }
+    }
+}
+
+func processServerLines(connection: &ClientConnection, visibleWorld: &NetworkWorld, game: &Game) -> Bool {
+    var committed = false
+    while true {
+        let line = takeLine(text: connection.receiveText)
+        if !line.found {
+            return committed
+        }
+        connection.receiveText = line.rest
+
+        if connection.playerId == 0 {
+            let id = decodeWelcome(line: line.line)
+            if id != 0 {
+                connection.playerId = id
+            }
+        }
+
+        if decodeSnapshotLine(world: &connection.pendingWorld, line: line.line) {
+            applyNetworkEffects(previousWorld: visibleWorld^, nextWorld: connection.pendingWorld, game: game)
+            visibleWorld^ = connection.pendingWorld
+            committed = true
+        }
+    }
+}
+
+func pollServer(connection: &ClientConnection, world: &NetworkWorld, buffer: &Byte, game: &Game) throws(String) -> Bool {
+    let received = try appendReceivedText(
+        stream: &connection.stream,
+        receiveText: connection.receiveText,
+        buffer: buffer)
+    connection.receiveText = received.text
+    if received.closed {
+        return false
+    }
+    if received.changed {
+        _ = processServerLines(connection: connection, visibleWorld: world, game: game)
+    }
+    return true
+}
+
+func runClient() throws(String) -> Int {
+    var stream = try TcpStream.connect(host: NETWORK_HOST, port: NETWORK_PORT)
+    _ = stream.setNonblocking(enabled: true)
+    _ = stream.setNoDelay(enabled: true)
+
+    if !SDL3.initialize(SDL3.InitFlags.video | SDL3.InitFlags.gamepad) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    var window: &SDL3.Window? = nil
+    var renderer: &SDL3.Renderer? = nil
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Asteroids Multiplayer Client", WIDTH, HEIGHT, 0, &window, &renderer) {
+        Console.printLine("SDL_CreateWindowAndRenderer failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    if !SDL3.setRenderVSync(renderer, 1) {
+        Console.printLine("SDL_SetRenderVSync failed: ${SDL3.getError()!}")
+    }
+
+    let buffer = try! Memory.systemAllocate(size: NETWORK_BUFFER_SIZE)
+    defer Memory.systemDeallocate(address: buffer)
+
+    var connection = ClientConnection(
+        stream: stream,
+        receiveText: "",
+        playerId: 0,
+        pendingWorld: makeNetworkWorld(seed: 0xA57E401D))
+    var world = makeNetworkWorld(seed: 0xA57E401D)
+    clearSnapshot(world: &world)
+    clearSnapshot(world: &connection.pendingWorld)
+
+    var gamepad = openClientGamepad()
+    var running = true
+    var event = SDL3.Event()
+    var starGame = makeClientStarGame()
+    var lastInput = emptyInput()
+    var sentInitialInput = false
+    let perfFreq = SDL3.getPerformanceFrequency()
+    var lastCounter = SDL3.getPerformanceCounter()
+
+    Console.printLine("Asteroids client connected to ${connection.stream.peerAddress}")
+
+    while running {
+        while SDL3.pollEvent(&event) {
+            handleClientEvent(event: event, running: &running)
+        }
+
+        var input = emptyInput()
+        readKeyboard(input: &input, keyboard: SDL3.getKeyboardState(nil))
+        applyGamepad(input: &input, gamepad: gamepad)
+        if !sentInitialInput || !sameInput(lhs: input, rhs: lastInput) {
+            try sendText(stream: &connection.stream, text: encodeInput(input: input))
+            lastInput = input
+            sentInitialInput = true
+        }
+
+        if !try pollServer(connection: &connection, world: &world, buffer: buffer, game: &starGame) {
+            running = false
+        }
+
+        let counter = SDL3.getPerformanceCounter()
+        var deltaTime = Float32(counter - lastCounter) / Float32(perfFreq)
+        lastCounter = counter
+        if deltaTime > 0.05 {
+            deltaTime = 0.05
+        }
+        updateStars(game: &starGame, dt: deltaTime)
+        updateParticles(game: &starGame, dt: deltaTime)
+
+        SDL3.setRenderDrawColor(renderer, 4, 6, 12, 255)
+        SDL3.renderClear(renderer)
+        drawStars(renderer: renderer, game: *starGame)
+        drawNetworkWorld(renderer: renderer, world: *world, localPlayerId: connection.playerId)
+        drawParticles(renderer: renderer, game: *starGame)
+        SDL3.renderPresent(renderer)
+        SDL3.delay(1)
+    }
+
+    if gamepad != nil {
+        SDL3.closeGamepad(gamepad)
+    }
+    connection.stream.close()
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    return 0
+}
+
+func main() -> Int {
+    do {
+        return runClient()
+    }
+    catch let error {
+        Console.printLine("asteroids client error: ${error}")
+        return 1
+    }
+}

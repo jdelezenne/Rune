@@ -1,0 +1,225 @@
+import Standard.*
+import SDL3
+
+const SAVE_BUFFER_SIZE: Int = 8192
+
+struct Records {
+    var bestMoves: [Int, LEVEL_COUNT]
+    var bestPushes: [Int, LEVEL_COUNT]
+    var unlockedLevel: Int
+
+    mutating func recordCompletion(game: &Game) {
+        let index = game.level
+        if self.bestMoves[index] == 0 || game.moves < self.bestMoves[index] {
+            self.bestMoves[index] = game.moves
+        }
+        if self.bestPushes[index] == 0 || game.pushes < self.bestPushes[index] {
+            self.bestPushes[index] = game.pushes
+        }
+        if game.level < LEVEL_COUNT - 1 && self.unlockedLevel < game.level + 1 {
+            self.unlockedLevel = game.level + 1
+        }
+    }
+}
+
+func makeRecords() -> Records {
+    return Records(bestMoves: [], bestPushes: [], unlockedLevel: 0)
+}
+
+func parseUnsigned(text: String) -> Int? {
+    if text.isEmpty {
+        return nil
+    }
+    var value = 0
+    for character in text {
+        let digit = Int(character.codePoint) - 48
+        if digit < 0 || digit > 9 {
+            return nil
+        }
+        value = value * 10 + digit
+    }
+    return value
+}
+
+func saveFilePath(directory: String) -> Storage.Path {
+    var path = Storage.Path(directory)
+    path.push(component: "sokoban.save")
+    return path
+}
+
+func restoreRecords(records: &Records, directory: String) throws(Storage.StorageError) -> Bool {
+    let path = saveFilePath(directory)
+    if !Storage.FileSystem.exists(path: path) {
+        return false
+    }
+
+    var file = try Storage.File.openAt(path: path, flags: Storage.FileOpenFlags.reading())
+    let text = try file.readToString()
+    let lines = text.split(separator: "\n")
+    if lines.count < 5 + LEVEL_COUNT {
+        return false
+    }
+    let unlocked = parseUnsigned(lines[4])
+    if unlocked == nil || unlocked! < 1 || unlocked! > LEVEL_COUNT {
+        return false
+    }
+
+    var loadedBestMoves: [Int, LEVEL_COUNT] = []
+    var loadedBestPushes: [Int, LEVEL_COUNT] = []
+    for index in 0..LEVEL_COUNT {
+        let scores = lines[5 + index].split(separator: " ")
+        if scores.count != 2 {
+            return false
+        }
+        let moves = parseUnsigned(scores[0])
+        let pushes = parseUnsigned(scores[1])
+        if moves == nil || pushes == nil {
+            return false
+        }
+        loadedBestMoves[index] = moves!
+        loadedBestPushes[index] = pushes!
+    }
+
+    records.unlockedLevel = unlocked! - 1
+    records.bestMoves = loadedBestMoves
+    records.bestPushes = loadedBestPushes
+    return true
+}
+
+func saveContainsBoard(directory: String) throws(Storage.StorageError) -> Bool {
+    let path = saveFilePath(directory)
+    if !Storage.FileSystem.exists(path: path) {
+        return false
+    }
+    var file = try Storage.File.openAt(path: path, flags: Storage.FileOpenFlags.reading())
+    let text = try file.readToString()
+    let lines = text.split(separator: "\n")
+    if lines.count < 5 {
+        return false
+    }
+    let level = parseUnsigned(lines[0])
+    return level != nil && level! >= 1 && level! <= LEVEL_COUNT
+}
+
+func serialize(game: &Game, records: &Records) -> String {
+    var history = ""
+    for index in 0..game.historyCount {
+        history = history + "${game.history[index]}"
+    }
+
+    var result = "${game.level + 1}\n${game.historyCount}\n${history}\n${game.elapsedMilliseconds}\n${records.unlockedLevel + 1}\n"
+    for index in 0..LEVEL_COUNT {
+        result = result + "${records.bestMoves[index]} ${records.bestPushes[index]}\n"
+    }
+    return result
+}
+
+func serializeProgress(records: &Records) -> String {
+    var result = "0\n0\n\n0\n${records.unlockedLevel + 1}\n"
+    for index in 0..LEVEL_COUNT {
+        result = result + "${records.bestMoves[index]} ${records.bestPushes[index]}\n"
+    }
+    return result
+}
+
+func writeSaveText(text: String, directory: String) throws(Storage.StorageError) {
+    var bytes: [Byte, SAVE_BUFFER_SIZE] = []
+    #assert(text.length <= SAVE_BUFFER_SIZE, "Sokoban save data exceeds buffer capacity")
+    let copied = text.copyBytes(destination: bytes.bytes, maxLength: UInt(text.length))
+    let slice = Slice<Byte>(elements: bytes.bytes, count: Int(copied))
+    var file = try Storage.File.openAt(path: saveFilePath(directory), flags: Storage.FileOpenFlags.writing())
+    try file.writeAll(bytes: slice)
+    try file.flush()
+}
+
+func saveProgress(game: &Game, records: &Records, directory: String) throws(Storage.StorageError) {
+    if directory.isEmpty {
+        return
+    }
+    try writeSaveText(serialize(game, records), directory)
+}
+
+func saveProgressWithoutBoard(records: &Records, directory: String) throws(Storage.StorageError) {
+    if directory.isEmpty {
+        return
+    }
+    try writeSaveText(serializeProgress(records), directory)
+}
+
+func restoreProgress(game: &Game, records: &Records, directory: String) throws(Storage.StorageError) -> Bool {
+    if directory.isEmpty {
+        return false
+    }
+    let path = saveFilePath(directory)
+    if !Storage.FileSystem.exists(path: path) {
+        return false
+    }
+
+    var file = try Storage.File.openAt(path: path, flags: Storage.FileOpenFlags.reading())
+    let text = try file.readToString()
+    let lines = text.split(separator: "\n")
+    if lines.count < 5 + LEVEL_COUNT {
+        return false
+    }
+
+    let level = parseUnsigned(lines[0])
+    let historyCount = parseUnsigned(lines[1])
+    let elapsedMilliseconds = parseUnsigned(lines[3])
+    let unlocked = parseUnsigned(lines[4])
+    if level == nil || historyCount == nil || elapsedMilliseconds == nil || unlocked == nil {
+        return false
+    }
+    if level! < 1 || level! > LEVEL_COUNT || unlocked! < level! || unlocked! > LEVEL_COUNT || historyCount! > HISTORY_CAPACITY {
+        return false
+    }
+    if lines[2].count != historyCount! {
+        return false
+    }
+
+    var loadedMoves: [Int32, HISTORY_CAPACITY] = []
+    for index in 0..historyCount! {
+        let direction = Int(lines[2][index].codePoint) - 48
+        if direction < 0 || direction > 3 {
+            return false
+        }
+        loadedMoves[index] = Int32(direction)
+    }
+
+    var loadedBestMoves: [Int, LEVEL_COUNT] = []
+    var loadedBestPushes: [Int, LEVEL_COUNT] = []
+    for index in 0..LEVEL_COUNT {
+        let scores = lines[5 + index].split(separator: " ")
+        if scores.count != 2 {
+            return false
+        }
+        let moves = parseUnsigned(scores[0])
+        let pushes = parseUnsigned(scores[1])
+        if moves == nil || pushes == nil {
+            return false
+        }
+        loadedBestMoves[index] = moves!
+        loadedBestPushes[index] = pushes!
+    }
+
+    try game.load(level! - 1)
+    for index in 0..historyCount! {
+        let direction = loadedMoves[index]
+        if direction == 0 {
+            _ = game.applyMove(0, -1, true)
+        }
+        else if direction == 1 {
+            _ = game.applyMove(1, 0, true)
+        }
+        else if direction == 2 {
+            _ = game.applyMove(0, 1, true)
+        }
+        else {
+            _ = game.applyMove(-1, 0, true)
+        }
+    }
+    game.elapsedMilliseconds = elapsedMilliseconds!
+    records.bestMoves = loadedBestMoves
+    records.bestPushes = loadedBestPushes
+    records.unlockedLevel = unlocked! - 1
+    return true
+}

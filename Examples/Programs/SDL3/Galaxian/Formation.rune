@@ -1,0 +1,103 @@
+// Formation: the attack-wave layout and playfield geometry for a fixed-shooter
+// in the classic Galaxian mould - a swaying grid of alien drones at the top,
+// escorted flagships on the front row, and the horizontal cannon lane at the
+// bottom. All geometry constants live here so the actor movement and the
+// renderer agree on where a formation slot sits on screen.
+
+import Standard.*
+
+// MARK: - Screen geometry (portrait, like the upright arcade cabinet)
+
+const WIDTH: Int32 = 448
+const HEIGHT: Int32 = 576
+
+// MARK: - Alien kinds
+
+const KIND_EMPTY: UInt8 = 0
+const KIND_BLUE: UInt8 = 1
+const KIND_PURPLE: UInt8 = 2
+const KIND_RED: UInt8 = 3
+const KIND_FLAGSHIP: UInt8 = 4
+
+// MARK: - Formation grid
+
+const FORMATION_COLS: Int = 10
+const FORMATION_ROWS: Int = 6
+const FORMATION_CELLS: Int = 60
+
+// The classic 46-alien pyramid: two escorted flagships crown the front row,
+// a band of red emissaries beneath them, a wider band of purple, then three
+// full ranks of blue drones.
+//   Row 0:  . . . . F F . . . .
+//   Row 1:  . . R R R R R R . .
+//   Row 2:  . P P P P P P P P .
+//   Row 3:  B B B B B B B B B B
+//   Row 4:  B B B B B B B B B B
+//   Row 5:  B B B B B B B B B B
+const FORMATION_LAYOUT: [UInt8, FORMATION_CELLS] = [
+    0, 0, 0, 0, 4, 4, 0, 0, 0, 0,
+    0, 0, 3, 3, 3, 3, 3, 3, 0, 0,
+    0, 2, 2, 2, 2, 2, 2, 2, 2, 0,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+]
+
+// MARK: - Formation placement on screen
+
+const CELL_X: Float32 = 34.0
+const CELL_Y: Float32 = 30.0
+const FORMATION_CX0: Float32 = 71.0
+const FORMATION_CY0: Float32 = 112.0
+const SWAY_AMPLITUDE: Float32 = 22.0
+const SWAY_SPEED: Float32 = 1.15
+
+// MARK: - Cannon lane
+
+const PLAYER_Y: Float32 = 516.0
+const PLAYER_HALF_W: Float32 = 15.0
+const PLAYER_MARGIN: Float32 = 18.0
+
+func playerMinX() -> Float32 {
+    return PLAYER_MARGIN + PLAYER_HALF_W
+}
+
+func playerMaxX() -> Float32 {
+    return Float32(WIDTH) - PLAYER_MARGIN - PLAYER_HALF_W
+}
+
+// MARK: - Slot queries
+
+func slotIndex(col: Int, row: Int) -> Int {
+    return row * FORMATION_COLS + col
+}
+
+func layoutKind(col: Int, row: Int) -> UInt8 {
+    if col < 0 || col >= FORMATION_COLS || row < 0 || row >= FORMATION_ROWS {
+        return KIND_EMPTY
+    }
+
+    return FORMATION_LAYOUT[slotIndex(col, row)]
+}
+
+// Base (un-swayed) centre of a formation slot.
+func slotBaseX(col: Int) -> Float32 {
+    return FORMATION_CX0 + Float32(col) * CELL_X
+}
+
+func slotBaseY(row: Int) -> Float32 {
+    return FORMATION_CY0 + Float32(row) * CELL_Y
+}
+
+// Live centre of a formation slot given the current sway offset.
+func slotX(col: Int, sway: Float32) -> Float32 {
+    return slotBaseX(col) + sway
+}
+
+func slotY(row: Int) -> Float32 {
+    return slotBaseY(row)
+}
+
+func swayOffset(swayTimer: Float32) -> Float32 {
+    return Math.sin(swayTimer * SWAY_SPEED) * SWAY_AMPLITUDE
+}

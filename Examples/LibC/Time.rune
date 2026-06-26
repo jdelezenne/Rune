@@ -1,0 +1,25 @@
+// CPU clock probe using the C time bindings.
+
+import LibC
+import Standard.*
+
+func main() -> Int {
+    var unixTime = LibC.time(nil)
+    let localTime = LibC.localtime(&unixTime)
+    let start = LibC.clock()
+    let sample = LibC.strlen("clock sample")
+    let end = LibC.clock()
+
+    Console.printLine("time=${unixTime}")
+    if localTime == nil {
+        Console.printLine("localtime=nil")
+    } else {
+        let value = localTime!^
+        Console.printLine("localtime=${value.tm_year + 1900}-${value.tm_mon + 1}-${value.tm_mday} ${value.tm_hour}:${value.tm_min}:${value.tm_sec}")
+    }
+    Console.printLine("clock start=${start}")
+    Console.printLine("strlen sample=${sample}")
+    Console.printLine("clock end=${end}")
+    Console.printLine("clock elapsed=${end - start}")
+    return 0
+}

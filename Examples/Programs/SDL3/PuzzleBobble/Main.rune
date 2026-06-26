@@ -1,0 +1,66 @@
+// PuzzleBobble: SDL3 bubble shooter showcase.
+
+import Standard.*
+import SDL3
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_Init failed")
+        } else {
+            Console.printLine("SDL_Init failed: ${message!}")
+        }
+
+        return 1
+    }
+
+    var window: &SDL3.Window? = nil
+    var renderer: &SDL3.Renderer? = nil
+    if !SDL3.createWindowAndRenderer("Rune SDL3: PuzzleBobble", SCREEN_W, SCREEN_H, 0, &window, &renderer) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_CreateWindowAndRenderer failed")
+        } else {
+            Console.printLine("SDL_CreateWindowAndRenderer failed: ${message!}")
+        }
+        SDL3.quit()
+        return 1
+    }
+
+    SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.blend)
+
+    var game = makeGame(seed: UInt32(SDL3.getTicks()))
+    var input = InputState(aimLeft: false, aimRight: false, fire: false, restart: false, escape: false)
+    var event = SDL3.Event()
+    var running = true
+    var lastCounter = SDL3.getPerformanceCounter()
+    let frequency = Float64(SDL3.getPerformanceFrequency())
+
+    Console.printLine("PuzzleBobble: Left/Right or A/D aim, Space/W/Up fires, R restarts.")
+
+    while running {
+        input.fire = false
+        input.restart = false
+        while SDL3.pollEvent(&event) {
+            if !handleEvent(event, &input) {
+                running = false
+            }
+        }
+
+        let now = SDL3.getPerformanceCounter()
+        var dt = Float32(Float64(now - lastCounter) / frequency)
+        lastCounter = now
+        dt = clampFloat(dt, 0.0, 0.033)
+
+        game.update(input: input, dt: dt)
+        drawWorld(renderer, *game)
+        SDL3.delay(1)
+    }
+
+    SDL3.destroyRenderer(renderer)
+    SDL3.destroyWindow(window)
+    SDL3.quit()
+    Console.printLine("PuzzleBobble finished.")
+    return 0
+}

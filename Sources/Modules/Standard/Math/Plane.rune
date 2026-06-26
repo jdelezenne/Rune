@@ -1,0 +1,52 @@
+/// Infinite 3D plane in normal/distance form: every point `p` on the plane
+/// satisfies `dot(normal, p) == distance`, so `distance` is the signed distance
+/// from the origin to the plane along the unit `normal`.
+@layout(kind: c)
+public struct Plane {
+    /// Unit normal of the plane.
+    public var normal: Vector3
+    /// Signed distance from the origin to the plane along `normal`.
+    public var distance: Float32
+
+    /// Plane passing through `point` with the given `normal` (normalized here).
+    public static func fromPointNormal(point: Vector3, normal: Vector3) -> Plane {
+        let n = normal.normalized()
+        return Plane(normal: n, distance: n.dot(other: point))
+    }
+
+    /// Plane through three points. Counter-clockwise winding (as seen from the
+    /// front) yields a normal facing the viewer.
+    public static func fromPoints(a: Vector3, b: Vector3, c: Vector3) -> Plane {
+        let n = (b - a).cross(other: c - a).normalized()
+        return Plane(normal: n, distance: n.dot(other: a))
+    }
+
+    /// Signed distance from `point` to the plane (positive on the normal side).
+    public func signedDistance(point: Vector3) -> Float32 {
+        return normal.dot(other: point) - distance
+    }
+
+    /// The closest point on the plane to `point`.
+    public func project(point: Vector3) -> Vector3 {
+        return point - normal * signedDistance(point: point)
+    }
+
+    /// Which side of the plane `point` lies on: 1 (front), -1 (back), 0 (on).
+    public func side(point: Vector3) -> Int {
+        let d = signedDistance(point: point)
+        if d > Math.EPSILON_F32 { return 1 }
+        if d < 0.0 - Math.EPSILON_F32 { return -1 }
+        return 0
+    }
+
+    /// Returns this plane with a unit-length normal (and consistently scaled
+    /// distance).
+    public func normalized() -> Plane {
+        let len = normal.length()
+        if len < Math.EPSILON_F32 {
+            return self
+        }
+        let inv = 1.0 / len
+        return Plane(normal: normal * inv, distance: distance * inv)
+    }
+}

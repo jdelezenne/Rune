@@ -1,0 +1,36 @@
+// Module globals reached from bodies that are also exported as generic RIL
+// payloads: struct finalizers and generic functions. Inside the defining
+// module both run through their normally compiled functions, so global
+// reads and writes behave like anywhere else. (The exported payload ships
+// without a body in this case; only cross-module instantiation would
+// report it.)
+
+var counter = 0
+
+struct Tracker {
+    init() {
+        counter = counter + 1
+    }
+
+    final() {
+        counter = counter + 10
+    }
+}
+
+func bump<T>(amount: T) -> Void {
+    counter = counter + 100
+}
+
+func makeAndDrop() -> Void {
+    let tracker = Tracker()
+}
+
+func main() -> Int {
+    makeAndDrop()
+    #assert(counter == 11, "init and final must both reach the global")
+
+    bump(true)
+    #assert(counter == 111, "generic bodies must reach module globals")
+
+    return 0
+}

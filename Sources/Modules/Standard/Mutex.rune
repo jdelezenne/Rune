@@ -1,0 +1,73 @@
+/// Opaque platform mutex handle.
+public distinct MutexHandle
+
+/// A held mutex lock.
+@builtin
+public struct MutexGuard {
+    /// Releases the lock when the guard is destroyed.
+    @runtime("rune_runtime_mutex_guard_unlock")
+    final()
+
+    /// Releases the held lock before the guard is destroyed.
+    @runtime("rune_runtime_mutex_guard_unlock")
+    public mutating func unlock()
+
+    /// Reacquires the lock after it has been released.
+    @runtime("rune_runtime_mutex_guard_relock")
+    public mutating func relock()
+
+    /// Waits on `condition`, atomically releasing and reacquiring this guard's mutex.
+    @runtime("rune_runtime_mutex_guard_wait")
+    public mutating func wait(condition: &ConditionVariable)
+}
+
+/// Mutual exclusion lock for cross-thread synchronization.
+///
+/// Use `nativeHandle` when passing the lock to native FFI callbacks.
+@builtin
+public struct Mutex {
+    /// Creates a new mutex.
+    @runtime("rune_runtime_mutex_create")
+    public init()
+
+    /// Releases the mutex when the value is destroyed.
+    @runtime("rune_runtime_mutex_destroy")
+    final()
+
+    /// Handle suitable for passing to native FFI callbacks.
+    public nativeHandle: *MutexHandle? {
+        @runtime("rune_runtime_mutex_native_handle")
+        get
+    }
+
+    /// Blocks until the mutex is acquired.
+    @runtime("rune_runtime_mutex_lock")
+    public mutating func lock()
+
+    /// Releases the mutex.
+    @runtime("rune_runtime_mutex_unlock")
+    public mutating func unlock()
+
+    /// Acquires the mutex and returns a guard that releases it when destroyed.
+    @runtime("rune_runtime_mutex_lock_guard")
+    public mutating func lockGuard() -> MutexGuard
+
+    /// Runs `body` while the mutex is held and always releases the lock when it exits.
+    public mutating func withLock<T>(body: () -> T) -> T {
+        self.lock()
+        defer {
+            self.unlock()
+        }
+        return body()
+    }
+
+    /// Runs `body` while the mutex is held, passing a guard that proves ownership.
+    public mutating func withLock<T>(body: (&MutexGuard) -> T) -> T {
+        var guard = self.lockGuard()
+        return body(&guard)
+    }
+
+    /// Releases platform resources and clears the handle.
+    @runtime("rune_runtime_mutex_destroy")
+    public mutating func release()
+}

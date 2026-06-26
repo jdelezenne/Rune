@@ -1,0 +1,592 @@
+import Standard.*
+
+const MAX_SHIPS: Int = 4
+const MAX_SHOTS: Int = 24
+const RACE_LAPS: Int = 3
+const HOVER_HEIGHT: Float32 = 1.15
+const MAX_SPEED: Float32 = 78.0
+const BASE_ACCEL: Float32 = 28.0
+const AIR_BRAKE: Float32 = 55.0
+const STEER_RATE: Float32 = 1.55
+const PITCH_RATE: Float32 = 1.2
+const SHOT_SPEED: Float32 = 120.0
+const SHOT_LIFE: Float32 = 1.4
+const FIRE_COOLDOWN: Float32 = 0.55
+const PHASE_READY: Int32 = 0
+const PHASE_RACING: Int32 = 1
+const PHASE_FINISH: Int32 = 2
+const WEAPON_NONE: Int32 = 0
+const WEAPON_ROCKET: Int32 = 1
+
+struct Rng {
+    var state: UInt32
+}
+
+func makeRng(seed: UInt32) -> Rng {
+    var s = seed
+    if s == 0 {
+        s = 0xC0FFEE
+    }
+    return Rng(state: s)
+}
+
+func randU32(rng: &Rng) -> UInt32 {
+    var x = rng.state
+    x = x ^ (x << 13)
+    x = x ^ (x >> 17)
+    x = x ^ (x << 5)
+    rng.state = x
+    return x
+}
+
+func randUnit(rng: &Rng) -> Float32 {
+    return Float32(randU32(rng) % 10000) / 10000.0
+}
+
+func randRange(rng: &Rng, low: Float32, high: Float32) -> Float32 {
+    return low + randUnit(rng) * (high - low)
+}
+
+struct Controls {
+    var steer: Float32
+    var pitch: Float32
+    var airBrake: Bool
+    var fire: Bool
+    var restart: Bool
+    var trackSelect: Int
+}
+
+func makeControls() -> Controls {
+    return Controls(
+        steer: 0.0,
+        pitch: 0.0,
+        airBrake: false,
+        fire: false,
+        restart: false,
+        trackSelect: -1)
+}
+
+struct Craft {
+    var distance: Float32
+    var lateral: Float32
+    var height: Float32
+    var speed: Float32
+    var yaw: Float32
+    var pitch: Float32
+    var bank: Float32
+    var weapon: Int32
+    var fireCooldown: Float32
+    var invuln: Float32
+    var shield: Float32
+    var lap: Int
+    var crossedMid: Bool
+    var finished: Bool
+    var place: Int
+    var isPlayer: Bool
+    var aiLane: Float32
+    var aiSpeedBias: Float32
+    var alive: Bool
+}
+
+struct Shot {
+    var distance: Float32
+    var lateral: Float32
+    var height: Float32
+    var speed: Float32
+    var life: Float32
+    var owner: Int
+    var active: Bool
+}
+
+struct FrameEvents {
+    var fired: Bool
+    var boost: Bool
+    var wallHit: Bool
+    var weaponPad: Bool
+    var finished: Bool
+    var countdownBeep: Bool
+}
+
+struct Race {
+    var track: BakedTrack
+    var trackIndex: Int
+    var crafts: [Craft, MAX_SHIPS]
+    var shots: [Shot, MAX_SHOTS]
+    var phase: Int32
+    var phaseTimer: Float32
+    var countdown: Int
+    var rng: Rng
+    var cameraDistance: Float32
+    var cameraLateral: Float32
+    var cameraHeight: Float32
+    var raceTime: Float32
+}
+
+func emptyCraft() -> Craft {
+    return Craft(
+        distance: 0.0,
+        lateral: 0.0,
+        height: HOVER_HEIGHT,
+        speed: 0.0,
+        yaw: 0.0,
+        pitch: 0.0,
+        bank: 0.0,
+        weapon: WEAPON_NONE,
+        fireCooldown: 0.0,
+        invuln: 0.0,
+        shield: 1.0,
+        lap: 0,
+        crossedMid: false,
+        finished: false,
+        place: 1,
+        isPlayer: false,
+        aiLane: 0.0,
+        aiSpeedBias: 0.0,
+        alive: true)
+}
+
+func emptyShot() -> Shot {
+    return Shot(
+        distance: 0.0,
+        lateral: 0.0,
+        height: HOVER_HEIGHT,
+        speed: SHOT_SPEED,
+        life: 0.0,
+        owner: -1,
+        active: false)
+}
+
+func emptyShots() -> [Shot, MAX_SHOTS] {
+    var shots: [Shot, MAX_SHOTS] = []
+    for i in 0..MAX_SHOTS {
+        shots[i] = emptyShot()
+    }
+    return shots
+}
+
+func craftWorld(track: BakedTrack, craft: Craft) -> Vector3 {
+    return worldFromTrack(track, craft.distance, craft.lateral, craft.height)
+}
+
+func craftBasis(track: BakedTrack, craft: Craft) -> (forward: Vector3, right: Vector3, up: Vector3) {
+    let sample = sampleTrack(track, craft.distance)
+    let yawC = Math.cos(craft.yaw)
+    let yawS = Math.sin(craft.yaw)
+    let pitchC = Math.cos(craft.pitch)
+    let pitchS = Math.sin(craft.pitch)
+    // Yaw around track up, then pitch around resulting right.
+    var forward = sample.forward * yawC + sample.right * yawS
+    forward = (forward * pitchC + sample.up * pitchS).normalized()
+    var right = forward.cross(other: sample.up).normalized()
+    if right.lengthSquared() < 0.0001 {
+        right = sample.right
+    }
+    let bankC = Math.cos(craft.bank)
+    let bankS = Math.sin(craft.bank)
+    let up = sample.up
+    let bankedRight = right * bankC + up * bankS
+    let bankedUp = (up * bankC - right * bankS).normalized()
+    return (forward: forward, right: bankedRight.normalized(), up: bankedUp)
+}
+
+func spawnCraft(track: BakedTrack, slot: Int, isPlayer: Bool, rng: &Rng) -> Craft {
+    var craft = emptyCraft()
+    craft.isPlayer = isPlayer
+    craft.distance = wrapDistance(Float32(0 - slot) * 6.5, track.totalLength)
+    craft.lateral = Float32(slot) * 2.2 - 3.3
+    craft.height = HOVER_HEIGHT
+    craft.speed = 0.0
+    craft.yaw = 0.0
+    craft.pitch = 0.0
+    craft.bank = 0.0
+    // Everyone starts armed; pads refill after firing.
+    craft.weapon = WEAPON_ROCKET
+    craft.lap = 0
+    craft.crossedMid = false
+    craft.finished = false
+    craft.alive = true
+    craft.aiLane = randRange(rng, -4.0, 4.0)
+    craft.aiSpeedBias = randRange(rng, -6.0, 8.0)
+    craft.place = slot + 1
+    return craft
+}
+
+func newRace(trackIndex: Int, seed: UInt32) -> Race {
+    var index = trackIndex
+    if index < 0 {
+        index = 0
+    }
+    if index >= TRACK_COUNT {
+        index = TRACK_COUNT - 1
+    }
+    let track = bakeTrack(index)
+    var rng = makeRng(seed)
+    var crafts: [Craft, MAX_SHIPS] = []
+    for i in 0..MAX_SHIPS {
+        crafts[i] = spawnCraft(track, i, i == 0, &rng)
+    }
+    let player = crafts[0]
+    return Race(
+        track: track,
+        trackIndex: index,
+        crafts: crafts,
+        shots: emptyShots(),
+        phase: PHASE_READY,
+        phaseTimer: 3.2,
+        countdown: 3,
+        rng: rng,
+        cameraDistance: wrapDistance(player.distance - 5.0, track.totalLength),
+        cameraLateral: player.lateral * 0.75,
+        cameraHeight: player.height + 2.5,
+        raceTime: 0.0)
+}
+
+func fireShot(race: &Race, owner: Int) -> Bool {
+    let craft = race.crafts[owner]
+    if craft.weapon == WEAPON_NONE || craft.fireCooldown > 0.0 || !craft.alive {
+        return false
+    }
+    for i in 0..MAX_SHOTS {
+        if race.shots[i].active {
+            continue
+        }
+        race.shots[i] = Shot(
+            distance: craft.distance + 3.0,
+            lateral: craft.lateral,
+            height: craft.height + 0.2,
+            speed: craft.speed + SHOT_SPEED,
+            life: SHOT_LIFE,
+            owner: owner,
+            active: true)
+        race.crafts[owner].fireCooldown = FIRE_COOLDOWN
+        race.crafts[owner].weapon = WEAPON_NONE
+        return true
+    }
+    return false
+}
+
+func updateLaps(race: &Race, index: Int, previousDistance: Float32) {
+    let total = race.track.totalLength
+    let craft = race.crafts[index]
+    let mid = total * 0.5
+    if previousDistance < mid && craft.distance >= mid {
+        race.crafts[index].crossedMid = true
+    }
+    // Cross start line forward after mid-track.
+    if craft.crossedMid && previousDistance > total * 0.85 && craft.distance < total * 0.15 {
+        race.crafts[index].lap = race.crafts[index].lap + 1
+        race.crafts[index].crossedMid = false
+        if race.crafts[index].lap >= RACE_LAPS {
+            race.crafts[index].finished = true
+        }
+    }
+}
+
+func updatePlaces(race: &Race) {
+    for i in 0..MAX_SHIPS {
+        var better = 0
+        let a = race.crafts[i]
+        let scoreA = Float32(a.lap) * race.track.totalLength + a.distance
+        for j in 0..MAX_SHIPS {
+            if i == j || !race.crafts[j].alive {
+                continue
+            }
+            let b = race.crafts[j]
+            let scoreB = Float32(b.lap) * race.track.totalLength + b.distance
+            if scoreB > scoreA {
+                better = better + 1
+            }
+        }
+        race.crafts[i].place = better + 1
+    }
+}
+
+func aiControls(race: Race, index: Int) -> Controls {
+    let craft = race.crafts[index]
+    var controls = makeControls()
+    let laneError = craft.aiLane - craft.lateral
+    controls.steer = Math.clamp(laneError * 0.18, -1.0, 1.0)
+    // Slight pitch to follow banked sections.
+    let sample = sampleTrack(race.track, craft.distance + 12.0)
+    let ahead = sampleTrack(race.track, craft.distance + 28.0)
+    let climb = ahead.position.y - sample.position.y
+    controls.pitch = Math.clamp(climb * 0.08, -0.6, 0.6)
+    controls.airBrake = craft.speed > MAX_SPEED + craft.aiSpeedBias + 4.0
+    // Lane wander so the pack doesn't stack on one line.
+    if Math.abs(laneError) < 0.35 {
+        controls.steer = controls.steer + Math.sin(race.raceTime * 0.7 + Float32(index) * 1.7) * 0.15
+    }
+    // Fire if someone is roughly ahead in corridor.
+    if craft.weapon != WEAPON_NONE && craft.fireCooldown <= 0.0 {
+        for j in 0..MAX_SHIPS {
+            if j == index || !race.crafts[j].alive {
+                continue
+            }
+            let other = race.crafts[j]
+            var aheadDist = other.distance - craft.distance
+            if aheadDist < 0.0 {
+                aheadDist = aheadDist + race.track.totalLength
+            }
+            if aheadDist > 4.0 && aheadDist < 45.0 && Math.abs(other.lateral - craft.lateral) < 4.0 {
+                controls.fire = true
+            }
+        }
+    }
+    return controls
+}
+
+func integrateCraft(race: &Race, index: Int, controls: Controls, dt: Float32, events: &FrameEvents) {
+    if !race.crafts[index].alive || race.crafts[index].finished {
+        return
+    }
+    if race.crafts[index].fireCooldown > 0.0 {
+        race.crafts[index].fireCooldown = race.crafts[index].fireCooldown - dt
+    }
+    if race.crafts[index].invuln > 0.0 {
+        race.crafts[index].invuln = race.crafts[index].invuln - dt
+    }
+
+    let previousDistance = race.crafts[index].distance
+    race.crafts[index].yaw = Math.clamp(
+        race.crafts[index].yaw + controls.steer * STEER_RATE * dt, -0.55, 0.55)
+    race.crafts[index].pitch = Math.clamp(
+        race.crafts[index].pitch + controls.pitch * PITCH_RATE * dt, -0.45, 0.45)
+    let targetBank = Math.clamp(-controls.steer * 0.55 - race.crafts[index].yaw * 0.35, -0.7, 0.7)
+    race.crafts[index].bank = Math.lerp(race.crafts[index].bank, targetBank, Math.clamp(dt * 6.0, 0.0, 1.0))
+
+    var accel = BASE_ACCEL
+    let sample = sampleTrack(race.track, race.crafts[index].distance)
+    if sample.surface == SURFACE_BOOST {
+        accel = accel + 42.0
+        if race.crafts[index].isPlayer {
+            events.boost = true
+        }
+    } else if sample.surface == SURFACE_ROUGH {
+        accel = accel * 0.55
+    }
+    if controls.airBrake {
+        race.crafts[index].speed = Math.max(12.0, race.crafts[index].speed - AIR_BRAKE * dt)
+    } else {
+        race.crafts[index].speed = race.crafts[index].speed + accel * dt
+    }
+    var cap = MAX_SPEED
+    if !race.crafts[index].isPlayer {
+        cap = MAX_SPEED + race.crafts[index].aiSpeedBias
+    }
+    if race.crafts[index].speed > cap {
+        race.crafts[index].speed = Math.lerp(race.crafts[index].speed, cap, Math.clamp(dt * 2.0, 0.0, 1.0))
+    }
+    // Drag
+    race.crafts[index].speed = race.crafts[index].speed * Math.max(0.0, 1.0 - dt * 0.08)
+
+    // Forward motion along track with yaw contribution to lateral.
+    let forwardSpeed = race.crafts[index].speed * Math.cos(race.crafts[index].yaw) * Math.cos(race.crafts[index].pitch)
+    let lateralSpeed = race.crafts[index].speed * Math.sin(race.crafts[index].yaw)
+    race.crafts[index].distance = wrapDistance(
+        race.crafts[index].distance + forwardSpeed * dt, race.track.totalLength)
+    race.crafts[index].lateral = race.crafts[index].lateral + lateralSpeed * dt
+
+    // Hover spring
+    let targetHeight = HOVER_HEIGHT + Math.sin(race.raceTime * 8.0 + Float32(index)) * 0.04
+    race.crafts[index].height = Math.lerp(race.crafts[index].height, targetHeight, Math.clamp(dt * 8.0, 0.0, 1.0))
+    race.crafts[index].height = race.crafts[index].height + race.crafts[index].pitch * 0.35
+
+    // Wall collision
+    let half = sample.halfWidth - 1.1
+    if race.crafts[index].lateral > half {
+        race.crafts[index].lateral = half
+        race.crafts[index].yaw = race.crafts[index].yaw * 0.4
+        race.crafts[index].speed = race.crafts[index].speed * 0.72
+        if race.crafts[index].isPlayer {
+            events.wallHit = true
+        }
+    } else if race.crafts[index].lateral < 0.0 - half {
+        race.crafts[index].lateral = 0.0 - half
+        race.crafts[index].yaw = race.crafts[index].yaw * 0.4
+        race.crafts[index].speed = race.crafts[index].speed * 0.72
+        if race.crafts[index].isPlayer {
+            events.wallHit = true
+        }
+    }
+
+    // Weapon pads
+    for p in 0..race.track.padCount {
+        let pad = race.track.pads[p]
+        if !pad.active || pad.kind != 0 {
+            continue
+        }
+        var dd = Math.abs(pad.distance - race.crafts[index].distance)
+        if dd > race.track.totalLength * 0.5 {
+            dd = race.track.totalLength - dd
+        }
+        if dd < 3.0 && Math.abs(pad.lateral - race.crafts[index].lateral) < 2.2 {
+            if race.crafts[index].weapon == WEAPON_NONE {
+                race.crafts[index].weapon = WEAPON_ROCKET
+                if race.crafts[index].isPlayer {
+                    events.weaponPad = true
+                }
+            }
+        }
+    }
+
+    if controls.fire && fireShot(race, index) {
+        if race.crafts[index].isPlayer {
+            events.fired = true
+        }
+    }
+
+    updateLaps(race, index, previousDistance)
+    if race.crafts[index].finished && race.crafts[index].isPlayer {
+        events.finished = true
+    }
+
+    // Relax yaw toward track when not steering hard.
+    if Math.abs(controls.steer) < 0.05 {
+        race.crafts[index].yaw = Math.lerp(race.crafts[index].yaw, 0.0, Math.clamp(dt * 1.8, 0.0, 1.0))
+    }
+    if Math.abs(controls.pitch) < 0.05 {
+        race.crafts[index].pitch = Math.lerp(race.crafts[index].pitch, 0.0, Math.clamp(dt * 2.2, 0.0, 1.0))
+    }
+}
+
+func updateShots(race: &Race, dt: Float32) {
+    for i in 0..MAX_SHOTS {
+        if !race.shots[i].active {
+            continue
+        }
+        race.shots[i].life = race.shots[i].life - dt
+        if race.shots[i].life <= 0.0 {
+            race.shots[i].active = false
+            continue
+        }
+        race.shots[i].distance = wrapDistance(
+            race.shots[i].distance + race.shots[i].speed * dt, race.track.totalLength)
+        let sample = sampleTrack(race.track, race.shots[i].distance)
+        let half = sample.halfWidth - 0.4
+        if race.shots[i].lateral > half || race.shots[i].lateral < 0.0 - half {
+            race.shots[i].active = false
+            continue
+        }
+        for s in 0..MAX_SHIPS {
+            if !race.crafts[s].alive || s == race.shots[i].owner {
+                continue
+            }
+            if race.crafts[s].invuln > 0.0 {
+                continue
+            }
+            var dd = Math.abs(race.shots[i].distance - race.crafts[s].distance)
+            if dd > race.track.totalLength * 0.5 {
+                dd = race.track.totalLength - dd
+            }
+            if dd < 2.4 && Math.abs(race.shots[i].lateral - race.crafts[s].lateral) < 1.6 {
+                race.shots[i].active = false
+                race.crafts[s].speed = race.crafts[s].speed * 0.45
+                race.crafts[s].yaw = race.crafts[s].yaw + randRange(&race.rng, -0.4, 0.4)
+                race.crafts[s].invuln = 0.8
+                race.crafts[s].shield = Math.max(0.0, race.crafts[s].shield - 0.34)
+                if race.crafts[s].shield <= 0.0 {
+                    // Respawn on track after wipeout.
+                    race.crafts[s].shield = 1.0
+                    race.crafts[s].speed = 15.0
+                    race.crafts[s].lateral = 0.0
+                    race.crafts[s].height = HOVER_HEIGHT
+                    race.crafts[s].invuln = 2.0
+                }
+                break
+            }
+        }
+    }
+}
+
+func updateCamera(race: &Race, dt: Float32) {
+    let player = race.crafts[0]
+    // Stay ahead of the first trailing grid slot (6.5 m behind the player), so
+    // rival craft cannot pass through the chase camera.
+    let targetDist = wrapDistance(player.distance - 5.0, race.track.totalLength)
+    // Player distance is already continuous. Smoothing this coordinate creates
+    // speed / followRate metres of extra lag, so the ship shrinks as it speeds up.
+    race.cameraDistance = targetDist
+    race.cameraLateral = Math.lerp(race.cameraLateral, player.lateral * 0.75, Math.clamp(dt * 5.0, 0.0, 1.0))
+    race.cameraHeight = Math.lerp(race.cameraHeight, player.height + 2.5, Math.clamp(dt * 5.0, 0.0, 1.0))
+}
+
+func updateRace(race: &Race, playerControls: Controls, dt: Float32) -> FrameEvents {
+    var events = FrameEvents(
+        fired: false,
+        boost: false,
+        wallHit: false,
+        weaponPad: false,
+        finished: false,
+        countdownBeep: false)
+
+    if playerControls.restart {
+        race^ = newRace(race.trackIndex, randU32(&race.rng))
+        return events
+    }
+    if playerControls.trackSelect >= 0 && (race.phase == PHASE_READY || race.phase == PHASE_FINISH) {
+        race^ = newRace(playerControls.trackSelect, randU32(&race.rng))
+        return events
+    }
+
+    if race.phase == PHASE_READY {
+        let previous = race.countdown
+        race.phaseTimer = race.phaseTimer - dt
+        if race.phaseTimer > 2.1 {
+            race.countdown = 3
+        } else if race.phaseTimer > 1.1 {
+            race.countdown = 2
+        } else if race.phaseTimer > 0.2 {
+            race.countdown = 1
+        } else {
+            race.countdown = 0
+        }
+        if race.countdown != previous && race.countdown >= 0 {
+            events.countdownBeep = true
+        }
+        if race.phaseTimer <= 0.0 {
+            race.phase = PHASE_RACING
+            race.countdown = 0
+            events.countdownBeep = true
+        }
+        updateCamera(race, dt)
+        return events
+    }
+
+    if race.phase == PHASE_FINISH {
+        updateCamera(race, dt)
+        return events
+    }
+
+    race.raceTime = race.raceTime + dt
+
+    // Player
+    integrateCraft(race, 0, playerControls, dt, &events)
+    // AI
+    for i in 1..MAX_SHIPS {
+        let ai = aiControls(race^, i)
+        integrateCraft(race, i, ai, dt, &events)
+    }
+    updateShots(race, dt)
+    updatePlaces(race)
+    updateCamera(race, dt)
+
+    if race.crafts[0].finished {
+        race.phase = PHASE_FINISH
+        race.phaseTimer = 0.0
+        events.finished = true
+    }
+    return events
+}
+
+func cameraEyeTarget(race: Race) -> (eye: Vector3, target: Vector3) {
+    let eyeSample = sampleTrack(race.track, race.cameraDistance)
+    let eye = eyeSample.position
+        + eyeSample.right * race.cameraLateral
+        + eyeSample.up * race.cameraHeight
+    let player = race.crafts[0]
+    let playerSample = sampleTrack(race.track, player.distance)
+    let target = craftWorld(race.track, player)
+        + playerSample.up * 0.45
+        + playerSample.forward * 5.0
+    return (eye: eye, target: target)
+}

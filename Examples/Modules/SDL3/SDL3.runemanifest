@@ -1,0 +1,50 @@
+{
+  "version": "1.0.0",
+  "name": "SDL3",
+  "kind": "library",
+  "unsafe": true,
+  "sources": [
+    "init.rune",
+    "error.rune",
+    "events.rune",
+    "video.rune",
+    "opengl.rune",
+    "render.rune",
+    "surface.rune",
+    "audio.rune",
+    "timer.rune",
+    "mouse.rune",
+    "rect.rune",
+    "pixels.rune",
+    "blendmode.rune",
+    "scancode.rune",
+    "messagebox.rune",
+    "keyboard.rune",
+    "gamepad.rune",
+    "filesystem.rune",
+    "stdinc.rune"
+  ],
+  "dependencies": [
+    "../../../Code/Modules/Rune/Rune.runemanifest",
+    "../../../Code/Modules/LibC/LibC.runemanifest"
+  ],
+  "includeHeaders": [
+    "SDL3/SDL_audio.h",
+    "SDL3/SDL_error.h",
+    "SDL3/SDL_events.h",
+    "SDL3/SDL_filesystem.h",
+    "SDL3/SDL_gamepad.h",
+    "SDL3/SDL_init.h",
+    "SDL3/SDL_keyboard.h",
+    "SDL3/SDL_messagebox.h",
+    "SDL3/SDL_mouse.h",
+    "SDL3/SDL_render.h",
+    "SDL3/SDL_stdinc.h",
+    "SDL3/SDL_timer.h",
+    "SDL3/SDL_video.h"
+  ],
+  "linkLibraries": [
+    "SDL3"
+  ],
+  "output": "SDL3.runemodule"
+}

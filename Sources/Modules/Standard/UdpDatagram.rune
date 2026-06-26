@@ -1,0 +1,13 @@
+/// Metadata for one received UDP datagram.
+public struct UdpDatagram {
+    /// Number of bytes written into the caller-provided buffer.
+    public var byteCount: Int64
+
+    /// Sender address.
+    public var remoteAddress: SocketAddress
+
+    public init(byteCount: Int64, remoteAddress: SocketAddress) {
+        self.byteCount = byteCount
+        self.remoteAddress = remoteAddress
+    }
+}

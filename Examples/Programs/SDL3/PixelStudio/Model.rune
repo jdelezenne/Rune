@@ -1,0 +1,249 @@
+import Standard.*
+
+const WINDOW_W: Int32 = 1120
+const WINDOW_H: Int32 = 720
+const TOP_H: Float32 = 52.0
+const LEFT_W: Float32 = 88.0
+const RIGHT_W: Float32 = 216.0
+
+const IMAGE_W: Int = 32
+const IMAGE_H: Int = 32
+const PIXEL_COUNT: Int = IMAGE_W * IMAGE_H
+const TRANSPARENT: Int32 = -1
+
+enum Tool: Int32 {
+    pencil = 0
+    eraser = 1
+    fill = 2
+    picker = 3
+    rectangle = 4
+    circle = 5
+}
+
+const TOOLBAR_TOOLS: [Tool, 6] = [
+    Tool.pencil,
+    Tool.eraser,
+    Tool.fill,
+    Tool.picker,
+    Tool.rectangle,
+    Tool.circle
+]
+
+const PALETTE_COUNT: Int = 16
+const PALETTE: [Int32, PALETTE_COUNT] = [
+    0x1B1F2A, 0x343A4F, 0x5A6178, 0xA7B0C5,
+    0xF4F1DE, 0xE76F51, 0xF4A261, 0xE9C46A,
+    0x8BC34A, 0x2A9D8F, 0x3A86FF, 0x4361EE,
+    0x8338EC, 0xFF4D8D, 0x9C6644, 0xFFFFFF
+]
+
+struct Document {
+    var pixels: [Int32, PIXEL_COUNT] = []
+    var tool: Tool = Tool.pencil
+    var colorIndex: Int = 5
+    var zoom: Float32 = 14.0
+    var panX: Float32 = 0.0
+    var panY: Float32 = 0.0
+}
+
+func makeDocument() -> Document {
+    var document = Document()
+    for i in 0..PIXEL_COUNT {
+        document.pixels[i] = TRANSPARENT
+    }
+
+    // A tiny starter mark makes the canvas immediately read as editable art.
+    for y in 10..22 {
+        for x in 10..22 {
+            if x == 10 || x == 21 || y == 10 || y == 21 || (x >= 14 && x <= 17 && y >= 14 && y <= 17) {
+                document.pixels[y * IMAGE_W + x] = PALETTE[5]
+            }
+        }
+    }
+    return document
+}
+
+func canvasAreaW() -> Float32 {
+    return Float32(WINDOW_W) - LEFT_W - RIGHT_W
+}
+
+func canvasAreaH() -> Float32 {
+    return Float32(WINDOW_H) - TOP_H
+}
+
+func canvasOriginX(document: *Document) -> Float32 {
+    return LEFT_W + canvasAreaW() * 0.5 - Float32(IMAGE_W) * document.zoom * 0.5 + document.panX
+}
+
+func canvasOriginY(document: *Document) -> Float32 {
+    return TOP_H + canvasAreaH() * 0.5 - Float32(IMAGE_H) * document.zoom * 0.5 + document.panY
+}
+
+func pixelAtPoint(document: *Document, x: Float32, y: Float32) -> Int {
+    let px = Int((x - canvasOriginX(document)) / document.zoom)
+    let py = Int((y - canvasOriginY(document)) / document.zoom)
+    if px < 0 || px >= IMAGE_W || py < 0 || py >= IMAGE_H {
+        return -1
+    }
+    return py * IMAGE_W + px
+}
+
+extension Document {
+    mutating func setShapePixel(x: Int, y: Int, value: Int32) {
+        if x >= 0 && x < IMAGE_W && y >= 0 && y < IMAGE_H {
+            pixels[y * IMAGE_W + x] = value
+        }
+    }
+
+    mutating func drawRectangle(start: Int, end: Int) {
+        var left = start % IMAGE_W
+        var right = end % IMAGE_W
+        var top = start / IMAGE_W
+        var bottom = end / IMAGE_W
+        if left > right {
+            let swap = left
+            left = right
+            right = swap
+        }
+        if top > bottom {
+            let swap = top
+            top = bottom
+            bottom = swap
+        }
+        let value = PALETTE[colorIndex]
+        for x in left..(right + 1) {
+            setShapePixel(x: x, y: top, value: value)
+            setShapePixel(x: x, y: bottom, value: value)
+        }
+        for y in top..(bottom + 1) {
+            setShapePixel(x: left, y: y, value: value)
+            setShapePixel(x: right, y: y, value: value)
+        }
+    }
+
+    mutating func drawCircle(center: Int, edge: Int) {
+        let centerX = center % IMAGE_W
+        let centerY = center / IMAGE_W
+        var dx = edge % IMAGE_W - centerX
+        var dy = edge / IMAGE_W - centerY
+        if dx < 0 {
+            dx = -dx
+        }
+        if dy < 0 {
+            dy = -dy
+        }
+        let radius = if dx > dy {
+            dx
+        } else {
+            dy
+        }
+        let value = PALETTE[colorIndex]
+        var x = radius
+        var y = 0
+        var error = 1 - radius
+        while x >= y {
+            setShapePixel(x: centerX + x, y: centerY + y, value: value)
+            setShapePixel(x: centerX + y, y: centerY + x, value: value)
+            setShapePixel(x: centerX - y, y: centerY + x, value: value)
+            setShapePixel(x: centerX - x, y: centerY + y, value: value)
+            setShapePixel(x: centerX - x, y: centerY - y, value: value)
+            setShapePixel(x: centerX - y, y: centerY - x, value: value)
+            setShapePixel(x: centerX + y, y: centerY - x, value: value)
+            setShapePixel(x: centerX + x, y: centerY - y, value: value)
+            y += 1
+            if error < 0 {
+                error += 2 * y + 1
+            } else {
+                x -= 1
+                error += 2 * (y - x + 1)
+            }
+        }
+    }
+
+    mutating func drawShape(start: Int, end: Int) {
+        if start < 0 || end < 0 || start >= PIXEL_COUNT || end >= PIXEL_COUNT {
+            return
+        }
+        if tool == Tool.rectangle {
+            drawRectangle(start: start, end: end)
+        } else if tool == Tool.circle {
+            drawCircle(center: start, edge: end)
+        }
+    }
+
+    mutating func useToolAt(index: Int) {
+        if index < 0 || index >= PIXEL_COUNT {
+            return
+        }
+        if tool == Tool.pencil {
+            pixels[index] = PALETTE[colorIndex]
+        } else if tool == Tool.eraser {
+            pixels[index] = TRANSPARENT
+        } else if tool == Tool.picker {
+            let picked = pixels[index]
+            if picked != TRANSPARENT {
+                for i in 0..PALETTE_COUNT {
+                    if PALETTE[i] == picked {
+                        colorIndex = i
+                    }
+                }
+            }
+            tool = Tool.pencil
+        } else if tool == Tool.fill {
+            let oldColor = pixels[index]
+            let newColor = PALETTE[colorIndex]
+            if oldColor == newColor {
+                return
+            }
+            var queue: [Int] = []
+            queue.append(index)
+            pixels[index] = newColor
+            var read = 0
+            while read < queue.count {
+                let current = queue[read]
+                read += 1
+                let x = current % IMAGE_W
+                let y = current / IMAGE_W
+                if x > 0 && pixels[current - 1] == oldColor {
+                    pixels[current - 1] = newColor
+                    queue.append(current - 1)
+                }
+                if x + 1 < IMAGE_W && pixels[current + 1] == oldColor {
+                    pixels[current + 1] = newColor
+                    queue.append(current + 1)
+                }
+                if y > 0 && pixels[current - IMAGE_W] == oldColor {
+                    pixels[current - IMAGE_W] = newColor
+                    queue.append(current - IMAGE_W)
+                }
+                if y + 1 < IMAGE_H && pixels[current + IMAGE_W] == oldColor {
+                    pixels[current + IMAGE_W] = newColor
+                    queue.append(current + IMAGE_W)
+                }
+            }
+        }
+    }
+
+    mutating func zoomAt(x: Float32, y: Float32, amount: Float32) {
+        let oldZoom = zoom
+        var newZoom = zoom * amount
+        if newZoom < 4.0 {
+            newZoom = 4.0
+        }
+        if newZoom > 40.0 {
+            newZoom = 40.0
+        }
+        if newZoom == oldZoom {
+            return
+        }
+        let ox = canvasOriginX(&self)
+        let oy = canvasOriginY(&self)
+        let imageX = (x - ox) / oldZoom
+        let imageY = (y - oy) / oldZoom
+        zoom = newZoom
+        let newOx = canvasOriginX(&self)
+        let newOy = canvasOriginY(&self)
+        panX += x - (newOx + imageX * newZoom)
+        panY += y - (newOy + imageY * newZoom)
+    }
+}

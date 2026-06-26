@@ -1,0 +1,378 @@
+// Mandelbrot filled each frame by a compute shader into a storage texture.
+
+import Standard.*
+import WebGPU
+
+const WIDTH: UInt32 = 800
+const HEIGHT: UInt32 = 600
+const TEX_WIDTH: UInt32 = 512
+const TEX_HEIGHT: UInt32 = 384
+const WORKGROUP: UInt32 = 8
+
+let computeShaderSource: String = """
+struct Params {
+    scale: f32,
+    centerX: f32,
+    centerY: f32,
+    time: f32,
+}
+
+@group(0) @binding(0) var outputTex: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(1) var<uniform> params: Params;
+
+fn palette(t: f32) -> vec3<f32> {
+    let a = vec3<f32>(0.5, 0.5, 0.5);
+    let b = vec3<f32>(0.5, 0.5, 0.5);
+    let c = vec3<f32>(1.0, 1.0, 1.0);
+    let d = vec3<f32>(0.00, 0.33, 0.67);
+    return a + b * cos(6.28318 * (c * t + d));
+}
+
+@compute @workgroup_size(8, 8)
+fn computeMain(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let dims = textureDimensions(outputTex);
+    if (gid.x >= dims.x || gid.y >= dims.y) {
+        return;
+    }
+    let uv = (vec2<f32>(gid.xy) + vec2<f32>(0.5)) / vec2<f32>(dims);
+    var c = vec2<f32>(
+        (uv.x - 0.5) * params.scale * (f32(dims.x) / f32(dims.y)) + params.centerX,
+        (uv.y - 0.5) * params.scale + params.centerY);
+    var z = vec2<f32>(0.0);
+    var i: u32 = 0u;
+    let maxIter: u32 = 64u;
+    loop {
+        if (i >= maxIter || dot(z, z) > 4.0) {
+            break;
+        }
+        z = vec2<f32>(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+        i = i + 1u;
+    }
+    var color = vec3<f32>(0.02, 0.03, 0.05);
+    if (i < maxIter) {
+        let t = (f32(i) + 1.0 - log2(log2(max(dot(z, z), 1.0001)))) / f32(maxIter);
+        color = palette(t + params.time * 0.05);
+    }
+    textureStore(outputTex, vec2<i32>(gid.xy), vec4<f32>(color, 1.0));
+}
+"""
+
+let renderShaderSource: String = """
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOut {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>( 3.0, -1.0),
+        vec2<f32>(-1.0,  3.0));
+    var uvs = array<vec2<f32>, 3>(
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(2.0, 1.0),
+        vec2<f32>(0.0, -1.0));
+    var output: VertexOut;
+    output.position = vec4<f32>(positions[vertexIndex], 0.0, 1.0);
+    output.uv = uvs[vertexIndex];
+    return output;
+}
+
+@group(0) @binding(0) var imageSampler: sampler;
+@group(0) @binding(1) var imageTexture: texture_2d<f32>;
+
+@fragment
+fn fragmentMain(input: VertexOut) -> @location(0) vec4<f32> {
+    return textureSample(imageTexture, imageSampler, input.uv);
+}
+"""
+
+var instance = WebGPU.Instance.fromHandle(handle: nil)
+var surface = WebGPU.Surface.fromHandle(handle: nil)
+var adapter = WebGPU.Adapter.fromHandle(handle: nil)
+var device = WebGPU.Device.fromHandle(handle: nil)
+var queue = WebGPU.Queue.fromHandle(handle: nil)
+var computePipeline = WebGPU.ComputePipeline.fromHandle(handle: nil)
+var renderPipeline = WebGPU.RenderPipeline.fromHandle(handle: nil)
+var fractalTexture = WebGPU.Texture.fromHandle(handle: nil)
+var fractalView = WebGPU.TextureView.fromHandle(handle: nil)
+var sampler = WebGPU.Sampler.fromHandle(handle: nil)
+var paramsBuffer = WebGPU.GPUBuffer.fromHandle(handle: nil)
+var computeBindGroup = WebGPU.BindGroup.fromHandle(handle: nil)
+var renderBindGroup = WebGPU.BindGroup.fromHandle(handle: nil)
+var surfaceFormat: WebGPU.TextureFormat = WebGPU.TextureFormat.undefined
+var time: Float32 = 0.0
+var ready = false
+
+func emptyStringView() -> WebGPU.StringView {
+    return WebGPU.StringView(data: nil, length: WebGPU.STRLEN)
+}
+
+func makeStringView(text: CStringSlice, length: UInt) -> WebGPU.StringView {
+    return WebGPU.StringView(data: (text.rawPointer() as *Int8), length: length)
+}
+
+func createShaderModule(source: String) -> WebGPU.ShaderModule {
+    let shaderCString = CString(value: source)
+    var shaderWGSL = WebGPU.ShaderSourceWGSL(
+        chain: WebGPU.ChainedStruct(
+            next: nil, sType: WebGPU.SType.shaderSourceWGSL),
+        code: WebGPU.StringView(
+            data: (shaderCString.asCStringSlice().rawPointer() as *Int8),
+            length: (shaderCString.asSlice().length as! UInt)))
+    var descriptor = WebGPU.ShaderModuleDescriptor(
+        nextInChain: *shaderWGSL.chain, label: emptyStringView())
+    return device.createShaderModule(descriptor: &descriptor)
+}
+
+func configureSurface() -> Bool {
+    var capabilities = WebGPU.SurfaceCapabilities(
+        nextInChain: nil, usages: 0, formatCount: 0, formats: nil,
+        presentModeCount: 0, presentModes: nil,
+        alphaModeCount: 0, alphaModes: nil)
+    if surface.getCapabilities(adapter: adapter, capabilities: &capabilities) != WebGPU.Status.success or
+        capabilities.formatCount == 0 or capabilities.presentModeCount == 0 or
+        capabilities.alphaModeCount == 0 {
+        Console.printLine("WebGPU Fractal: surface capabilities unavailable.")
+        return false
+    }
+    surfaceFormat = capabilities.formats!^
+    var configuration = WebGPU.SurfaceConfiguration(
+        nextInChain: nil, device: device.rawHandle, format: surfaceFormat,
+        usage: WebGPU.TEXTURE_USAGE_RENDER_ATTACHMENT,
+        width: WIDTH, height: HEIGHT,
+        viewFormatCount: 0, viewFormats: nil,
+        alphaMode: capabilities.alphaModes!^, presentMode: capabilities.presentModes!^)
+    surface.configure(configuration: &configuration)
+    capabilities.freeMembers()
+    return true
+}
+
+func renderFrame() {
+    if !ready {
+        return
+    }
+    time = time + 0.016
+    let scale = 2.8 * Math.pow(0.985, time * 10.0)
+    var params: [Float32, 4] = [scale, -0.745, 0.115, time]
+    queue.writeBuffer(
+        buffer: paramsBuffer, bufferOffset: 0,
+        data: (params.bytes as *Byte), size: 16)
+
+    var surfaceTexture = WebGPU.SurfaceTexture(
+        nextInChain: nil, texture: nil,
+        status: WebGPU.SurfaceGetCurrentTextureStatus.error)
+    surface.getCurrentTexture(surfaceTexture: &surfaceTexture)
+    if surfaceTexture.status != WebGPU.SurfaceGetCurrentTextureStatus.successOptimal and
+        surfaceTexture.status != WebGPU.SurfaceGetCurrentTextureStatus.successSuboptimal {
+        return
+    }
+
+    let surfaceTextureObject = WebGPU.Texture.fromHandle(handle: surfaceTexture.texture)
+    let targetView = surfaceTextureObject.createView()
+    let encoder = device.createCommandEncoder()
+    if !targetView.isValid or !encoder.isValid {
+        targetView.release()
+        surfaceTextureObject.release()
+        return
+    }
+
+    let computePass = encoder.beginComputePass()
+    computePass.setPipeline(pipeline: computePipeline)
+    computePass.setBindGroup(groupIndex: 0, group: computeBindGroup)
+    let groupsX = (TEX_WIDTH + WORKGROUP - 1) / WORKGROUP
+    let groupsY = (TEX_HEIGHT + WORKGROUP - 1) / WORKGROUP
+    computePass.dispatchWorkgroups(workgroupCountX: groupsX, workgroupCountY: groupsY)
+    computePass.end()
+    computePass.release()
+
+    var colorAttachment = WebGPU.RenderPassColorAttachment(
+        nextInChain: nil, view: targetView.rawHandle,
+        depthSlice: WebGPU.DEPTH_SLICE_UNDEFINED, resolveTarget: nil,
+        loadOp: WebGPU.LoadOp.clear, storeOp: WebGPU.StoreOp.store,
+        clearValue: WebGPU.Color(r: 0.0, g: 0.0, b: 0.0, a: 1.0))
+    var passDescriptor = WebGPU.RenderPassDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        colorAttachmentCount: 1, colorAttachments: *colorAttachment,
+        depthStencilAttachment: nil, occlusionQuerySet: nil, timestampWrites: nil)
+    let pass = encoder.beginRenderPass(descriptor: &passDescriptor)
+    pass.setPipeline(pipeline: renderPipeline)
+    pass.setBindGroup(groupIndex: 0, group: renderBindGroup)
+    pass.draw(vertexCount: 3)
+    pass.end()
+
+    let commandBuffer = encoder.finish()
+    queue.submit(command: commandBuffer)
+    // Emscripten presents the surface when this animation-frame callback returns.
+    commandBuffer.release()
+    pass.release()
+    encoder.release()
+    targetView.release()
+    surfaceTextureObject.release()
+}
+
+func createResources() -> Bool {
+    queue = device.getQueue()
+    if !queue.isValid or !configureSurface() {
+        return false
+    }
+
+    var textureSize = WebGPU.Extent3D(width: TEX_WIDTH, height: TEX_HEIGHT, depthOrArrayLayers: 1)
+    var textureDescriptor = WebGPU.TextureDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        usage: WebGPU.TEXTURE_USAGE_STORAGE_BINDING | WebGPU.TEXTURE_USAGE_TEXTURE_BINDING,
+        dimension: WebGPU.TextureDimension.d2, size: textureSize,
+        format: WebGPU.TextureFormat.rgba8Unorm,
+        mipLevelCount: 1, sampleCount: 1, viewFormatCount: 0, viewFormats: nil)
+    fractalTexture = device.createTexture(descriptor: &textureDescriptor)
+    fractalView = fractalTexture.createView()
+    sampler = device.createSampler()
+    var paramsDescriptor = WebGPU.BufferDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        usage: WebGPU.BUFFER_USAGE_UNIFORM | WebGPU.BUFFER_USAGE_COPY_DST,
+        size: 16, mappedAtCreation: 0)
+    paramsBuffer = device.createBuffer(descriptor: &paramsDescriptor)
+    if !fractalTexture.isValid or !fractalView.isValid or !sampler.isValid or !paramsBuffer.isValid {
+        Console.printLine("WebGPU Fractal: resource creation failed.")
+        return false
+    }
+
+    let computeShader = createShaderModule(source: computeShaderSource)
+    let renderShader = createShaderModule(source: renderShaderSource)
+    if !computeShader.isValid or !renderShader.isValid {
+        Console.printLine("WebGPU Fractal: shader creation failed.")
+        return false
+    }
+
+    let computeEntry: CStringSlice = "computeMain"
+    var computeState = WebGPU.ComputeState(
+        nextInChain: nil, module: computeShader.rawHandle,
+        entryPoint: makeStringView(text: computeEntry, length: 11),
+        constantCount: 0, constants: nil)
+    var computeDescriptor = WebGPU.ComputePipelineDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: nil, compute: computeState)
+    computePipeline = device.createComputePipeline(descriptor: &computeDescriptor)
+    computeShader.release()
+    if !computePipeline.isValid {
+        Console.printLine("WebGPU Fractal: compute pipeline creation failed.")
+        renderShader.release()
+        return false
+    }
+
+    let vertexEntry: CStringSlice = "vertexMain"
+    let fragmentEntry: CStringSlice = "fragmentMain"
+    var vertexState = WebGPU.VertexState(
+        nextInChain: nil, module: renderShader.rawHandle,
+        entryPoint: makeStringView(text: vertexEntry, length: 10),
+        constantCount: 0, constants: nil, bufferCount: 0, buffers: nil)
+    var colorTarget = WebGPU.ColorTargetState(
+        nextInChain: nil, format: surfaceFormat,
+        blend: nil, writeMask: WebGPU.COLOR_WRITE_MASK_ALL)
+    var fragmentState = WebGPU.FragmentState(
+        nextInChain: nil, module: renderShader.rawHandle,
+        entryPoint: makeStringView(text: fragmentEntry, length: 12),
+        constantCount: 0, constants: nil, targetCount: 1, targets: *colorTarget)
+    var renderDescriptor = WebGPU.RenderPipelineDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: nil,
+        vertex: vertexState,
+        primitive: WebGPU.PrimitiveState(
+            nextInChain: nil, topology: WebGPU.PrimitiveTopology.triangleList,
+            stripIndexFormat: WebGPU.IndexFormat.undefined,
+            frontFace: WebGPU.FrontFace.ccw, cullMode: WebGPU.CullMode.none, unclippedDepth: 0),
+        depthStencil: nil,
+        multisample: WebGPU.MultisampleState(
+            nextInChain: nil, count: 1, mask: 0xFFFFFFFF, alphaToCoverageEnabled: 0),
+        fragment: *fragmentState)
+    renderPipeline = device.createRenderPipeline(descriptor: &renderDescriptor)
+    renderShader.release()
+    if !renderPipeline.isValid {
+        Console.printLine("WebGPU Fractal: render pipeline creation failed.")
+        return false
+    }
+
+    let computeLayout = computePipeline.getBindGroupLayout(groupIndex: 0)
+    let renderLayout = renderPipeline.getBindGroupLayout(groupIndex: 0)
+    var computeEntries: [WebGPU.BindGroupEntry, 2] = [
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 0, buffer: nil, offset: 0, size: WebGPU.WHOLE_SIZE,
+            sampler: nil, textureView: fractalView.rawHandle),
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 1, buffer: paramsBuffer.rawHandle,
+            offset: 0, size: 16, sampler: nil, textureView: nil),
+    ]
+    var renderEntries: [WebGPU.BindGroupEntry, 2] = [
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 0, buffer: nil, offset: 0, size: WebGPU.WHOLE_SIZE,
+            sampler: sampler.rawHandle, textureView: nil),
+        WebGPU.BindGroupEntry(
+            nextInChain: nil, binding: 1, buffer: nil, offset: 0, size: WebGPU.WHOLE_SIZE,
+            sampler: nil, textureView: fractalView.rawHandle),
+    ]
+    var computeBindDesc = WebGPU.BindGroupDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: computeLayout.rawHandle,
+        entryCount: 2, entries: (computeEntries.bytes as *WebGPU.BindGroupEntry))
+    var renderBindDesc = WebGPU.BindGroupDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: renderLayout.rawHandle,
+        entryCount: 2, entries: (renderEntries.bytes as *WebGPU.BindGroupEntry))
+    computeBindGroup = device.createBindGroup(descriptor: &computeBindDesc)
+    renderBindGroup = device.createBindGroup(descriptor: &renderBindDesc)
+    computeLayout.release()
+    renderLayout.release()
+    if !computeBindGroup.isValid or !renderBindGroup.isValid {
+        Console.printLine("WebGPU Fractal: bind group creation failed.")
+        return false
+    }
+    return true
+}
+
+func deviceReady(
+    status: WebGPU.RequestDeviceStatus,
+    receivedDevice: &WebGPU.DeviceHandle?,
+    message: WebGPU.StringView,
+    userdata1: &Byte?,
+    userdata2: &Byte?) {
+    if status != WebGPU.RequestDeviceStatus.success or receivedDevice == nil {
+        Console.printLine("WebGPU Fractal: device request failed.")
+        return
+    }
+    device = WebGPU.Device.fromHandle(handle: receivedDevice)
+    if createResources() {
+        ready = true
+        Console.printLine("WebGPU Mandelbrot compute started.")
+    }
+}
+
+func adapterReady(
+    status: WebGPU.RequestAdapterStatus,
+    receivedAdapter: &WebGPU.AdapterHandle?,
+    message: WebGPU.StringView,
+    userdata1: &Byte?,
+    userdata2: &Byte?) {
+    if status != WebGPU.RequestAdapterStatus.success or receivedAdapter == nil {
+        Console.printLine("WebGPU Fractal: adapter request failed.")
+        return
+    }
+    adapter = WebGPU.Adapter.fromHandle(handle: receivedAdapter)
+    adapter.requestDevice(callback: deviceReady)
+}
+
+func main() -> Int {
+    instance = WebGPU.Instance.create()
+    let canvasSelector: CStringSlice = "#canvas"
+    var source = WebGPU.EmscriptenSurfaceSourceCanvasHTMLSelector(
+        chain: WebGPU.ChainedStruct(
+            next: nil, sType: WebGPU.SType.emscriptenSurfaceSourceCanvasHTMLSelector),
+        selector: makeStringView(text: canvasSelector, length: 7))
+    var descriptor = WebGPU.SurfaceDescriptor(
+        nextInChain: *source.chain, label: emptyStringView())
+    surface = instance.createSurface(descriptor: &descriptor)
+    if !instance.isValid or !surface.isValid {
+        Console.printLine("WebGPU Fractal: initialization failed.")
+        return 1
+    }
+    Console.printLine("Requesting a WebGPU adapter for Mandelbrot...")
+    instance.requestAdapter(callback: adapterReady)
+    Platform.Emscripten.setMainLoop(renderFrame, 0, 1)
+    return 0
+}

@@ -1,0 +1,10 @@
+import Standard.*
+
+func main() -> Int {
+    let scores: HashMap<String, Int> = ["alice": 95, "bob": 87, "carol": 92]
+    Console.printLine("count=${scores.count}")
+    if let score = scores.tryGet("alice") {
+        Console.printLine("alice scored ${score}")
+    }
+    return 0
+}

@@ -1,0 +1,299 @@
+import Standard.*
+import SDL3
+
+const DIGIT_0: [UInt8, _] = [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E]
+const DIGIT_1: [UInt8, _] = [0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E]
+const DIGIT_2: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x10, 0x10, 0x0E]
+const DIGIT_3: [UInt8, _] = [0x0E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_4: [UInt8, _] = [0x11, 0x11, 0x11, 0x1F, 0x01, 0x01, 0x01]
+const DIGIT_5: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x0E]
+const DIGIT_6: [UInt8, _] = [0x0E, 0x10, 0x10, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_7: [UInt8, _] = [0x0E, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01]
+const DIGIT_8: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_9: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x01, 0x01, 0x0E]
+
+func makeVertex(x: Float32, y: Float32, red: Float32, green: Float32, blue: Float32, alpha: Float32) -> SDL3.Vertex {
+    return SDL3.Vertex(
+        position: SDL3.FPoint(x: x, y: y),
+        color: SDL3.FColor(r: red, g: green, b: blue, a: alpha),
+        texCoord: SDL3.FPoint(x: 0.0, y: 0.0))
+}
+
+func drawStars(renderer: &SDL3.Renderer?, game: *Game) {
+    for starIndex in 0..game.stars.count {
+        let star = game.stars[starIndex]
+        SDL3.setRenderDrawColor(renderer, star.brightness, star.brightness, star.brightness, 255)
+        SDL3.renderPoint(renderer, star.x, star.y)
+    }
+}
+
+func drawAsteroidGeometry(renderer: &SDL3.Renderer?, asteroid: Asteroid) {
+    if !asteroid.alive || asteroid.vertexCount < 3 {
+        return
+    }
+
+    var vertices: [SDL3.Vertex, MAX_VERTICES] = []
+    var vertexCount: Int32 = 0
+    for vertexIndex in 0..asteroid.vertexCount {
+        let nextVertexIndex = (vertexIndex + 1) % asteroid.vertexCount
+        let a0 = asteroid.angle + TAU_F * Float32(vertexIndex) / Float32(asteroid.vertexCount)
+        let a1 = asteroid.angle + TAU_F * Float32(nextVertexIndex) / Float32(asteroid.vertexCount)
+        let edgeStartX = asteroid.x + Math.cos(a0) * asteroid.radii[Int(vertexIndex)]
+        let edgeStartY = asteroid.y + Math.sin(a0) * asteroid.radii[Int(vertexIndex)]
+        let edgeEndX = asteroid.x + Math.cos(a1) * asteroid.radii[Int(nextVertexIndex)]
+        let edgeEndY = asteroid.y + Math.sin(a1) * asteroid.radii[Int(nextVertexIndex)]
+
+        let shade: Float32
+        if asteroid.tier == 1 {
+            shade = 0.78
+        } else if asteroid.tier == 2 {
+            shade = 0.88
+        } else {
+            shade = 0.95
+        }
+
+        vertices[Int(vertexCount)] = makeVertex(asteroid.x, asteroid.y, shade, shade, shade, 1.0)
+        vertices[Int(vertexCount + 1)] = makeVertex(edgeStartX, edgeStartY, shade, shade, shade, 1.0)
+        vertices[Int(vertexCount + 2)] = makeVertex(edgeEndX, edgeEndY, shade, shade, shade, 1.0)
+        vertexCount = vertexCount + 3
+    }
+
+    SDL3.renderGeometry(renderer, nil, ((vertices.bytes) as &SDL3.Vertex), vertexCount, nil, 0)
+}
+
+func drawTintedShipGeometry(
+    renderer: &SDL3.Renderer?,
+    ship: Ship,
+    tipRed: Float32,
+    tipGreen: Float32,
+    tipBlue: Float32,
+    wingRed: Float32,
+    wingGreen: Float32,
+    wingBlue: Float32) {
+    if !ship.alive {
+        return
+    }
+
+    if ship.invuln > 0.0 && Int32(ship.invuln * 10.0) % 2 == 0 {
+        return
+    }
+
+    let tipX = ship.x + Math.cos(ship.angle) * 18.0
+    let tipY = ship.y + Math.sin(ship.angle) * 18.0
+    let leftX = ship.x + Math.cos(ship.angle + 2.4) * 14.0
+    let leftY = ship.y + Math.sin(ship.angle + 2.4) * 14.0
+    let rightX = ship.x + Math.cos(ship.angle - 2.4) * 14.0
+    let rightY = ship.y + Math.sin(ship.angle - 2.4) * 14.0
+
+    var vertices: [SDL3.Vertex, 3] = [
+        makeVertex(tipX, tipY, tipRed, tipGreen, tipBlue, 1.0),
+        makeVertex(leftX, leftY, wingRed, wingGreen, wingBlue, 1.0),
+        makeVertex(rightX, rightY, wingRed, wingGreen, wingBlue, 1.0),
+    ]
+    SDL3.renderGeometry(renderer, nil, ((vertices.bytes) as &SDL3.Vertex), 3, nil, 0)
+
+    if ship.thrusting {
+        let flameX = ship.x - Math.cos(ship.angle) * 16.0
+        let flameY = ship.y - Math.sin(ship.angle) * 16.0
+        let flameLeftX = ship.x + Math.cos(ship.angle + 2.7) * 8.0
+        let flameLeftY = ship.y + Math.sin(ship.angle + 2.7) * 8.0
+        let flameRightX = ship.x + Math.cos(ship.angle - 2.7) * 8.0
+        let flameRightY = ship.y + Math.sin(ship.angle - 2.7) * 8.0
+        var flame: [SDL3.Vertex, 3] = [
+            makeVertex(flameX, flameY, 1.0, 0.55, 0.15, 0.95),
+            makeVertex(flameLeftX, flameLeftY, 1.0, 0.35, 0.05, 0.75),
+            makeVertex(flameRightX, flameRightY, 1.0, 0.35, 0.05, 0.75),
+        ]
+        SDL3.renderGeometry(renderer, nil, ((flame.bytes) as &SDL3.Vertex), 3, nil, 0)
+    }
+}
+
+func drawShipGeometry(renderer: &SDL3.Renderer?, ship: Ship) {
+    drawTintedShipGeometry(
+        renderer: renderer,
+        ship: ship,
+        tipRed: 0.95,
+        tipGreen: 0.98,
+        tipBlue: 1.0,
+        wingRed: 0.75,
+        wingGreen: 0.85,
+        wingBlue: 1.0)
+}
+
+func drawBullets(renderer: &SDL3.Renderer?, game: *Game) {
+    SDL3.setRenderDrawColor(renderer, 255, 240, 180, 255)
+    for bulletIndex in 0..game.bullets.count {
+        if game.bullets[bulletIndex].active {
+            SDL3.renderPoint(renderer, game.bullets[bulletIndex].x, game.bullets[bulletIndex].y)
+            SDL3.renderPoint(renderer, game.bullets[bulletIndex].x + 1.0, game.bullets[bulletIndex].y)
+        }
+    }
+}
+
+func drawParticles(renderer: &SDL3.Renderer?, game: *Game) {
+    for particleIndex in 0..game.particles.count {
+        if !game.particles[particleIndex].active {
+            continue
+        }
+
+        let alpha = UInt8(255.0 * (game.particles[particleIndex].life / game.particles[particleIndex].maxLife))
+        SDL3.setRenderDrawColor(
+            renderer,
+            game.particles[particleIndex].red,
+            game.particles[particleIndex].green,
+            game.particles[particleIndex].blue,
+            alpha)
+        var rect = SDL3.FRect(
+            x: game.particles[particleIndex].x,
+            y: game.particles[particleIndex].y,
+            w: game.particles[particleIndex].size,
+            h: game.particles[particleIndex].size)
+        SDL3.renderFillRect(renderer, &rect)
+    }
+}
+
+func drawDigit(
+    renderer: &SDL3.Renderer?,
+    digit: Int,
+    x: Float32,
+    y: Float32,
+    pixelSize: Float32,
+    red: UInt8,
+    green: UInt8,
+    blue: UInt8) {
+    var rows: [UInt8, 7] = [0, 0, 0, 0, 0, 0, 0]
+    if digit == 0 {
+        rows = DIGIT_0
+    }
+
+    if digit == 1 {
+        rows = DIGIT_1
+    }
+
+    if digit == 2 {
+        rows = DIGIT_2
+    }
+
+    if digit == 3 {
+        rows = DIGIT_3
+    }
+
+    if digit == 4 {
+        rows = DIGIT_4
+    }
+
+    if digit == 5 {
+        rows = DIGIT_5
+    }
+
+    if digit == 6 {
+        rows = DIGIT_6
+    }
+
+    if digit == 7 {
+        rows = DIGIT_7
+    }
+
+    if digit == 8 {
+        rows = DIGIT_8
+    }
+
+    if digit == 9 {
+        rows = DIGIT_9
+    }
+
+    for row in 0..DIGIT_ROWS {
+        let bits = rows[row]
+        for col in 0..DIGIT_COLS {
+            let mask = UInt8(1 << (DIGIT_COLS - 1 - col))
+            if (bits & mask) != 0 {
+                var rect = SDL3.FRect(
+                    x: x + Float32(col) * pixelSize,
+                    y: y + Float32(row) * pixelSize,
+                    w: pixelSize,
+                    h: pixelSize)
+                SDL3.setRenderDrawColor(renderer, red, green, blue, 255)
+                SDL3.renderFillRect(renderer, &rect)
+            }
+        }
+    }
+}
+
+func drawNumber(
+    renderer: &SDL3.Renderer?,
+    value: Int32,
+    x: Float32,
+    y: Float32,
+    pixelSize: Float32,
+    red: UInt8,
+    green: UInt8,
+    blue: UInt8) {
+    if value == 0 {
+        drawDigit(renderer, 0, x, y, pixelSize, red, green, blue)
+        return
+    }
+
+    var digits: [Int] = []
+    var remaining = value
+    while remaining > 0 {
+        digits.append(Int(remaining % 10))
+        remaining = remaining / 10
+    }
+
+    var drawX = x
+    for digitIndex in 0..digits.count {
+        let digit = digits[digits.count - 1 - digitIndex]
+        drawDigit(renderer, digit, drawX, y, pixelSize, red, green, blue)
+        drawX = drawX + (Float32(DIGIT_COLS) * pixelSize) + HUD_GAP
+    }
+}
+
+func drawHud(renderer: &SDL3.Renderer?, game: *Game) {
+    var panel = SDL3.FRect(x: 8.0, y: 8.0, w: 250.0, h: 72.0)
+    SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.blend)
+    SDL3.setRenderDrawColor(renderer, 16, 20, 32, 180)
+    SDL3.renderFillRect(renderer, &panel)
+    drawNumber(renderer, game.score, 16.0, 14.0, HUD_PIXEL, 240, 230, 180)
+    drawNumber(renderer, game.lives, 16.0, 38.0, HUD_PIXEL, 120, 220, 255)
+    drawNumber(renderer, game.wave, 120.0, 38.0, HUD_PIXEL, 255, 180, 120)
+}
+
+func drawPausedOverlay(renderer: &SDL3.Renderer?) {
+    var panel = SDL3.FRect(x: 250.0, y: 260.0, w: 300.0, h: 80.0)
+    SDL3.setRenderDrawColor(renderer, 10, 12, 20, 210)
+    SDL3.renderFillRect(renderer, &panel)
+    SDL3.setRenderDrawColor(renderer, 220, 230, 255, 255)
+    SDL3.renderDebugText(renderer, 320.0, 292.0, "PAUSED")
+}
+
+func drawGameOverOverlay(renderer: &SDL3.Renderer?, score: Int32) {
+    var panel = SDL3.FRect(x: 210.0, y: 230.0, w: 380.0, h: 140.0)
+    SDL3.setRenderDrawColor(renderer, 10, 12, 20, 220)
+    SDL3.renderFillRect(renderer, &panel)
+    SDL3.setRenderDrawColor(renderer, 255, 120, 120, 255)
+    SDL3.renderDebugText(renderer, 300.0, 260.0, "GAME OVER")
+    drawNumber(renderer, score, 340.0, 310.0, HUD_PIXEL, 240, 230, 180)
+}
+
+func fadeTrail(renderer: &SDL3.Renderer?, game: &Game) {
+    if !game.trailPrimed {
+        SDL3.setRenderDrawColor(renderer, 0, 0, 0, 255)
+        SDL3.renderClear(renderer)
+        game.trailPrimed = true
+        return
+    }
+
+    SDL3.setRenderDrawBlendMode(renderer, SDL3.BlendMode.blend)
+    SDL3.setRenderDrawColor(renderer, 0, 0, 0, TRAIL_FADE_ALPHA)
+    var full = SDL3.FRect(x: 0.0, y: 0.0, w: Float32(WIDTH), h: Float32(HEIGHT))
+    SDL3.renderFillRect(renderer, &full)
+}
+
+func drawWorld(renderer: &SDL3.Renderer?, game: *Game) {
+    for asteroidIndex in 0..game.asteroids.count {
+        drawAsteroidGeometry(renderer, game.asteroids[asteroidIndex])
+    }
+    drawBullets(renderer, game)
+    drawShipGeometry(renderer, game.ship)
+    drawParticles(renderer, game)
+}

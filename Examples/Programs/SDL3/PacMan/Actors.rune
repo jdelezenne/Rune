@@ -1,0 +1,397 @@
+// Actors: Pac-Man and ghost movement, plus the four ghost-personality
+// targeting rules (Blinky/Pinky/Inky/Clyde) documented in classic Pac-Man
+// analyses - direct chase, ambush-ahead, vector-reflected, and
+// distance-gated flee/chase.
+
+import Standard.*
+
+enum Direction: Int32 {
+    up = 0
+    right = 1
+    down = 2
+    left = 3
+}
+
+struct TilePos {
+    var col: Int
+    var row: Int
+}
+
+func directionDx(direction: Direction) -> Int {
+    if direction == Direction.left {
+        return -1
+    }
+
+    if direction == Direction.right {
+        return 1
+    }
+
+    return 0
+}
+
+func directionDy(direction: Direction) -> Int {
+    if direction == Direction.up {
+        return -1
+    }
+
+    if direction == Direction.down {
+        return 1
+    }
+
+    return 0
+}
+
+func oppositeDirection(direction: Direction) -> Direction {
+    if direction == Direction.up {
+        return Direction.down
+    }
+
+    if direction == Direction.down {
+        return Direction.up
+    }
+
+    if direction == Direction.left {
+        return Direction.right
+    }
+
+    return Direction.left
+}
+
+// MARK: - Pac-Man
+
+struct PacMan {
+    var col: Int
+    var row: Int
+    var moveProgress: Float32
+    var direction: Direction
+    var pendingDirection: Direction
+    var mouthTimer: Float32
+    var alive: Bool
+}
+
+func makePacMan(startCol: Int, startRow: Int) -> PacMan {
+    return PacMan(
+        col: startCol,
+        row: startRow,
+        moveProgress: 0.0,
+        direction: Direction.left,
+        pendingDirection: Direction.left,
+        mouthTimer: 0.0,
+        alive: true)
+}
+
+func pacManPixelX(pm: *PacMan) -> Float32 {
+    return tileCenterX(pm.col) + Float32(directionDx(pm.direction)) * pm.moveProgress * CELL
+}
+
+func pacManPixelY(pm: *PacMan) -> Float32 {
+    return tileCenterY(pm.row) + Float32(directionDy(pm.direction)) * pm.moveProgress * CELL
+}
+
+func stepPacMan(pm: &PacMan, dt: Float32, speed: Float32) {
+    if pm.moveProgress <= 0.0 && pm.pendingDirection != pm.direction {
+        let turnCol = wrapCol(pm.col + directionDx(pm.pendingDirection))
+        let turnRow = pm.row + directionDy(pm.pendingDirection)
+        if isWalkableForPacMan(turnCol, turnRow) {
+            pm.direction = pm.pendingDirection
+        }
+    }
+
+    let nextCol = wrapCol(pm.col + directionDx(pm.direction))
+    let nextRow = pm.row + directionDy(pm.direction)
+    if !isWalkableForPacMan(nextCol, nextRow) {
+        pm.moveProgress = 0.0
+        return
+    }
+
+    pm.moveProgress = pm.moveProgress + speed * dt / CELL
+    while pm.moveProgress >= 1.0 {
+        pm.moveProgress = pm.moveProgress - 1.0
+        pm.col = nextCol
+        pm.row = nextRow
+        if pm.pendingDirection != pm.direction {
+            let turnCol = wrapCol(pm.col + directionDx(pm.pendingDirection))
+            let turnRow = pm.row + directionDy(pm.pendingDirection)
+            if isWalkableForPacMan(turnCol, turnRow) {
+                pm.direction = pm.pendingDirection
+            }
+        }
+    }
+
+    pm.mouthTimer = pm.mouthTimer + dt
+}
+
+// MARK: - Ghosts
+
+enum GhostPersonality: Int32 {
+    blinky = 0
+    pinky = 1
+    inky = 2
+    clyde = 3
+}
+
+enum GhostMode: Int32 {
+    scatter = 0
+    chase = 1
+    frightened = 2
+    eaten = 3
+}
+
+enum GhostHouseState: Int32 {
+    waiting = 0
+    leaving = 1
+    active = 2
+}
+
+struct Ghost {
+    var personality: GhostPersonality
+    var col: Int
+    var row: Int
+    var moveProgress: Float32
+    var direction: Direction
+    var mode: GhostMode
+    var houseState: GhostHouseState
+    var releaseThreshold: Int
+    var respawnTimer: Float32
+    var leaveWaypoint: Int
+    var bobTimer: Float32
+}
+
+func makeGhost(personality: GhostPersonality, releaseThreshold: Int) -> Ghost {
+    var col = 13
+    var row = 14
+    if personality == GhostPersonality.blinky {
+        col = 13
+        row = 13
+    } else if personality == GhostPersonality.pinky {
+        col = 13
+        row = 14
+    } else if personality == GhostPersonality.inky {
+        col = 12
+        row = 14
+    } else {
+        col = 15
+        row = 14
+    }
+
+    return Ghost(
+        personality: personality,
+        col: col,
+        row: row,
+        moveProgress: 0.0,
+        direction: Direction.up,
+        mode: GhostMode.scatter,
+        houseState: GhostHouseState.waiting,
+        releaseThreshold: releaseThreshold,
+        respawnTimer: 0.0,
+        leaveWaypoint: 0,
+        bobTimer: Float32(personality as Int32) * 0.6)
+}
+
+func ghostPixelX(g: *Ghost) -> Float32 {
+    if g.houseState == GhostHouseState.waiting {
+        return tileCenterX(g.col)
+    }
+
+    return tileCenterX(g.col) + Float32(directionDx(g.direction)) * g.moveProgress * CELL
+}
+
+func ghostPixelY(g: *Ghost) -> Float32 {
+    if g.houseState == GhostHouseState.waiting {
+        return tileCenterY(g.row) + Math.sin(g.bobTimer * 4.0) * 4.0
+    }
+
+    return tileCenterY(g.row) + Float32(directionDy(g.direction)) * g.moveProgress * CELL
+}
+
+func ghostAtHouse(g: *Ghost) -> Bool {
+    return tileAt(g.col, g.row) == TILE_HOUSE
+}
+
+// Scatter corners: Blinky top-right, Pinky top-left, Inky bottom-right,
+// Clyde bottom-left - each ghost retreats to its own corner during scatter.
+func ghostScatterTarget(personality: GhostPersonality) -> TilePos {
+    if personality == GhostPersonality.blinky {
+        return TilePos(col: MAZE_COLS - 3, row: 0)
+    }
+
+    if personality == GhostPersonality.pinky {
+        return TilePos(col: 2, row: 0)
+    }
+
+    if personality == GhostPersonality.inky {
+        return TilePos(col: MAZE_COLS - 1, row: MAZE_ROWS - 1)
+    }
+
+    return TilePos(col: 0, row: MAZE_ROWS - 1)
+}
+
+// Chase targets:
+//   Blinky - Pac-Man's own tile (direct chase).
+//   Pinky  - four tiles ahead of Pac-Man's facing direction (ambush), with
+//            the documented "facing up" overflow quirk (4 up *and* 4 left).
+//   Inky   - Blinky's position reflected through the tile two ahead of
+//            Pac-Man (vector doubled).
+//   Clyde  - chases directly while far from Pac-Man, retreats to his own
+//            scatter corner once within 8 tiles (flee/chase toggle).
+func ghostChaseTarget(
+    personality: GhostPersonality,
+    selfCol: Int,
+    selfRow: Int,
+    pacmanCol: Int,
+    pacmanRow: Int,
+    pacmanDirection: Direction,
+    blinkyCol: Int,
+    blinkyRow: Int) -> TilePos {
+    if personality == GhostPersonality.blinky {
+        return TilePos(col: pacmanCol, row: pacmanRow)
+    }
+
+    if personality == GhostPersonality.pinky {
+        var col = pacmanCol + directionDx(pacmanDirection) * 4
+        let row = pacmanRow + directionDy(pacmanDirection) * 4
+        if pacmanDirection == Direction.up {
+            col = col - 4
+        }
+        return TilePos(col: col, row: row)
+    }
+
+    if personality == GhostPersonality.inky {
+        var aheadCol = pacmanCol + directionDx(pacmanDirection) * 2
+        let aheadRow = pacmanRow + directionDy(pacmanDirection) * 2
+        if pacmanDirection == Direction.up {
+            aheadCol = aheadCol - 2
+        }
+        let col = aheadCol + (aheadCol - blinkyCol)
+        let row = aheadRow + (aheadRow - blinkyRow)
+        return TilePos(col: col, row: row)
+    }
+
+    let dx = Float32(pacmanCol - selfCol)
+    let dy = Float32(pacmanRow - selfRow)
+    let distanceSquared = dx * dx + dy * dy
+    if distanceSquared > 64.0 {
+        return TilePos(col: pacmanCol, row: pacmanRow)
+    }
+
+    return ghostScatterTarget(GhostPersonality.clyde)
+}
+
+const DIRECTION_PRIORITY: [Direction, 4] = [Direction.up, Direction.left, Direction.down, Direction.right]
+
+func chooseGhostDirection(col: Int, row: Int, currentDirection: Direction, target: TilePos, canUseHouse: Bool) -> Direction {
+    let reverse = oppositeDirection(currentDirection)
+    var bestDirection = reverse
+    var bestDistance: Float32 = 0.0
+    var found = false
+
+    for priorityIndex in 0..4 {
+        let candidate = DIRECTION_PRIORITY[priorityIndex]
+        if candidate == reverse {
+            continue
+        }
+
+        let nextCol = col + directionDx(candidate)
+        let nextRow = row + directionDy(candidate)
+        if !isWalkableForGhost(nextCol, nextRow, canUseHouse) {
+            continue
+        }
+
+        let dx = Float32(target.col - wrapCol(nextCol))
+        let dy = Float32(target.row - nextRow)
+        let distance = dx * dx + dy * dy
+        if !found || distance < bestDistance {
+            bestDistance = distance
+            bestDirection = candidate
+            found = true
+        }
+    }
+
+    return bestDirection
+}
+
+func stepGhostActive(g: &Ghost, dt: Float32, target: TilePos, speed: Float32) {
+    let canUseHouse = g.mode == GhostMode.eaten
+
+    if g.moveProgress <= 0.0 {
+        g.direction = chooseGhostDirection(g.col, g.row, g.direction, target, canUseHouse)
+        g.moveProgress = 0.0
+    }
+
+    let nextCol = wrapCol(g.col + directionDx(g.direction))
+    let nextRow = g.row + directionDy(g.direction)
+    if !isWalkableForGhost(nextCol, nextRow, canUseHouse) {
+        g.moveProgress = 0.0
+        return
+    }
+
+    g.moveProgress = g.moveProgress + speed * dt / CELL
+    while g.moveProgress >= 1.0 {
+        g.moveProgress = g.moveProgress - 1.0
+        g.col = nextCol
+        g.row = nextRow
+        g.direction = chooseGhostDirection(g.col, g.row, g.direction, target, canUseHouse)
+    }
+}
+
+func stepGhostWaiting(g: &Ghost, dt: Float32) {
+    g.bobTimer = g.bobTimer + dt
+}
+
+const LEAVE_WAYPOINT_COLS: [Int, 4] = [13, 13, 13, 13]
+const LEAVE_WAYPOINT_ROWS: [Int, 4] = [14, 13, 12, 11]
+
+func stepGhostLeaving(g: &Ghost, dt: Float32, speed: Float32) {
+    if g.leaveWaypoint >= 4 {
+        g.houseState = GhostHouseState.active
+        g.moveProgress = 0.0
+        return
+    }
+
+    let targetCol = LEAVE_WAYPOINT_COLS[g.leaveWaypoint]
+    let targetRow = LEAVE_WAYPOINT_ROWS[g.leaveWaypoint]
+
+    var dCol = 0
+    var dRow = 0
+    if targetCol > g.col {
+        dCol = 1
+    } else if targetCol < g.col {
+        dCol = -1
+    }
+    if targetRow > g.row {
+        dRow = 1
+    } else if targetRow < g.row {
+        dRow = -1
+    }
+
+    if dCol == 0 && dRow == 0 {
+        g.leaveWaypoint = g.leaveWaypoint + 1
+        g.moveProgress = 0.0
+        if g.leaveWaypoint >= 4 {
+            g.houseState = GhostHouseState.active
+            g.direction = Direction.left
+        }
+        return
+    }
+
+    if dCol != 0 {
+        if dCol > 0 {
+            g.direction = Direction.right
+        } else {
+            g.direction = Direction.left
+        }
+    } else {
+        if dRow > 0 {
+            g.direction = Direction.down
+        } else {
+            g.direction = Direction.up
+        }
+    }
+
+    g.moveProgress = g.moveProgress + speed * dt / CELL
+    while g.moveProgress >= 1.0 {
+        g.moveProgress = g.moveProgress - 1.0
+        g.col = g.col + directionDx(g.direction)
+        g.row = g.row + directionDy(g.direction)
+    }
+}

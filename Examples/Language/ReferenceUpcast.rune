@@ -1,0 +1,70 @@
+// Widening a derived reference to a base reference (`*Derived` -> `*Base`).
+//
+// A `*Circle` is a thin pointer; a `*Shape` (open base) is a fat reference that
+// also carries the dynamic dispatch table. Storing, passing, returning, or
+// collecting a derived reference as a base reference builds that fat reference
+// automatically.
+
+open struct Shape {
+    var tag: Int
+    open func area() -> Int {
+        return 0
+    }
+}
+
+struct Circle extends Shape {
+    var radius: Int
+    override func area() -> Int {
+        return radius * radius
+    }
+}
+
+struct Square extends Shape {
+    var side: Int
+    override func area() -> Int {
+        return side * side
+    }
+}
+
+func areaOf(shape: *Shape) -> Int {
+    return shape.area()
+}
+
+func widen(circle: *Circle) -> *Shape {
+    return circle           // return-position upcast
+}
+
+func main() -> Int {
+    let c = Circle(tag: 1, radius: 5)
+    let q = Square(tag: 2, side: 4)
+    let cr: *Circle = *c
+    let qr: *Square = *q
+
+    // Assignment upcast.
+    let s: *Shape = cr
+    if s.area() != 25 {
+        return 1
+    }
+
+    // Argument upcast.
+    if areaOf(cr) != 25 {
+        return 2
+    }
+
+    // Return-position upcast.
+    if widen(cr).area() != 25 {
+        return 3
+    }
+
+    // Collection of derived references, held and dispatched as the base.
+    let shapes: Array<*Shape> = [cr, qr]
+    var total = 0
+    for shape in shapes {
+        total = total + shape.area()
+    }
+    if total != 41 {          // 25 + 16
+        return 4
+    }
+
+    return 0
+}

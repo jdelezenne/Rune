@@ -1,0 +1,256 @@
+import Standard.*
+
+@layout(kind: c)
+struct Vertex {
+    var x: Float32
+    var y: Float32
+    var z: Float32
+    var nx: Float32
+    var ny: Float32
+    var nz: Float32
+    var r: Float32
+    var g: Float32
+    var b: Float32
+}
+
+func hashUnit(seed: UInt32) -> Float32 {
+    var value = seed
+    value = value ^ (value << 13)
+    value = value ^ (value >> 17)
+    value = value ^ (value << 5)
+    return Float32(value * 2654435761) / 4294967295.0
+}
+
+func normal(a: Vector3, b: Vector3, c: Vector3) -> Vector3 {
+    return (b - a).cross(other: c - a).normalized()
+}
+
+func vertex(position: Vector3, faceNormal: Vector3, color: Vector3) -> Vertex {
+    return Vertex(x: position.x, y: position.y, z: position.z,
+        nx: faceNormal.x, ny: faceNormal.y, nz: faceNormal.z,
+        r: color.x, g: color.y, b: color.z)
+}
+
+const SHIP_VERTEX_COUNT: Int = 132
+
+func shipTri(vertices: &[Vertex, SHIP_VERTEX_COUNT], cursor: &Int,
+    a: Vector3, b: Vector3, c: Vector3, color: Vector3) {
+    let n = normal(a, b, c)
+    vertices[cursor^] = vertex(a, n, color)
+    vertices[cursor^ + 1] = vertex(b, n, color)
+    vertices[cursor^ + 2] = vertex(c, n, color)
+    cursor^ = cursor^ + 3
+}
+
+func buildShipMesh() -> [Vertex, SHIP_VERTEX_COUNT] {
+    var output: [Vertex, SHIP_VERTEX_COUNT] = []
+    var at: Int = 0
+    let armor = Vector3(x: 0.48, y: 0.58, z: 0.72)
+    let edge = Vector3(x: 0.18, y: 0.24, z: 0.34)
+    let canopy = Vector3(x: 0.12, y: 0.68, z: 0.92)
+    let wing = Vector3(x: 0.30, y: 0.38, z: 0.52)
+    let engine = Vector3(x: 1.0, y: 0.34, z: 0.08)
+
+    let nose = Vector3(x: 3.5, y: -0.08, z: 0.0)
+    let top = Vector3(x: 0.9, y: 0.62, z: 0.0)
+    let bottom = Vector3(x: 0.7, y: -0.48, z: 0.0)
+    let left = Vector3(x: 0.7, y: 0.0, z: -0.72)
+    let right = Vector3(x: 0.7, y: 0.0, z: 0.72)
+    let tailTop = Vector3(x: -2.25, y: 0.38, z: 0.0)
+    let tailBottom = Vector3(x: -2.35, y: -0.35, z: 0.0)
+    let tailLeft = Vector3(x: -2.15, y: 0.0, z: -0.52)
+    let tailRight = Vector3(x: -2.15, y: 0.0, z: 0.52)
+
+    shipTri(&output, &at, nose, top, right, armor)
+    shipTri(&output, &at, nose, right, bottom, edge)
+    shipTri(&output, &at, nose, bottom, left, edge)
+    shipTri(&output, &at, nose, left, top, armor)
+    shipTri(&output, &at, top, tailTop, tailRight, armor)
+    shipTri(&output, &at, top, tailRight, right, armor)
+    shipTri(&output, &at, right, tailRight, tailBottom, edge)
+    shipTri(&output, &at, right, tailBottom, bottom, edge)
+    shipTri(&output, &at, bottom, tailBottom, tailLeft, edge)
+    shipTri(&output, &at, bottom, tailLeft, left, edge)
+    shipTri(&output, &at, left, tailLeft, tailTop, armor)
+    shipTri(&output, &at, left, tailTop, top, armor)
+
+    let leftTip = Vector3(x: -1.1, y: -0.14, z: -3.55)
+    let rightTip = Vector3(x: -1.1, y: -0.14, z: 3.55)
+    shipTri(&output, &at, left, leftTip, tailLeft, wing)
+    shipTri(&output, &at, left, Vector3(x: 1.15, y: -0.10, z: -1.05), leftTip, armor)
+    shipTri(&output, &at, right, tailRight, rightTip, wing)
+    shipTri(&output, &at, right, rightTip, Vector3(x: 1.15, y: -0.10, z: 1.05), armor)
+
+    let glassFront = Vector3(x: 1.18, y: 0.66, z: 0.0)
+    let glassPeak = Vector3(x: 0.20, y: 1.03, z: 0.0)
+    let glassLeft = Vector3(x: -0.58, y: 0.52, z: -0.42)
+    let glassRight = Vector3(x: -0.58, y: 0.52, z: 0.42)
+    shipTri(&output, &at, glassFront, glassPeak, glassRight, canopy)
+    shipTri(&output, &at, glassFront, glassLeft, glassPeak, canopy)
+    shipTri(&output, &at, glassPeak, glassLeft, glassRight, Vector3(x: 0.08, y: 0.32, z: 0.52))
+    shipTri(&output, &at, glassFront, glassRight, glassLeft, canopy)
+
+    let engineFrontL = Vector3(x: -0.75, y: -0.08, z: -0.88)
+    let engineBackL = Vector3(x: -2.65, y: -0.08, z: -0.88)
+    let engineFrontR = Vector3(x: -0.75, y: -0.08, z: 0.88)
+    let engineBackR = Vector3(x: -2.65, y: -0.08, z: 0.88)
+    shipTri(&output, &at, engineFrontL + Vector3(x: 0.0, y: 0.28, z: 0.0), engineBackL, engineFrontL + Vector3(x: 0.0, y: -0.28, z: 0.0), edge)
+    shipTri(&output, &at, engineFrontL + Vector3(x: 0.0, y: 0.0, z: -0.28), engineBackL, engineFrontL + Vector3(x: 0.0, y: 0.0, z: 0.28), armor)
+    shipTri(&output, &at, engineBackL + Vector3(x: -0.55, y: 0.0, z: 0.0), engineFrontL + Vector3(x: 0.0, y: -0.2, z: 0.0), engineFrontL + Vector3(x: 0.0, y: 0.2, z: 0.0), engine)
+    shipTri(&output, &at, engineBackL + Vector3(x: -0.35, y: 0.0, z: 0.0), engineFrontL + Vector3(x: 0.0, y: 0.0, z: -0.18), engineFrontL + Vector3(x: 0.0, y: 0.0, z: 0.18), engine)
+    shipTri(&output, &at, engineFrontR + Vector3(x: 0.0, y: -0.28, z: 0.0), engineBackR, engineFrontR + Vector3(x: 0.0, y: 0.28, z: 0.0), edge)
+    shipTri(&output, &at, engineFrontR + Vector3(x: 0.0, y: 0.0, z: 0.28), engineBackR, engineFrontR + Vector3(x: 0.0, y: 0.0, z: -0.28), armor)
+    shipTri(&output, &at, engineBackR + Vector3(x: -0.55, y: 0.0, z: 0.0), engineFrontR + Vector3(x: 0.0, y: 0.2, z: 0.0), engineFrontR + Vector3(x: 0.0, y: -0.2, z: 0.0), engine)
+    shipTri(&output, &at, engineBackR + Vector3(x: -0.35, y: 0.0, z: 0.0), engineFrontR + Vector3(x: 0.0, y: 0.0, z: 0.18), engineFrontR + Vector3(x: 0.0, y: 0.0, z: -0.18), engine)
+
+    let finTop = Vector3(x: -1.75, y: 1.55, z: 0.0)
+    shipTri(&output, &at, tailTop, finTop, Vector3(x: -2.55, y: 0.24, z: -0.12), wing)
+    shipTri(&output, &at, tailTop, Vector3(x: -2.55, y: 0.24, z: 0.12), finTop, armor)
+    shipTri(&output, &at, Vector3(x: -0.6, y: -0.08, z: -0.5), leftTip, Vector3(x: -2.2, y: -0.08, z: -1.2), edge)
+    shipTri(&output, &at, Vector3(x: -0.6, y: -0.08, z: 0.5), Vector3(x: -2.2, y: -0.08, z: 1.2), rightTip, edge)
+
+    shipTri(&output, &at, nose, Vector3(x: 1.1, y: 0.08, z: -0.14), Vector3(x: 1.1, y: 0.08, z: 0.14), canopy)
+    shipTri(&output, &at, tailBottom, tailRight, tailLeft, edge)
+    shipTri(&output, &at, leftTip, Vector3(x: -2.2, y: -0.08, z: -1.2), tailLeft, wing)
+    shipTri(&output, &at, rightTip, tailRight, Vector3(x: -2.2, y: -0.08, z: 1.2), wing)
+
+    // Twin cannon rails end exactly at the simulation's alternating muzzles.
+    let muzzleLeft = Vector3(x: 3.15, y: -0.08, z: -0.72)
+    let cannonLeftTop = Vector3(x: 1.15, y: 0.05, z: -0.72)
+    let cannonLeftBottom = Vector3(x: 1.15, y: -0.21, z: -0.72)
+    let cannonLeftOuter = Vector3(x: 1.15, y: -0.08, z: -0.86)
+    let cannonLeftInner = Vector3(x: 1.15, y: -0.08, z: -0.58)
+    shipTri(&output, &at, muzzleLeft, cannonLeftTop, cannonLeftOuter, armor)
+    shipTri(&output, &at, muzzleLeft, cannonLeftInner, cannonLeftTop, edge)
+    shipTri(&output, &at, muzzleLeft, cannonLeftBottom, cannonLeftInner, edge)
+    shipTri(&output, &at, muzzleLeft, cannonLeftOuter, cannonLeftBottom, armor)
+    let muzzleRight = Vector3(x: 3.15, y: -0.08, z: 0.72)
+    let cannonRightTop = Vector3(x: 1.15, y: 0.05, z: 0.72)
+    let cannonRightBottom = Vector3(x: 1.15, y: -0.21, z: 0.72)
+    let cannonRightOuter = Vector3(x: 1.15, y: -0.08, z: 0.86)
+    let cannonRightInner = Vector3(x: 1.15, y: -0.08, z: 0.58)
+    shipTri(&output, &at, muzzleRight, cannonRightOuter, cannonRightTop, armor)
+    shipTri(&output, &at, muzzleRight, cannonRightTop, cannonRightInner, edge)
+    shipTri(&output, &at, muzzleRight, cannonRightInner, cannonRightBottom, edge)
+    shipTri(&output, &at, muzzleRight, cannonRightBottom, cannonRightOuter, armor)
+    return output
+}
+
+const ROCK_VERTEX_COUNT: Int = 144
+const ROCK_SLICES: Int = 8
+const ROCK_RINGS: Int = 3
+const ROCK_RING_VERTEX_COUNT: Int = 24
+
+func rockTri(vertices: &[Vertex, ROCK_VERTEX_COUNT], cursor: &Int,
+    a: Vector3, b: Vector3, c: Vector3, color: Vector3) {
+    let n = normal(a, b, c)
+    vertices[cursor^] = vertex(a, n, color)
+    vertices[cursor^ + 1] = vertex(b, n, color)
+    vertices[cursor^ + 2] = vertex(c, n, color)
+    cursor^ = cursor^ + 3
+}
+
+func buildRockMesh(seed: UInt32) -> [Vertex, ROCK_VERTEX_COUNT] {
+    var ring: [Vector3, ROCK_RING_VERTEX_COUNT] = []
+    let stretchX = 0.82 + hashUnit(seed + 1) * 0.42
+    let stretchY = 0.78 + hashUnit(seed + 2) * 0.38
+    let stretchZ = 0.84 + hashUnit(seed + 3) * 0.44
+    let crater = Vector3(x: hashUnit(seed + 4) * 2.0 - 1.0, y: hashUnit(seed + 5) - 0.5, z: hashUnit(seed + 6) * 2.0 - 1.0).normalized()
+    for ringIndex in 0..ROCK_RINGS {
+        let latitude: Float32 = -0.72 + Float32(ringIndex) * 0.72
+        let ringRadius: Float32 = Math.cos(latitude)
+        let y: Float32 = Math.sin(latitude)
+        for slice in 0..ROCK_SLICES {
+            let angle: Float32 = Float32(slice) * 6.2831853 / Float32(ROCK_SLICES) + Float32(ringIndex) * 0.19
+            var direction = Vector3(x: ringRadius * Math.cos(angle), y: y, z: ringRadius * Math.sin(angle)).normalized()
+            var radius: Float32 = 0.78 + hashUnit(seed + UInt32(ringIndex * 97 + slice * 17)) * 0.38
+            let craterFacing = direction.dot(other: crater)
+            if craterFacing > 0.68 { radius = radius - (craterFacing - 0.68) * 1.25 }
+            direction = Vector3(x: direction.x * stretchX, y: direction.y * stretchY, z: direction.z * stretchZ)
+            ring[ringIndex * ROCK_SLICES + slice] = direction * radius
+        }
+    }
+    let top = Vector3(x: 0.10 * (hashUnit(seed + 70) - 0.5), y: stretchY * (0.84 + hashUnit(seed + 71) * 0.20), z: 0.08 * (hashUnit(seed + 72) - 0.5))
+    let bottom = Vector3(x: 0.12 * (hashUnit(seed + 73) - 0.5), y: 0.0 - stretchY * (0.86 + hashUnit(seed + 74) * 0.18), z: 0.10 * (hashUnit(seed + 75) - 0.5))
+    var output: [Vertex, ROCK_VERTEX_COUNT] = []
+    var at: Int = 0
+    for slice in 0..ROCK_SLICES {
+        let next = (slice + 1) % ROCK_SLICES
+        let shade = 0.32 + hashUnit(seed + UInt32(slice + 100)) * 0.22
+        rockTri(&output, &at, bottom, ring[slice], ring[next], Vector3(x: shade * 1.06, y: shade, z: shade * 0.88))
+    }
+    for ringIndex in 0..(ROCK_RINGS - 1) {
+        for slice in 0..ROCK_SLICES {
+            let next = (slice + 1) % ROCK_SLICES
+            let a = ring[ringIndex * ROCK_SLICES + slice]
+            let b = ring[(ringIndex + 1) * ROCK_SLICES + slice]
+            let c = ring[(ringIndex + 1) * ROCK_SLICES + next]
+            let d = ring[ringIndex * ROCK_SLICES + next]
+            let shade = 0.30 + hashUnit(seed + UInt32(ringIndex * 40 + slice + 200)) * 0.25
+            let color = Vector3(x: shade * 1.08, y: shade, z: shade * 0.86)
+            rockTri(&output, &at, a, b, c, color)
+            rockTri(&output, &at, a, c, d, color)
+        }
+    }
+    let topBase = (ROCK_RINGS - 1) * ROCK_SLICES
+    for slice in 0..ROCK_SLICES {
+        let next = (slice + 1) % ROCK_SLICES
+        let shade = 0.34 + hashUnit(seed + UInt32(slice + 300)) * 0.20
+        rockTri(&output, &at, ring[topBase + slice], top, ring[topBase + next], Vector3(x: shade * 1.05, y: shade, z: shade * 0.88))
+    }
+    return output
+}
+
+const SHOT_VERTEX_COUNT: Int = 12
+
+func buildShotMesh() -> [Vertex, SHOT_VERTEX_COUNT] {
+    var output: [Vertex, SHOT_VERTEX_COUNT] = []
+    let front = Vector3(x: 1.0, y: 0.0, z: 0.0)
+    let back = Vector3(x: -0.55, y: 0.0, z: 0.0)
+    let up = Vector3(x: 0.0, y: 0.09, z: 0.0)
+    let down = Vector3(x: 0.0, y: -0.09, z: 0.0)
+    let side = Vector3(x: 0.0, y: 0.0, z: 0.09)
+    let other = Vector3(x: 0.0, y: 0.0, z: -0.09)
+    let color = Vector3(x: 1.0, y: 0.72, z: 0.10)
+    var at: Int = 0
+    let n0 = normal(front, up, side)
+    output[at] = vertex(front, n0, color); output[at + 1] = vertex(up, n0, color); output[at + 2] = vertex(side, n0, color); at = at + 3
+    let n1 = normal(front, other, up)
+    output[at] = vertex(front, n1, color); output[at + 1] = vertex(other, n1, color); output[at + 2] = vertex(up, n1, color); at = at + 3
+    let n2 = normal(back, side, down)
+    output[at] = vertex(back, n2, color); output[at + 1] = vertex(side, n2, color); output[at + 2] = vertex(down, n2, color); at = at + 3
+    let n3 = normal(back, down, other)
+    output[at] = vertex(back, n3, color); output[at + 1] = vertex(down, n3, color); output[at + 2] = vertex(other, n3, color)
+    return output
+}
+
+const STAR_COUNT: Int = 720
+
+func buildStars() -> [Vertex, STAR_COUNT] {
+    var output: [Vertex, STAR_COUNT] = []
+    for index in 0..STAR_COUNT {
+        let seed = UInt32(index) * 7919 + 31
+        let direction = Vector3(x: hashUnit(seed) * 2.0 - 1.0, y: hashUnit(seed + 1) * 2.0 - 1.0, z: hashUnit(seed + 2) * 2.0 - 1.0).normalized()
+        let distance = 58.0 + hashUnit(seed + 3) * 76.0
+        let brightness = 0.35 + hashUnit(seed + 4) * 0.65
+        let tint = hashUnit(seed + 5)
+        output[index] = vertex(direction * distance, Vector3.zero(), Vector3(
+            x: brightness * (0.78 + tint * 0.22),
+            y: brightness * (0.84 + tint * 0.14),
+            z: brightness))
+    }
+    return output
+}
+
+const RETICLE_VERTEX_COUNT: Int = 8
+
+func buildReticle() -> [Vertex, RETICLE_VERTEX_COUNT] {
+    let color = Vector3(x: 0.35, y: 0.92, z: 1.0)
+    let n = Vector3.zero()
+    return [
+        vertex(Vector3(x: 0.0, y: 0.0, z: -0.72), n, color), vertex(Vector3(x: 0.0, y: 0.0, z: -0.28), n, color),
+        vertex(Vector3(x: 0.0, y: 0.0, z: 0.28), n, color), vertex(Vector3(x: 0.0, y: 0.0, z: 0.72), n, color),
+        vertex(Vector3(x: 0.0, y: -0.72, z: 0.0), n, color), vertex(Vector3(x: 0.0, y: -0.28, z: 0.0), n, color),
+        vertex(Vector3(x: 0.0, y: 0.28, z: 0.0), n, color), vertex(Vector3(x: 0.0, y: 0.72, z: 0.0), n, color),
+    ]
+}

@@ -1,0 +1,583 @@
+import Standard.*
+import SDL3
+
+const GRID_COLS: Int = 12
+const GRID_ROWS: Int = 16
+const GRID_CELLS: Int = 192
+const BUBBLE_TYPES: Int32 = 5
+const EMPTY: Int32 = -1
+const CELL_W: Float32 = 48.0
+const ROW_H: Float32 = 41.0
+const BUBBLE_RADIUS: Float32 = 19.0
+const GRID_X: Float32 = 72.0
+const GRID_Y: Float32 = 58.0
+const SHOOTER_X: Float32 = 360.0
+const SHOOTER_Y: Float32 = 704.0
+const SHOT_SPEED: Float32 = 520.0
+const MIN_AIM: Float32 = -2.72
+const MAX_AIM: Float32 = -0.42
+const MAX_DROPS: Int = GRID_CELLS
+const MAX_PARTICLES: Int = 96
+
+enum GamePhase: Int32 {
+    playing = 0
+    won = 1
+    lost = 2
+}
+
+struct InputState {
+    var aimLeft: Bool
+    var aimRight: Bool
+    var fire: Bool
+    var restart: Bool
+    var escape: Bool
+}
+
+struct Shot {
+    var active: Bool
+    var color: Int32
+    var position: Vec2
+    var velocity: Vec2
+}
+
+struct DropBubble {
+    var active: Bool
+    var color: Int32
+    var position: Vec2
+    var velocity: Vec2
+    var life: Float32
+}
+
+struct Particle {
+    var active: Bool
+    var color: Int32
+    var position: Vec2
+    var velocity: Vec2
+    var life: Float32
+}
+
+struct Game {
+    var cells: [Int32]
+    var visited: [Bool]
+    var queue: [Int]
+    var drops: [DropBubble]
+    var particles: [Particle]
+    var shot: Shot
+    var rng: Rng
+    var aim: Float32
+    var currentColor: Int32
+    var nextColor: Int32
+    var score: Int32
+    var shotsFired: Int32
+    var phase: GamePhase
+
+    mutating func reset(seed: UInt32) {
+        seedRng(&self.rng, seed)
+        self.cells = []
+        self.visited = []
+        self.queue = []
+        self.drops = []
+        self.particles = []
+        for _ in 0..GRID_CELLS {
+            self.cells.append(EMPTY)
+            self.visited.append(false)
+            self.queue.append(0)
+        }
+        for _ in 0..MAX_DROPS {
+            self.drops.append(DropBubble(active: false, color: 0, position: vec2(0.0, 0.0), velocity: vec2(0.0, 0.0), life: 0.0))
+        }
+        for _ in 0..MAX_PARTICLES {
+            self.particles.append(Particle(active: false, color: 0, position: vec2(0.0, 0.0), velocity: vec2(0.0, 0.0), life: 0.0))
+        }
+
+        for row in 0..7 {
+            for col in 0..GRID_COLS {
+                let color = Int32((row + col + Int(randomInt(&self.rng, BUBBLE_TYPES))) % Int(BUBBLE_TYPES))
+                self.setCell(row: row, col: col, color: color)
+            }
+        }
+
+        self.shot = Shot(active: false, color: 0, position: vec2(SHOOTER_X, SHOOTER_Y), velocity: vec2(0.0, 0.0))
+        self.aim = -PI_F * 0.5
+        self.currentColor = self.randomLiveColor()
+        self.nextColor = self.randomLiveColor()
+        self.score = 0
+        self.shotsFired = 0
+        self.phase = GamePhase.playing
+    }
+
+    func index(row: Int, col: Int) -> Int {
+        return row * GRID_COLS + col
+    }
+
+    func isInside(row: Int, col: Int) -> Bool {
+        return row >= 0 && row < GRID_ROWS && col >= 0 && col < GRID_COLS
+    }
+
+    func cell(row: Int, col: Int) -> Int32 {
+        if !self.isInside(row: row, col: col) {
+            return EMPTY
+        }
+
+        return self.cells[self.index(row: row, col: col)]
+    }
+
+    mutating func setCell(row: Int, col: Int, color: Int32) {
+        if self.isInside(row: row, col: col) {
+            self.cells[self.index(row: row, col: col)] = color
+        }
+    }
+
+    func rowOffset(row: Int) -> Float32 {
+        if row % 2 == 0 {
+            return 0.0
+        }
+
+        return CELL_W * 0.5
+    }
+
+    func cellCenter(row: Int, col: Int) -> Vec2 {
+        return vec2(
+            GRID_X + self.rowOffset(row: row) + Float32(col) * CELL_W,
+            GRID_Y + Float32(row) * ROW_H)
+    }
+
+    func nearestEmptyCell(position: Vec2) -> (row: Int, col: Int) {
+        var bestRow = 0
+        var bestCol = 0
+        var bestDistance: Float32 = 9999999.0
+        for row in 0..GRID_ROWS {
+            for col in 0..GRID_COLS {
+                if self.cell(row: row, col: col) != EMPTY {
+                    continue
+                }
+
+                let center = self.cellCenter(row: row, col: col)
+                let d = distanceSquared(position, center)
+                if d < bestDistance {
+                    bestDistance = d
+                    bestRow = row
+                    bestCol = col
+                }
+            }
+        }
+
+        return (row: bestRow, col: bestCol)
+    }
+
+    mutating func randomLiveColor() -> Int32 {
+        var present0 = false
+        var present1 = false
+        var present2 = false
+        var present3 = false
+        var present4 = false
+        var count: Int32 = 0
+        for i in 0..GRID_CELLS {
+            let color = self.cells[i]
+            if color == 0 && !present0 {
+                present0 = true
+                count = count + 1
+            } else if color == 1 && !present1 {
+                present1 = true
+                count = count + 1
+            } else if color == 2 && !present2 {
+                present2 = true
+                count = count + 1
+            } else if color == 3 && !present3 {
+                present3 = true
+                count = count + 1
+            } else if color == 4 && !present4 {
+                present4 = true
+                count = count + 1
+            }
+        }
+
+        if count <= 0 {
+            return Int32(randomInt(&self.rng, BUBBLE_TYPES))
+        }
+
+        var pick = randomInt(&self.rng, count)
+        if present0 {
+            if pick == 0 {
+                return 0
+            }
+            pick = pick - 1
+        }
+        if present1 {
+            if pick == 0 {
+                return 1
+            }
+            pick = pick - 1
+        }
+        if present2 {
+            if pick == 0 {
+                return 2
+            }
+            pick = pick - 1
+        }
+        if present3 {
+            if pick == 0 {
+                return 3
+            }
+            pick = pick - 1
+        }
+        if present4 {
+            if pick == 0 {
+                return 4
+            }
+        }
+
+        return 0
+    }
+
+    func hasAnyBubble() -> Bool {
+        for i in 0..GRID_CELLS {
+            if self.cells[i] != EMPTY {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    mutating func clearMarks() {
+        for i in 0..GRID_CELLS {
+            self.visited[i] = false
+        }
+    }
+
+    func neighbor(row: Int, col: Int, slot: Int) -> (row: Int, col: Int) {
+        if row % 2 == 0 {
+            if slot == 0 {
+                return (row: row, col: col - 1)
+            }
+            if slot == 1 {
+                return (row: row, col: col + 1)
+            }
+            if slot == 2 {
+                return (row: row - 1, col: col - 1)
+            }
+            if slot == 3 {
+                return (row: row - 1, col: col)
+            }
+            if slot == 4 {
+                return (row: row + 1, col: col - 1)
+            }
+            return (row: row + 1, col: col)
+        }
+
+        if slot == 0 {
+            return (row: row, col: col - 1)
+        }
+        if slot == 1 {
+            return (row: row, col: col + 1)
+        }
+        if slot == 2 {
+            return (row: row - 1, col: col)
+        }
+        if slot == 3 {
+            return (row: row - 1, col: col + 1)
+        }
+        if slot == 4 {
+            return (row: row + 1, col: col)
+        }
+        return (row: row + 1, col: col + 1)
+    }
+
+    mutating func spawnParticle(position: Vec2, color: Int32) {
+        for i in 0..MAX_PARTICLES {
+            if !self.particles[i].active {
+                let angle = Float32(randomInt(&self.rng, 628)) / 100.0
+                let speed: Float32 = 70.0 + Float32(randomInt(&self.rng, 130))
+                self.particles[i] = Particle(
+                    active: true,
+                    color: color,
+                    position: position,
+                    velocity: scale(vec2(Math.cos(angle), Math.sin(angle)), speed),
+                    life: 0.38 + Float32(randomInt(&self.rng, 30)) / 100.0)
+                return
+            }
+        }
+    }
+
+    mutating func spawnDrop(position: Vec2, color: Int32) {
+        for i in 0..MAX_DROPS {
+            if !self.drops[i].active {
+                self.drops[i] = DropBubble(
+                    active: true,
+                    color: color,
+                    position: position,
+                    velocity: vec2(Float32(randomInt(&self.rng, 100) - 50), 120.0 + Float32(randomInt(&self.rng, 90))),
+                    life: 1.5)
+                return
+            }
+        }
+    }
+
+    mutating func clearCluster(row: Int, col: Int) -> Int32 {
+        self.clearMarks()
+        let color = self.cell(row: row, col: col)
+        if color == EMPTY {
+            return 0
+        }
+
+        var head = 0
+        var tail = 0
+        self.queue[tail] = self.index(row: row, col: col)
+        tail = tail + 1
+        self.visited[self.index(row: row, col: col)] = true
+
+        while head < tail {
+            let current = self.queue[head]
+            head = head + 1
+            let cr = current / GRID_COLS
+            let cc = current - cr * GRID_COLS
+            for slot in 0..6 {
+                let next = self.neighbor(row: cr, col: cc, slot: slot)
+                if !self.isInside(row: next.row, col: next.col) {
+                    continue
+                }
+
+                let nextIndex = self.index(row: next.row, col: next.col)
+                if !self.visited[nextIndex] && self.cells[nextIndex] == color {
+                    self.visited[nextIndex] = true
+                    self.queue[tail] = nextIndex
+                    tail = tail + 1
+                }
+            }
+        }
+
+        if tail < 3 {
+            return 0
+        }
+
+        for i in 0..tail {
+            let clearIndex = self.queue[i]
+            let cr = clearIndex / GRID_COLS
+            let cc = clearIndex - cr * GRID_COLS
+            let pos = self.cellCenter(row: cr, col: cc)
+            for _ in 0..5 {
+                self.spawnParticle(position: pos, color: self.cells[clearIndex])
+            }
+            self.cells[clearIndex] = EMPTY
+        }
+
+        return Int32(tail)
+    }
+
+    mutating func dropFloating() -> Int32 {
+        for i in 0..GRID_CELLS {
+            self.visited[i] = false
+        }
+
+        var head = 0
+        var tail = 0
+        for col in 0..GRID_COLS {
+            if self.cell(row: 0, col: col) != EMPTY {
+                let i = self.index(row: 0, col: col)
+                self.visited[i] = true
+                self.queue[tail] = i
+                tail = tail + 1
+            }
+        }
+
+        while head < tail {
+            let current = self.queue[head]
+            head = head + 1
+            let cr = current / GRID_COLS
+            let cc = current - cr * GRID_COLS
+            for slot in 0..6 {
+                let next = self.neighbor(row: cr, col: cc, slot: slot)
+                if !self.isInside(row: next.row, col: next.col) {
+                    continue
+                }
+                let nextIndex = self.index(row: next.row, col: next.col)
+                if !self.visited[nextIndex] && self.cells[nextIndex] != EMPTY {
+                    self.visited[nextIndex] = true
+                    self.queue[tail] = nextIndex
+                    tail = tail + 1
+                }
+            }
+        }
+
+        var dropped: Int32 = 0
+        for i in 0..GRID_CELLS {
+            if self.cells[i] != EMPTY && !self.visited[i] {
+                let row = i / GRID_COLS
+                let col = i - row * GRID_COLS
+                self.spawnDrop(position: self.cellCenter(row: row, col: col), color: self.cells[i])
+                self.cells[i] = EMPTY
+                dropped = dropped + 1
+            }
+        }
+
+        return dropped
+    }
+
+    mutating func attachShot(position: Vec2) {
+        let target = self.nearestEmptyCell(position: position)
+        self.setCell(row: target.row, col: target.col, color: self.shot.color)
+        let popped = self.clearCluster(row: target.row, col: target.col)
+        if popped > 0 {
+            let dropped = self.dropFloating()
+            self.score = self.score + popped * 100 + dropped * 150
+        }
+
+        self.shot.active = false
+        self.currentColor = self.nextColor
+        self.nextColor = self.randomLiveColor()
+        if !self.hasAnyBubble() {
+            self.phase = GamePhase.won
+        }
+        self.checkLoss()
+    }
+
+    mutating func fire() {
+        if self.shot.active || self.phase != GamePhase.playing {
+            return
+        }
+
+        self.shot = Shot(
+            active: true,
+            color: self.currentColor,
+            position: vec2(SHOOTER_X, SHOOTER_Y),
+            velocity: scale(vec2(Math.cos(self.aim), Math.sin(self.aim)), SHOT_SPEED))
+        self.shotsFired = self.shotsFired + 1
+    }
+
+    mutating func checkShotCollision() {
+        if !self.shot.active {
+            return
+        }
+
+        if self.shot.position.y <= GRID_Y {
+            self.attachShot(position: self.shot.position)
+            return
+        }
+
+        for i in 0..GRID_CELLS {
+            if self.cells[i] == EMPTY {
+                continue
+            }
+            let row = i / GRID_COLS
+            let col = i - row * GRID_COLS
+            if distanceSquared(self.shot.position, self.cellCenter(row: row, col: col)) <= (BUBBLE_RADIUS * 2.0 - 2.0) * (BUBBLE_RADIUS * 2.0 - 2.0) {
+                self.attachShot(position: self.shot.position)
+                return
+            }
+        }
+    }
+
+    mutating func checkLoss() {
+        for col in 0..GRID_COLS {
+            if self.cell(row: GRID_ROWS - 1, col: col) != EMPTY {
+                self.phase = GamePhase.lost
+                return
+            }
+        }
+    }
+
+    mutating func update(input: InputState, dt: Float32) {
+        if input.restart {
+            self.reset(seed: nextRandom(&self.rng))
+            return
+        }
+
+        if self.phase == GamePhase.playing {
+            if input.aimLeft {
+                self.aim = self.aim - 2.35 * dt
+            }
+            if input.aimRight {
+                self.aim = self.aim + 2.35 * dt
+            }
+            self.aim = clampFloat(self.aim, MIN_AIM, MAX_AIM)
+            if input.fire {
+                self.fire()
+            }
+
+            if self.shot.active {
+                self.shot.position = add(self.shot.position, scale(self.shot.velocity, dt))
+                if self.shot.position.x < GRID_X - BUBBLE_RADIUS {
+                    self.shot.position.x = GRID_X - BUBBLE_RADIUS
+                    self.shot.velocity.x = -self.shot.velocity.x
+                } else if self.shot.position.x > WORLD_W - GRID_X + BUBBLE_RADIUS {
+                    self.shot.position.x = WORLD_W - GRID_X + BUBBLE_RADIUS
+                    self.shot.velocity.x = -self.shot.velocity.x
+                }
+                self.checkShotCollision()
+            }
+        }
+
+        for i in 0..MAX_DROPS {
+            if self.drops[i].active {
+                self.drops[i].life = self.drops[i].life - dt
+                self.drops[i].velocity.y = self.drops[i].velocity.y + 540.0 * dt
+                self.drops[i].position = add(self.drops[i].position, scale(self.drops[i].velocity, dt))
+                if self.drops[i].life <= 0.0 || self.drops[i].position.y > WORLD_H + 40.0 {
+                    self.drops[i].active = false
+                }
+            }
+        }
+
+        for i in 0..MAX_PARTICLES {
+            if self.particles[i].active {
+                self.particles[i].life = self.particles[i].life - dt
+                self.particles[i].velocity.y = self.particles[i].velocity.y + 210.0 * dt
+                self.particles[i].position = add(self.particles[i].position, scale(self.particles[i].velocity, dt))
+                if self.particles[i].life <= 0.0 {
+                    self.particles[i].active = false
+                }
+            }
+        }
+    }
+}
+
+func makeGame(seed: UInt32) -> Game {
+    var game = Game(
+        cells: [],
+        visited: [],
+        queue: [],
+        drops: [],
+        particles: [],
+        shot: Shot(active: false, color: 0, position: vec2(SHOOTER_X, SHOOTER_Y), velocity: vec2(0.0, 0.0)),
+        rng: Rng(state: 1),
+        aim: -PI_F * 0.5,
+        currentColor: 0,
+        nextColor: 1,
+        score: 0,
+        shotsFired: 0,
+        phase: GamePhase.playing)
+    game.reset(seed: seed)
+    return game
+}
+
+func setKey(input: &InputState, scancode: SDL3.Scancode, pressed: Bool) {
+    if scancode == SDL3.Scancode.left || scancode == SDL3.Scancode.a {
+        input.aimLeft = pressed
+    } else if scancode == SDL3.Scancode.right || scancode == SDL3.Scancode.d {
+        input.aimRight = pressed
+    } else if scancode == SDL3.Scancode.space || scancode == SDL3.Scancode.up || scancode == SDL3.Scancode.w {
+        input.fire = pressed
+    } else if scancode == SDL3.Scancode.r {
+        input.restart = pressed
+    } else if scancode == SDL3.Scancode.escape {
+        input.escape = pressed
+    }
+}
+
+func handleEvent(event: SDL3.Event, input: &InputState) -> Bool {
+    if event.type == SDL3.EventType.quit {
+        return false
+    }
+
+    if event.type == SDL3.EventType.keyDown {
+        if event.scancode == SDL3.Scancode.escape {
+            return false
+        }
+        setKey(input, event.scancode, true)
+    } else if event.type == SDL3.EventType.keyUp {
+        setKey(input, event.scancode, false)
+    }
+
+    return true
+}

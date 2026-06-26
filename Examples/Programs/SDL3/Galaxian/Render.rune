@@ -1,0 +1,372 @@
+// Render: the starfield backdrop, the alien sprites (one shared drone shape in
+// three palettes plus the larger escorted flagship), the player's cannon, shots
+// and bombs, and the HUD / overlays. Shapes are assembled from filled rects and
+// coloured triangles (renderGeometry), the same primitives Cube.rune and
+// PacMan use, so no image assets are needed.
+
+import Standard.*
+import SDL3
+
+// MARK: - Primitives
+
+func makeColorVertex(x: Float32, y: Float32, red: Float32, green: Float32, blue: Float32, alpha: Float32) -> SDL3.Vertex {
+    return SDL3.Vertex(
+        position: SDL3.FPoint(x: x, y: y),
+        color: SDL3.FColor(r: red / 255.0, g: green / 255.0, b: blue / 255.0, a: alpha),
+        texCoord: SDL3.FPoint(x: 0.0, y: 0.0))
+}
+
+func drawTri(renderer: &SDL3.Renderer?, x0: Float32, y0: Float32, x1: Float32, y1: Float32, x2: Float32, y2: Float32, red: Float32, green: Float32, blue: Float32) {
+    var v: [SDL3.Vertex, 3] = []
+    v[0] = makeColorVertex(x0, y0, red, green, blue, 1.0)
+    v[1] = makeColorVertex(x1, y1, red, green, blue, 1.0)
+    v[2] = makeColorVertex(x2, y2, red, green, blue, 1.0)
+    SDL3.renderGeometry(renderer, nil, ((v.bytes) as &SDL3.Vertex), 3, nil, 0)
+}
+
+func fillRect(renderer: &SDL3.Renderer?, x: Float32, y: Float32, w: Float32, h: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    SDL3.setRenderDrawColor(renderer, red, green, blue, 255)
+    var rect = SDL3.FRect(x: x, y: y, w: w, h: h)
+    SDL3.renderFillRect(renderer, &rect)
+}
+
+// MARK: - Starfield
+
+const NUM_STARS: Int = 64
+
+func starHash(i: Int, salt: Float32) -> Float32 {
+    let v = Math.sin(Float32(i) * 12.9898 + salt * 78.233) * 43758.5453
+    return Math.abs(Math.fmod(v, 1.0))
+}
+
+func drawStarfield(renderer: &SDL3.Renderer?, scroll: Float32) {
+    for i in 0..NUM_STARS {
+        let sx: Float32 = starHash(i, 1.0) * Float32(WIDTH)
+        let speed: Float32 = 18.0 + starHash(i, 2.0) * 42.0
+        let baseY: Float32 = starHash(i, 3.0) * Float32(HEIGHT)
+        let sy: Float32 = Math.fmod(baseY + scroll * speed, Float32(HEIGHT))
+
+        // Twinkle: brightness pulses on a per-star phase.
+        let twinkle: Float32 = 0.5 + 0.5 * Math.sin(scroll * 3.0 + starHash(i, 4.0) * TAU_F)
+        let brightness: Float32 = 120.0 + twinkle * 135.0
+        let shade = UInt8(brightness)
+
+        let tint: Float32 = starHash(i, 5.0)
+        var r = shade
+        var g = shade
+        var b = shade
+        if tint < 0.33 {
+            b = 255
+        } else if tint < 0.66 {
+            r = shade
+            g = UInt8(Float32(shade) * 0.8)
+        }
+
+        let size: Float32 = starHash(i, 6.0) < 0.25 ? 2.0 : 1.0
+        fillRect(renderer, sx, sy, size, size, r, g, b)
+    }
+}
+
+// MARK: - Alien palette
+
+func droneColor(kind: UInt8) -> Rgb {
+    if kind == KIND_BLUE {
+        return Rgb(r: 74.0, g: 138.0, b: 255.0)
+    }
+    if kind == KIND_PURPLE {
+        return Rgb(r: 200.0, g: 96.0, b: 230.0)
+    }
+    return Rgb(r: 244.0, g: 74.0, b: 74.0)
+}
+
+struct Rgb {
+    var r: Float32
+    var g: Float32
+    var b: Float32
+}
+
+// Shared drone body: a central hull, two eye dots, antennae, and a pair of wings
+// that lift on the off-beat of the flap for a two-frame flutter.
+func drawDrone(renderer: &SDL3.Renderer?, cx: Float32, cy: Float32, flap: Bool, color: Rgb) {
+    let wingLift: Float32 = flap ? -5.0 : 3.0
+    let r = color.r
+    let g = color.g
+    let b = color.b
+
+    // Wings (triangles) behind the body.
+    drawTri(renderer, cx - 4.0, cy - 2.0, cx - 13.0, cy + wingLift, cx - 4.0, cy + 4.0, r, g, b)
+    drawTri(renderer, cx + 4.0, cy - 2.0, cx + 13.0, cy + wingLift, cx + 4.0, cy + 4.0, r, g, b)
+
+    // Body hull.
+    fillRect(renderer, cx - 4.0, cy - 5.0, 8.0, 11.0, UInt8(r), UInt8(g), UInt8(b))
+    fillRect(renderer, cx - 2.0, cy - 7.0, 4.0, 3.0, UInt8(r), UInt8(g), UInt8(b))
+
+    // Antennae.
+    SDL3.setRenderDrawColor(renderer, UInt8(r), UInt8(g), UInt8(b), 255)
+    SDL3.renderLine(renderer, cx - 2.0, cy - 6.0, cx - 4.0, cy - 10.0)
+    SDL3.renderLine(renderer, cx + 2.0, cy - 6.0, cx + 4.0, cy - 10.0)
+
+    // Eyes.
+    fillRect(renderer, cx - 3.0, cy - 3.0, 2.0, 2.0, 255, 255, 255)
+    fillRect(renderer, cx + 1.0, cy - 3.0, 2.0, 2.0, 255, 255, 255)
+}
+
+// Flagship: a broader yellow hull with a red crest and swept wings, the prize
+// target of an escorted convoy.
+func drawFlagship(renderer: &SDL3.Renderer?, cx: Float32, cy: Float32, flap: Bool) {
+    let wingLift: Float32 = flap ? -6.0 : 2.0
+    let yr: Float32 = 255.0
+    let yg: Float32 = 208.0
+    let yb: Float32 = 40.0
+
+    // Wings.
+    drawTri(renderer, cx - 5.0, cy - 2.0, cx - 16.0, cy + wingLift, cx - 5.0, cy + 6.0, yr, yg, yb)
+    drawTri(renderer, cx + 5.0, cy - 2.0, cx + 16.0, cy + wingLift, cx + 5.0, cy + 6.0, yr, yg, yb)
+
+    // Hull.
+    fillRect(renderer, cx - 6.0, cy - 5.0, 12.0, 12.0, UInt8(yr), UInt8(yg), UInt8(yb))
+    // Red crest.
+    drawTri(renderer, cx - 6.0, cy - 5.0, cx, cy - 12.0, cx + 6.0, cy - 5.0, 232.0, 60.0, 42.0)
+    // Cockpit.
+    fillRect(renderer, cx - 2.0, cy - 2.0, 4.0, 4.0, 255, 255, 255)
+
+    // Antennae.
+    SDL3.setRenderDrawColor(renderer, UInt8(yr), UInt8(yg), UInt8(yb), 255)
+    SDL3.renderLine(renderer, cx - 3.0, cy - 6.0, cx - 6.0, cy - 12.0)
+    SDL3.renderLine(renderer, cx + 3.0, cy - 6.0, cx + 6.0, cy - 12.0)
+}
+
+func drawAlien(renderer: &SDL3.Renderer?, alien: *Alien, sway: Float32, flap: Bool) {
+    let cx = alienX(alien, sway)
+    let cy = alienY(alien, sway)
+    if alien.kind == KIND_FLAGSHIP {
+        drawFlagship(renderer, cx, cy, flap)
+    } else {
+        drawDrone(renderer, cx, cy, flap, droneColor(alien.kind))
+    }
+}
+
+// MARK: - Player, shot, bombs
+
+func drawPlayer(renderer: &SDL3.Renderer?, cx: Float32, blink: Bool) {
+    if blink {
+        return
+    }
+    let cy = PLAYER_Y
+    // Base.
+    fillRect(renderer, cx - 15.0, cy + 4.0, 30.0, 6.0, 90, 200, 255)
+    // Hull.
+    fillRect(renderer, cx - 7.0, cy - 3.0, 14.0, 9.0, 235, 245, 255)
+    // Barrel.
+    fillRect(renderer, cx - 2.0, cy - 13.0, 4.0, 11.0, 235, 245, 255)
+    // Fins.
+    drawTri(renderer, cx - 15.0, cy + 4.0, cx - 15.0, cy + 10.0, cx - 8.0, cy + 4.0, 90.0, 200.0, 255.0)
+    drawTri(renderer, cx + 15.0, cy + 4.0, cx + 15.0, cy + 10.0, cx + 8.0, cy + 4.0, 90.0, 200.0, 255.0)
+}
+
+func drawShot(renderer: &SDL3.Renderer?, shot: *Shot) {
+    if !shot.active {
+        return
+    }
+    fillRect(renderer, shot.x - 1.5, shot.y - 6.0, 3.0, 12.0, 255, 240, 120)
+}
+
+func drawBombs(renderer: &SDL3.Renderer?, game: *Game) {
+    for bombIndex in 0..MAX_BOMBS {
+        if !game.bombs[bombIndex].active {
+            continue
+        }
+        let bx = game.bombs[bombIndex].x
+        let by = game.bombs[bombIndex].y
+        // A little zig-dart.
+        drawTri(renderer, bx - 3.0, by - 4.0, bx + 3.0, by - 4.0, bx, by + 5.0, 255.0, 120.0, 220.0)
+    }
+}
+
+// MARK: - HUD digit font (5x7 bitmap, same approach as PacMan/Snake)
+
+const DIGIT_COLS: Int = 5
+const DIGIT_ROWS: Int = 7
+const HUD_PIXEL: Float32 = 2.0
+const HUD_GAP: Float32 = 2.0
+
+const DIGIT_0: [UInt8, _] = [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E]
+const DIGIT_1: [UInt8, _] = [0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E]
+const DIGIT_2: [UInt8, _] = [0x0E, 0x11, 0x01, 0x0E, 0x10, 0x10, 0x1F]
+const DIGIT_3: [UInt8, _] = [0x0E, 0x11, 0x01, 0x06, 0x01, 0x11, 0x0E]
+const DIGIT_4: [UInt8, _] = [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02]
+const DIGIT_5: [UInt8, _] = [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E]
+const DIGIT_6: [UInt8, _] = [0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E]
+const DIGIT_7: [UInt8, _] = [0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08]
+const DIGIT_8: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E]
+const DIGIT_9: [UInt8, _] = [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C]
+
+func drawDigit(renderer: &SDL3.Renderer?, digit: Int, x: Float32, y: Float32, pixel: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    var rows: [UInt8, DIGIT_ROWS] = [0, 0, 0, 0, 0, 0, 0]
+    if digit == 0 {
+        rows = DIGIT_0
+    }
+    if digit == 1 {
+        rows = DIGIT_1
+    }
+    if digit == 2 {
+        rows = DIGIT_2
+    }
+    if digit == 3 {
+        rows = DIGIT_3
+    }
+    if digit == 4 {
+        rows = DIGIT_4
+    }
+    if digit == 5 {
+        rows = DIGIT_5
+    }
+    if digit == 6 {
+        rows = DIGIT_6
+    }
+    if digit == 7 {
+        rows = DIGIT_7
+    }
+    if digit == 8 {
+        rows = DIGIT_8
+    }
+    if digit == 9 {
+        rows = DIGIT_9
+    }
+
+    for row in 0..DIGIT_ROWS {
+        let mask = rows[row]
+        for col in 0..DIGIT_COLS {
+            let bit = UInt8(1 << (DIGIT_COLS - 1 - col))
+            if (mask & bit) != 0 {
+                fillRect(renderer, x + Float32(col) * pixel, y + Float32(row) * pixel, pixel, pixel, red, green, blue)
+            }
+        }
+    }
+}
+
+func numberWidth(value: Int32, pixel: Float32) -> Float32 {
+    var digits = 1
+    var remaining = value / 10
+    while remaining > 0 {
+        digits = digits + 1
+        remaining = remaining / 10
+    }
+    return Float32(digits) * (Float32(DIGIT_COLS) * pixel + HUD_GAP)
+}
+
+func drawNumber(renderer: &SDL3.Renderer?, value: Int32, x: Float32, y: Float32, pixel: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    var remaining = value
+    if remaining <= 0 {
+        drawDigit(renderer, 0, x, y, pixel, red, green, blue)
+        return
+    }
+
+    var digits: [Int] = []
+    while remaining > 0 {
+        digits.append(Int(remaining % 10))
+        remaining = remaining / 10
+    }
+
+    for digitIndex in 0..digits.count {
+        let digit = digits[digits.count - 1 - digitIndex]
+        drawDigit(renderer, digit, x + Float32(digitIndex) * (Float32(DIGIT_COLS) * pixel + HUD_GAP), y, pixel, red, green, blue)
+    }
+}
+
+// MARK: - HUD and overlays
+
+func drawHud(renderer: &SDL3.Renderer?, game: *Game) {
+    SDL3.setRenderDrawColor(renderer, 210, 90, 90, 255)
+    SDL3.renderDebugText(renderer, 16.0, 10.0, "1UP")
+    drawNumber(renderer, game.score, 16.0, 24.0, HUD_PIXEL, 235, 235, 245)
+
+    SDL3.setRenderDrawColor(renderer, 210, 90, 90, 255)
+    SDL3.renderDebugText(renderer, Float32(WIDTH) * 0.5 - 40.0, 10.0, "HIGH SCORE")
+    let hsWidth = numberWidth(game.highScore, HUD_PIXEL)
+    drawNumber(renderer, game.highScore, Float32(WIDTH) * 0.5 - hsWidth * 0.5, 24.0, HUD_PIXEL, 235, 235, 245)
+
+    // Wave marker (upper right).
+    SDL3.setRenderDrawColor(renderer, 160, 200, 240, 255)
+    SDL3.renderDebugText(renderer, Float32(WIDTH) - 96.0, 10.0, "WAVE")
+    drawNumber(renderer, Int32(game.wave), Float32(WIDTH) - 44.0, 8.0, HUD_PIXEL, 130, 220, 255)
+
+    // Lives as little cannons along the bottom.
+    var lifeIndex = 0
+    while lifeIndex < game.lives {
+        let lx: Float32 = 22.0 + Float32(lifeIndex) * 30.0
+        let ly: Float32 = Float32(HEIGHT) - 16.0
+        fillRect(renderer, lx - 11.0, ly, 22.0, 4.0, 90, 200, 255)
+        fillRect(renderer, lx - 5.0, ly - 5.0, 10.0, 6.0, 235, 245, 255)
+        fillRect(renderer, lx - 1.5, ly - 10.0, 3.0, 6.0, 235, 245, 255)
+        lifeIndex = lifeIndex + 1
+    }
+}
+
+func drawCenterMessage(renderer: &SDL3.Renderer?, text: String, x: Float32, y: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    SDL3.setRenderDrawColor(renderer, red, green, blue, 255)
+    let cs = CString(text)
+    SDL3.renderDebugText(renderer, x, y, cs.asCStringSlice())
+}
+
+func drawOverlay(renderer: &SDL3.Renderer?, game: *Game) {
+    let cx = Float32(WIDTH) * 0.5
+
+    if game.paused {
+        drawCenterMessage(renderer, "PAUSED", cx - 24.0, Float32(HEIGHT) * 0.5, 230, 235, 240)
+        return
+    }
+
+    if game.phase == PHASE_READY {
+        let wave = CString("WAVE ${game.wave}")
+        SDL3.setRenderDrawColor(renderer, 255, 220, 90, 255)
+        SDL3.renderDebugText(renderer, cx - 32.0, PLAYER_Y - 120.0, wave.asCStringSlice())
+        drawCenterMessage(renderer, "GET READY", cx - 36.0, PLAYER_Y - 100.0, 120, 240, 170)
+        return
+    }
+
+    if game.phase == PHASE_WAVE_CLEAR {
+        drawCenterMessage(renderer, "WAVE CLEAR", cx - 40.0, Float32(HEIGHT) * 0.5, 120, 240, 170)
+        return
+    }
+
+    if game.phase == PHASE_GAME_OVER {
+        drawCenterMessage(renderer, "GAME OVER", cx - 36.0, Float32(HEIGHT) * 0.5 - 10.0, 245, 90, 90)
+        drawCenterMessage(renderer, "PRESS R TO PLAY AGAIN", cx - 84.0, Float32(HEIGHT) * 0.5 + 12.0, 210, 210, 210)
+    }
+}
+
+// MARK: - Frame
+
+func drawGame(renderer: &SDL3.Renderer?, game: *Game) {
+    SDL3.setRenderDrawColor(renderer, 3, 3, 12, 255)
+    SDL3.renderClear(renderer)
+
+    drawStarfield(renderer, game.starScroll)
+
+    let sway = swayOffset(game.swayTimer)
+    let flap = (Int32(game.swayTimer * 5.0) % 2) == 0
+
+    for index in 0..FORMATION_CELLS {
+        if game.aliens[index].kind == KIND_EMPTY || game.aliens[index].state == ALIEN_STATE_DEAD {
+            continue
+        }
+        drawAlien(renderer, *game.aliens[index], sway, flap)
+    }
+
+    var playerBlink = false
+    if game.phase == PHASE_READY {
+        playerBlink = (Int32(game.phaseTimer * 6.0) % 2) == 0
+    }
+    if game.phase != PHASE_PLAYER_DYING && game.phase != PHASE_GAME_OVER {
+        drawPlayer(renderer, game.player.x, playerBlink)
+    }
+
+    drawShot(renderer, *game.shot)
+    drawBombs(renderer, game)
+
+    drawHud(renderer, game)
+    drawOverlay(renderer, game)
+
+    SDL3.renderPresent(renderer)
+}

@@ -1,0 +1,189 @@
+import Introspection.*
+
+struct Point {
+    var x: Float32 = 0.0
+    var y: Float32 = 0.0
+}
+
+enum Direction: Int32 {
+    north = 0
+    south = 1
+}
+
+union Shape {
+    circle(Float32)
+    rect(Float32, Float32)
+}
+
+distinct UserId = Int32
+
+func demonstrateTypeIdentity() {
+    // #typeIdOf returns a stable UInt64 identity for a type, computed at
+    // compile time from the canonical module-qualified spelling.
+    let intId = #typeIdOf<Int>()
+    let pointId = #typeIdOf<Point>()
+    let arrayOfIntId = #typeIdOf<Array<Int>>()
+    let arrayOfPointId = #typeIdOf<Array<Point>>()
+
+    #assert(intId != 0)
+    #assert(intId != pointId)
+    #assert(arrayOfIntId != arrayOfPointId)
+
+    // The identity is deterministic: the same type always hashes the same.
+    #assert(intId == #typeIdOf<Int>())
+
+    // The expression form uses the operand's static type without evaluating it.
+    let point = Point(x: 1.0, y: 2.0)
+    #assert(#typeIdOf(point) == pointId)
+    #assert(#typeIdOf(42) == intId)
+}
+
+func demonstrateTypeInfo() {
+    // #typeInfoOf returns an Introspection.TypeInfo value describing the type.
+    let info = #typeInfoOf<Point>()
+
+    #assert(info.name == "Point")
+    #assert(info.isStruct())
+    #assert(info.typeId == #typeIdOf<Point>())
+    #assert(info.size == 8)
+    #assert(info.alignment == 4)
+    #assert(info.fieldCount() == 2)
+
+    if let x = info.field(name: "x") {
+        #assert(x.typeName == "Rune.Float32")
+        #assert(x.offset == 0)
+        #assert(x.size == 4)
+    } else {
+        #panic("Point.x field info is missing")
+    }
+
+    let directionInfo = #typeInfoOf<Direction>()
+    #assert(directionInfo.kind == TypeKind.enumeration)
+    #assert(directionInfo.isEnum())
+    #assert(directionInfo.rawTypeId == #typeIdOf<Int32>())
+    #assert(directionInfo.caseCount() == 2)
+    if let south = directionInfo.caseNamed(name: "south") {
+        #assert(south.value == 1)
+    } else {
+        #panic("Direction.south case info is missing")
+    }
+    if let name = directionInfo.caseName(value: 0) {
+        #assert(name == "north")
+    } else {
+        #panic("Direction case 0 name is missing")
+    }
+
+    // Imported enums surface their cases too (TypeKind comes from the
+    // Introspection module itself).
+    let kindInfo = #typeInfoOf<TypeKind>()
+    #assert(kindInfo.isEnum())
+    #assert(kindInfo.rawTypeId == #typeIdOf<Int32>())
+    if let structureCase = kindInfo.caseNamed(name: "structure") {
+        #assert(structureCase.value == 21)
+    } else {
+        #panic("TypeKind.structure case info is missing")
+    }
+
+    let stringInfo = #typeInfoOf<String>()
+    #assert(stringInfo.kind == TypeKind.string)
+    #assert(stringInfo.qualifiedName == "Rune.String")
+
+    let arrayInfo = #typeInfoOf<Array<Int>>()
+    #assert(arrayInfo.kind == TypeKind.array)
+    #assert(arrayInfo.qualifiedName == "Rune.Array<Rune.Int>")
+
+    // The expression form mirrors #typeIdOf(expression).
+    let point = Point(x: 3.0, y: 4.0)
+    #assert(#typeInfoOf(point).typeId == #typeIdOf(point))
+
+    // Unions report their case names with the declaration index as value.
+    let shapeInfo = #typeInfoOf<Shape>()
+    #assert(shapeInfo.isUnion())
+    #assert(shapeInfo.caseCount() == 2)
+    #assert(shapeInfo.hasCase(name: "circle"))
+    #assert(shapeInfo.hasCase(name: "rect"))
+
+    // Distinct types report their base type.
+    let userIdInfo = #typeInfoOf<UserId>()
+    #assert(userIdInfo.kind == TypeKind.distinctType)
+    #assert(userIdInfo.rawTypeId == #typeIdOf<Int32>())
+}
+
+func demonstrateTypeRegistry() {
+    // TypeRegistry.typeId(name:) hashes a canonical qualified name at runtime and matches
+    // the compile-time #typeIdOf identity for the same spelling.
+    #assert(TypeRegistry.typeId(name: "Rune.Int") == #typeIdOf<Int>())
+    #assert(TypeRegistry.typeId(name: #qualifiedNameOf<Point>()) != 0)
+
+    // The registry indexes TypeInfo values for lookup by identity or name.
+    let registry = typeRegistry()
+
+    if let pointInfo = registry.typeInfo(typeId: #typeIdOf<Point>()) {
+        #assert(pointInfo.name == "Point")
+    } else {
+        #panic("Point is not in the registry")
+    }
+
+    if let directionInfo = registry.typeInfo(name: #qualifiedNameOf<Direction>()) {
+        #assert(directionInfo.isEnum())
+        #assert(directionInfo.caseCount() == 2)
+        if let north = directionInfo.caseNamed(name: "north") {
+            #assert(north.value == 0)
+        } else {
+            #panic("Direction.north case info is missing from the registry")
+        }
+        if let south = directionInfo.caseNamed(name: "south") {
+            #assert(south.value == 1)
+        } else {
+            #panic("Direction.south case info is missing from the registry")
+        }
+    } else {
+        #panic("Direction is not in the registry")
+    }
+}
+
+func demonstrateAutoPopulatedRegistry() {
+    // Every type of every module is in the registry automatically: the
+    // compiler persists introspection metadata in the artifact (like
+    // reflection metadata in a .NET assembly) and the runtime initializes
+    // the registry from it. There is nothing to register.
+    let registry = typeRegistry()
+
+    // Current-module types, with full metadata.
+    if let point = registry.typeInfo(typeId: #typeIdOf<Point>()) {
+        #assert(point.isStruct())
+        #assert(point.fieldCount() == 2)
+    } else {
+        #panic("Point is missing from the registry")
+    }
+    #assert(registry.contains(typeId: #typeIdOf<Direction>()))
+    #assert(registry.contains(typeId: #typeIdOf<Shape>()))
+    #assert(registry.contains(typeId: #typeIdOf<UserId>()))
+
+    // Lookup by canonical qualified name.
+    if let direction = registry.typeInfo(name: #qualifiedNameOf<Direction>()) {
+        #assert(direction.isEnum())
+    } else {
+        #panic("Direction is missing from the registry")
+    }
+
+    // Imported modules' types come from their own persisted metadata.
+    if let imported = registry.typeInfo(name: "Introspection.TypeInfo") {
+        #assert(imported.isStruct())
+        #assert(imported.typeId == #typeIdOf<TypeInfo>())
+    } else {
+        #panic("Introspection.TypeInfo is missing from the registry")
+    }
+
+    // TypeRegistry.typeId(name:) hashes a canonical qualified name at runtime
+    // and matches the compile-time #typeIdOf identity for the same spelling.
+    #assert(TypeRegistry.typeId(name: "Rune.Int") == #typeIdOf<Int>())
+    #assert(TypeRegistry.typeId(name: #qualifiedNameOf<Point>()) != 0)
+}
+
+func main() -> Int {
+    demonstrateTypeIdentity()
+    demonstrateTypeInfo()
+    demonstrateTypeRegistry()
+    return 0
+}

@@ -1,0 +1,144 @@
+// Animated SDL3 graphics demo: a warp-speed starfield streaking past the camera.
+//
+// Controls:
+//   Close - quit
+
+import Standard.*
+import SDL3
+
+const STAR_COUNT: Int = 260
+
+struct Star {
+    var x: Float32
+    var y: Float32
+    var z: Float32
+}
+
+struct Rng {
+    var state: UInt32
+}
+
+func randUnit(rng: &Rng) -> Float32 {
+    rng.state = rng.state * 1664525 + 1013904223
+    return Float32(rng.state) / 4294967295.0
+}
+
+func randRange(rng: &Rng, low: Float32, high: Float32) -> Float32 {
+    return low + randUnit(rng) * (high - low)
+}
+
+let windowW: Float32 = 640.0
+let windowH: Float32 = 480.0
+let focal: Float32 = 180.0
+let maxDepth: Float32 = 620.0
+let starSpeed: Float32 = 220.0
+let frameDelta: Float32 = 0.016
+
+func resetStar(star: &Star, rng: &Rng, depth: Float32) {
+    star.x = randRange(rng, -windowW, windowW)
+    star.y = randRange(rng, -windowH, windowH)
+    star.z = depth
+}
+
+func drawStar(renderer: &SDL3.Renderer?, star: Star) {
+    let centerX = windowW / 2.0
+    let centerY = windowH / 2.0
+
+    let scale = focal / star.z
+    let px = centerX + star.x * scale
+    let py = centerY + star.y * scale
+
+    if px < 0.0 || px >= windowW || py < 0.0 || py >= windowH {
+        return
+    }
+
+    let prevZ = star.z + starSpeed * frameDelta
+    let prevScale = focal / prevZ
+    let ppx = centerX + star.x * prevScale
+    let ppy = centerY + star.y * prevScale
+
+    let brightness = UInt8(Math.clamp(255.0 - (star.z / maxDepth) * 220.0, 25.0, 255.0))
+    SDL3.setRenderDrawColor(renderer, brightness, brightness, brightness, 255)
+    SDL3.renderLine(renderer, ppx, ppy, px, py)
+}
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var event = SDL3.Event()
+var running = true
+var rng = Rng(state: 20260709)
+var stars: [Star] = []
+
+func mainLoop() {
+    while SDL3.pollEvent(&event) {
+        if event.type == SDL3.EventType.quit {
+            running = false
+        }
+    }
+
+    if !running {
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        Console.printLine("Starfield finished.")
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    SDL3.setRenderDrawColor(renderer, 4, 4, 12, 255)
+    SDL3.renderClear(renderer)
+
+    for starIndex in 0..stars.count {
+        stars[starIndex].z = stars[starIndex].z - starSpeed * frameDelta
+        if stars[starIndex].z <= 1.0 {
+            resetStar(&stars[starIndex], &rng, maxDepth)
+        }
+        drawStar(renderer, stars[starIndex])
+    }
+
+    SDL3.renderPresent(renderer)
+    SDL3.delay(16)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_Init failed")
+        } else {
+            Console.printLine("SDL_Init failed: ${message!}")
+        }
+
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Starfield", 640, 480, 0, &window, &renderer) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_CreateWindowAndRenderer failed")
+        } else {
+            Console.printLine("SDL_CreateWindowAndRenderer failed: ${message!}")
+        }
+        SDL3.quit()
+        return 1
+    }
+
+    for _ in 0..STAR_COUNT {
+        var star = Star(x: 0.0, y: 0.0, z: 0.0)
+        resetStar(&star, &rng, randRange(&rng, 1.0, maxDepth))
+        stars.append(star)
+    }
+
+    Console.printLine("Starfield: close the window to exit.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

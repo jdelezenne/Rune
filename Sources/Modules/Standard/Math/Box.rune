@@ -1,0 +1,77 @@
+/// Axis-aligned bounding box (AABB) in 3D, defined by its `min` and `max`
+/// corners. The 3D counterpart to Rect, used for bounding volumes, broad-phase
+/// collision, and frustum culling.
+@layout(kind: c)
+public struct Box {
+    public var min: Vector3
+    public var max: Vector3
+
+    /// Box spanning the two given corners.
+    public static func fromMinMax(min: Vector3, max: Vector3) -> Box {
+        return Box(min: min, max: max)
+    }
+
+    /// Box centered at `center` with the given full `size`.
+    public static func fromCenterSize(center: Vector3, size: Vector3) -> Box {
+        let half = size * 0.5
+        return Box(min: center - half, max: center + half)
+    }
+
+    /// Degenerate box containing a single point (a useful seed for
+    /// `expandedToContain`).
+    public static func fromPoint(point: Vector3) -> Box {
+        return Box(min: point, max: point)
+    }
+
+    public func center() -> Vector3 { return (min + max) * 0.5 }
+    public func size() -> Vector3 { return max - min }
+    public func extents() -> Vector3 { return (max - min) * 0.5 }
+
+    /// Whether `point` lies inside (or on the surface of) the box.
+    public func contains(point: Vector3) -> Bool {
+        return point.x >= min.x && point.x <= max.x
+            && point.y >= min.y && point.y <= max.y
+            && point.z >= min.z && point.z <= max.z
+    }
+
+    /// Whether `other` is fully contained within this box.
+    public func contains(other: Box) -> Bool {
+        return other.min.x >= min.x && other.max.x <= max.x
+            && other.min.y >= min.y && other.max.y <= max.y
+            && other.min.z >= min.z && other.max.z <= max.z
+    }
+
+    /// Whether this box overlaps `other`.
+    public func intersects(other: Box) -> Bool {
+        return Intersection.boxBox(a: self, b: other)
+    }
+
+    /// The point on or inside the box closest to `point` (clamped per axis).
+    public func closestPoint(point: Vector3) -> Vector3 {
+        return Vector3(
+            x: Math.clamp(point.x, min.x, max.x),
+            y: Math.clamp(point.y, min.y, max.y),
+            z: Math.clamp(point.z, min.z, max.z))
+    }
+
+    /// Whether this box overlaps `sphere`.
+    public func intersects(sphere: Sphere) -> Bool {
+        return Intersection.sphereBox(sphere: sphere, box: self)
+    }
+
+    /// Grows the box (if needed) to contain `point`.
+    public func expandedToContain(point: Vector3) -> Box {
+        return Box(min: Vector3.min(a: min, b: point), max: Vector3.max(a: max, b: point))
+    }
+
+    /// The smallest box containing both boxes.
+    public func expandedToContain(other: Box) -> Box {
+        return Box(min: Vector3.min(a: min, b: other.min), max: Vector3.max(a: max, b: other.max))
+    }
+}
+
+public extension Box implements Equatable {
+    public static operator ==(lhs: Box, rhs: Box) -> Bool {
+        return lhs.min == rhs.min && lhs.max == rhs.max
+    }
+}

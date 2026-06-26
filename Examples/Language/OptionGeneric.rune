@@ -1,0 +1,26 @@
+// Option<T> with nil literal, hasValue, unwrap, and unwrapOr.
+
+func score(value: Option<Int>) -> Int {
+    if value.hasValue() {
+        return value.unwrap()
+    }
+
+    return 0
+}
+
+func main() -> Int {
+    let empty: Option<Int> = nil
+    let filled: Int? = 42
+
+    let emptyScore = score(empty)
+    let filledScore = score(filled)
+    let unwrapped = filled.unwrap()
+    let withDefault = empty.unwrapOr(7)
+    let total = emptyScore + filledScore + unwrapped + withDefault
+
+    if total == 91 {
+        return 0
+    }
+
+    return 1
+}

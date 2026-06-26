@@ -1,0 +1,2 @@
+@symbol("SDL_GetError")
+public func getError() -> CStringSlice?

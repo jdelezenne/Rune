@@ -1,0 +1,35 @@
+public extension BindGroup {
+    public static func fromHandle(handle: &BindGroupHandle?) -> BindGroup {
+        return BindGroup(handle: handle)
+    }
+
+    public rawHandle: &BindGroupHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func release() {
+        bindGroupRelease(handle)
+    }
+}
+
+public extension BindGroupLayout {
+    public static func fromHandle(handle: &BindGroupLayoutHandle?) -> BindGroupLayout {
+        return BindGroupLayout(handle: handle)
+    }
+
+    public rawHandle: &BindGroupLayoutHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func release() {
+        bindGroupLayoutRelease(handle)
+    }
+}

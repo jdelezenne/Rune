@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "name": "Eyes",
+  "kind": "executable",
+  "sources": ["Eyes.rune"],
+  "dependencies": [
+    "../../../Code/Modules/Standard/Standard.runemanifest",
+    "../../Modules/SDL3/SDL3.runemanifest"
+  ]
+}

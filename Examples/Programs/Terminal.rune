@@ -1,0 +1,463 @@
+import Standard.*
+
+struct TerminalState {
+    var input: String
+    var cursor: Int
+    var transcript: Array<String>
+    var running: Bool
+    var selectionMode: Bool
+    var selected: Int
+    var commandCount: Int
+    var messageColor: UInt8
+}
+
+func writeAt(row: UInt32, column: UInt32, value: String) {
+    Terminal.moveCursor(row: row, column: column)
+    Terminal.write(value: value)
+}
+
+func repeatCell(cell: String, count: UInt32) -> String {
+    var result = ""
+    var index: UInt32 = 0
+    while index < count {
+        result = result + cell
+        index = index + 1
+    }
+    return result
+}
+
+func clip(value: String, width: Int) -> String {
+    if width <= 0 {
+        return ""
+    }
+    if value.count <= width {
+        return value
+    }
+    if width <= 1 {
+        return value.substring(start: 0, end: width)
+    }
+    return value.substring(start: 0, end: width - 1) + "\u{2026}"
+}
+
+func color(code: UInt8, value: String) {
+    Terminal.foreground(color: code)
+    Terminal.write(value: value)
+    Terminal.reset()
+}
+
+func quiet(value: String) {
+    Terminal.dim()
+    color(code: 245, value: value)
+}
+
+func strong(value: String) {
+    Terminal.bold()
+    color(code: 231, value: value)
+}
+
+func clearRow(row: UInt32) {
+    writeAt(row: row, column: 1, value: "\u{1b}[2K")
+}
+
+func separator(row: UInt32, columns: UInt32) {
+    writeAt(row: row, column: 1, value: "")
+    color(code: 238, value: repeatCell(cell: "\u{2500}", count: columns))
+}
+
+func coloredValue(code: UInt8, value: String) -> String {
+    return "\u{1b}[38;5;${code}m${value}\u{1b}[0m"
+}
+
+func paletteCount() -> Int {
+    return 4
+}
+
+func paletteName(index: Int) -> String {
+    if index == 1 {
+        return "red"
+    }
+    if index == 2 {
+        return "green"
+    }
+    if index == 3 {
+        return "blue"
+    }
+    return "white"
+}
+
+func paletteCode(index: Int) -> UInt8 {
+    if index == 1 {
+        return 203
+    }
+    if index == 2 {
+        return 114
+    }
+    if index == 3 {
+        return 75
+    }
+    return 250
+}
+
+func paletteIndex(code: UInt8) -> Int {
+    if code == 203 {
+        return 1
+    }
+    if code == 114 {
+        return 2
+    }
+    if code == 75 {
+        return 3
+    }
+    return 0
+}
+
+func drawHeader(size: TerminalSize, state: *TerminalState) {
+    clearRow(row: 1)
+    writeAt(row: 1, column: 1, value: "")
+    Terminal.background(color: 236)
+    Terminal.write(value: repeatCell(cell: " ", count: size.columns))
+    Terminal.reset()
+
+    writeAt(row: 1, column: 3, value: "")
+    color(code: 81, value: "\u{25c6} ")
+    strong(value: "Rune Terminal")
+    quiet(value: "  example")
+
+    let mode = state.selectionMode ? "selection" : "prompt"
+    let right = "${mode}  ${size.columns}x${size.rows}"
+    let column = size.columns > UInt32(right.count + 2) ? size.columns - UInt32(right.count) : 1
+    writeAt(row: 1, column: column, value: "")
+    quiet(value: right)
+}
+
+func drawColorMenu(size: TerminalSize, state: *TerminalState, top: UInt32, bottom: UInt32) {
+    var row = top
+    while row <= bottom {
+        clearRow(row: row)
+        row = row + 1
+    }
+
+    if top > bottom {
+        return
+    }
+
+    writeAt(row: top, column: 3, value: "")
+    strong(value: "Message color")
+    quiet(value: "  arrows or j/k move, Enter accepts, Esc cancels")
+
+    var index = 0
+    row = top + 2
+    while index < paletteCount() && row <= bottom {
+        writeAt(row: row, column: 3, value: "")
+        let marker = index == state.selected ? "\u{25b6}" : " "
+        if index == state.selected {
+            color(code: 81, value: marker)
+        }
+        else {
+            quiet(value: marker)
+        }
+        Terminal.write(value: " ")
+        color(code: paletteCode(index: index), value: "\u{25cf} ")
+        Terminal.write(value: paletteName(index: index))
+        if paletteCode(index: index) == state.messageColor {
+            quiet(value: "  current")
+        }
+        index = index + 1
+        row = row + 1
+    }
+}
+
+func drawTranscript(size: TerminalSize, state: *TerminalState, top: UInt32, bottom: UInt32) {
+    let width = Int(size.columns) - 4
+    var row = top
+    let visibleRows = bottom >= top ? Int(bottom - top + 1) : 0
+    let first = state.transcript.count > visibleRows ? state.transcript.count - visibleRows : 0
+    var index = first
+
+    while row <= bottom {
+        clearRow(row: row)
+        if index < state.transcript.count {
+            writeAt(row: row, column: 3, value: "")
+            let marker = state.selectionMode && index == state.selected ? "\u{25b6}" : " "
+            if state.selectionMode && index == state.selected {
+                color(code: 81, value: marker)
+            }
+            else {
+                quiet(value: marker)
+            }
+            Terminal.write(value: " ")
+            Terminal.write(value: clip(value: state.transcript[index], width: width))
+            index = index + 1
+        }
+        row = row + 1
+    }
+}
+
+func drawHint(size: TerminalSize, row: UInt32) {
+    clearRow(row: row)
+    writeAt(row: row, column: 2, value: "")
+    quiet(value: "Type /help for commands.")
+}
+
+func drawPrompt(size: TerminalSize, state: *TerminalState, row: UInt32) {
+    clearRow(row: row)
+    writeAt(row: row, column: 1, value: "")
+    color(code: 81, value: ">")
+    Terminal.write(value: " ")
+    color(code: state.messageColor, value: clip(value: state.input, width: Int(size.columns) - 3))
+}
+
+func render(state: *TerminalState) throws(String) {
+    let size = try Terminal.size()
+    Terminal.setCursorVisible(visible: false)
+    Terminal.clear()
+
+    drawHeader(size: size, state: state)
+    separator(row: 3, columns: size.columns)
+
+    let hintRow = size.rows
+    let hintSeparatorRow = size.rows > 1 ? size.rows - 1 : 1
+    let promptRow = size.rows > 2 ? size.rows - 2 : 1
+    let promptSeparatorRow = size.rows > 3 ? size.rows - 3 : 1
+    let contentBottom = size.rows > 5 ? size.rows - 5 : 1
+
+    if state.selectionMode {
+        drawColorMenu(size: size, state: state, top: 5, bottom: contentBottom)
+    }
+    else {
+        drawTranscript(size: size, state: state, top: 5, bottom: contentBottom)
+    }
+    separator(row: promptSeparatorRow, columns: size.columns)
+    drawPrompt(size: size, state: state, row: promptRow)
+    separator(row: hintSeparatorRow, columns: size.columns)
+    drawHint(size: size, row: hintRow)
+
+    let cursorColumn = UInt32(3 + state.cursor)
+    let boundedCursor = cursorColumn <= size.columns ? cursorColumn : size.columns
+    Terminal.moveCursor(row: promptRow, column: boundedCursor)
+    Terminal.setCursorVisible(visible: !state.selectionMode)
+}
+
+func push(state: &TerminalState, value: String) {
+    state.transcript.append(value)
+    state.selected = state.transcript.count - 1
+}
+
+func enterSelection(state: &TerminalState) {
+    state.selectionMode = true
+    state.selected = paletteIndex(code: state.messageColor)
+}
+
+func acceptSelection(state: &TerminalState) {
+    let selected = state.selected
+    state.messageColor = paletteCode(index: selected)
+    state.selectionMode = false
+    push(state, "color     message color set to ${coloredValue(code: state.messageColor, value: paletteName(index: selected))}")
+}
+
+func submit(state: &TerminalState) {
+    if state.input.isEmpty {
+        return
+    }
+
+    let text = state.input
+    state.input = ""
+    state.cursor = 0
+
+    if text.count > 0 && text[0] == '/' {
+        state.commandCount = state.commandCount + 1
+        push(state, "\u{1b}[38;5;81m/\u{1b}[0m ${text.substring(start: 1, end: text.count)}")
+
+        if text == "/exit" {
+            state.running = false
+            return
+        }
+
+        if text == "/select" {
+            enterSelection(state)
+            return
+        }
+
+        if text == "/help" {
+            push(state, "commands  /help    list commands")
+            push(state, "commands  /select  choose message color")
+            push(state, "commands  /status  show terminal state")
+            push(state, "commands  /clear   clear transcript")
+            push(state, "commands  /exit    exit")
+            return
+        }
+
+        if text == "/clear" {
+            state.transcript = []
+            state.selected = 0
+            push(state, "system    transcript cleared")
+            return
+        }
+
+        if text == "/status" {
+            push(state, "system    commands=${state.commandCount} entries=${state.transcript.count} color=${paletteName(index: paletteIndex(code: state.messageColor))}")
+            return
+        }
+
+        push(state, "system    unknown command '${text}'")
+        return
+    }
+
+    push(state, "\u{1b}[38;5;81m>\u{1b}[0m ${coloredValue(code: state.messageColor, value: text)}")
+}
+
+func moveSelection(state: &TerminalState, delta: Int) {
+    let next = state.selected + delta
+    if next < 0 {
+        state.selected = 0
+        return
+    }
+    if next >= paletteCount() {
+        state.selected = paletteCount() - 1
+        return
+    }
+    state.selected = next
+}
+
+func handlePromptCharacter(state: &TerminalState, character: Char) {
+    if character.codePoint == 3 {
+        state.running = false
+        return
+    }
+    if character.codePoint == 13 || character.codePoint == 10 {
+        submit(state)
+        return
+    }
+    if character.codePoint == 127 || character.codePoint == 8 {
+        if state.cursor > 0 {
+            state.input = state.input.remove(at: state.cursor - 1)
+            state.cursor = state.cursor - 1
+        }
+        return
+    }
+    if character.codePoint >= 32 {
+        state.input = state.input.insert(character: character, at: state.cursor)
+        state.cursor = state.cursor + 1
+    }
+}
+
+func handleSelectionCharacter(state: &TerminalState, character: Char) {
+    if character.codePoint == 27 {
+        state.selectionMode = false
+        return
+    }
+    if character.codePoint == 13 || character.codePoint == 10 {
+        acceptSelection(state)
+        return
+    }
+    if character == 'j' {
+        moveSelection(state, 1)
+        return
+    }
+    if character == 'k' {
+        moveSelection(state, -1)
+        return
+    }
+}
+
+func handleArrow(state: &TerminalState, finalKey: Char) {
+    if state.selectionMode {
+        if finalKey == 'A' {
+            moveSelection(state, -1)
+            return
+        }
+        if finalKey == 'B' {
+            moveSelection(state, 1)
+            return
+        }
+        if finalKey == 'D' {
+            moveSelection(state, -1)
+            return
+        }
+        if finalKey == 'C' {
+            moveSelection(state, 1)
+            return
+        }
+        return
+    }
+
+    if finalKey == 'D' && state.cursor > 0 {
+        state.cursor = state.cursor - 1
+        return
+    }
+    if finalKey == 'C' && state.cursor < state.input.count {
+        state.cursor = state.cursor + 1
+        return
+    }
+}
+
+func handleInput(state: &TerminalState, input: String) {
+    var index = 0
+    while index < input.count {
+        let character = input[index]
+        if character.codePoint == 27 && index + 2 < input.count && input[index + 1] == '[' {
+            handleArrow(state, input[index + 2])
+            index = index + 3
+            continue
+        }
+
+        if state.selectionMode {
+            handleSelectionCharacter(state, character)
+        }
+        else {
+            handlePromptCharacter(state, character)
+        }
+        index = index + 1
+    }
+}
+
+func runTerminal() throws(String) -> Int {
+    if !Terminal.isInteractive() {
+        Console.printLine("Terminal example needs an interactive terminal.")
+        return 0
+    }
+
+    try Terminal.enterAlternateScreen()
+    defer Terminal.leaveAlternateScreen()
+
+    try Terminal.enableRawMode()
+    defer Terminal.disableRawMode()
+
+    Terminal.setCursorVisible(visible: true)
+    defer Terminal.setCursorVisible(visible: true)
+
+    var state = TerminalState(
+        input: "",
+        cursor: 0,
+        transcript: [],
+        running: true,
+        selectionMode: false,
+        selected: 0,
+        commandCount: 0,
+        messageColor: 250)
+    push(&state, "Hello, Rune Terminal!")
+    render(*state)
+
+    while state.running {
+        let input = try Terminal.readAvailable()
+        if input != nil {
+            handleInput(&state, input!)
+            render(*state)
+        }
+    }
+
+    return 0
+}
+
+func main() -> Int {
+    do {
+        return runTerminal()
+    }
+    catch let error {
+        Terminal.setCursorVisible(visible: true)
+        Terminal.disableRawMode()
+        Terminal.leaveAlternateScreen()
+        Console.printLine("terminal error: ${error}")
+        return 1
+    }
+}

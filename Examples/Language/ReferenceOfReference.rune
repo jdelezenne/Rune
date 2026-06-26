@@ -1,0 +1,59 @@
+// Reference to reference: `&(&T)` holds the address of a `&T` variable, so
+// dereferencing it once reseats the inner reference and dereferencing twice
+// reaches the underlying value. Nested references are always spelled with
+// explicit parentheses - `&&` stays the logical-and operator.
+
+func writeThrough(out: &Int, value: Int) -> Void {
+    out^ = value
+}
+
+func reseat(target: &(&Int), replacement: &Int) -> Void {
+    target^ = replacement
+}
+
+func readTwice(target: &(&Int)) -> Int {
+    return target^^
+}
+
+// Reseating through a parameter: `current` starts on `first`, and the callee
+// makes it point at `second` without touching either Int.
+func reseatViaParameter() -> Void {
+    var first = 1
+    var second = 2
+    var current: &Int = &first
+    reseat(&current, &second)
+    #assert(first == 1, "reseat must not write into the old pointee")
+    #assert(second == 2, "reseat must not write into the new pointee")
+    #assert(current^ == 2, "current must point at second after the reseat")
+}
+
+// Reseating through a local reference-to-reference variable.
+func reseatViaLocal() -> Void {
+    var first = 1
+    var second = 2
+    var current: &Int = &first
+    var indirect: &(&Int) = &current
+    indirect^ = &second
+    #assert(current^ == 2, "current must point at second after the reseat")
+    current^ = 20
+    #assert(second == 20, "current^ writes must land in second")
+    #assert(first == 1, "first must stay untouched")
+}
+
+// Double dereference reads the underlying value.
+func doubleDereference() -> Void {
+    var value = 7
+    var current: &Int = &value
+    #assert(readTwice(&current) == 7, "target^^ must read the Int")
+}
+
+func main() -> Int {
+    var plain = 1
+    writeThrough(&plain, 10)
+    #assert(plain == 10, "write through &Int must update the pointee")
+
+    reseatViaParameter()
+    reseatViaLocal()
+    doubleDereference()
+    return 0
+}

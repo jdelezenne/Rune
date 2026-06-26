@@ -1,0 +1,67 @@
+/// A 3D affine transform stored as a decomposed position / rotation / scale
+/// (the "TRS" triple) rather than a raw Matrix4. This form is cheaper to
+/// interpolate and compose than a matrix and converts to one via `toMatrix()`.
+@layout(kind: c)
+public struct Transform {
+    public var position: Vector3
+    public var rotation: Quaternion
+    public var scale: Vector3
+
+    /// The identity transform: no translation, no rotation, unit scale.
+    public static func identity() -> Transform {
+        return Transform(
+            position: Vector3.zero(),
+            rotation: Quaternion.identity(),
+            scale: Vector3.one())
+    }
+
+    public static func fromPosition(position: Vector3) -> Transform {
+        return Transform(position: position, rotation: Quaternion.identity(), scale: Vector3.one())
+    }
+
+    public static func fromPositionRotation(position: Vector3, rotation: Quaternion) -> Transform {
+        return Transform(position: position, rotation: rotation, scale: Vector3.one())
+    }
+
+    /// The 4x4 matrix form (scale first, then rotation, then translation).
+    public func toMatrix() -> Matrix4 {
+        return Matrix4.trs(translation: position, rotation: rotation, scaling: scale)
+    }
+
+    /// Transforms a point from local space into world space.
+    public func transformPoint(point: Vector3) -> Vector3 {
+        let scaled = Vector3(x: point.x * scale.x, y: point.y * scale.y, z: point.z * scale.z)
+        return position + rotation.rotate(vector: scaled)
+    }
+
+    /// Transforms a direction (rotation only; ignores translation and scale).
+    public func transformDirection(direction: Vector3) -> Vector3 {
+        return rotation.rotate(vector: direction)
+    }
+
+    /// Transforms a world-space point back into this transform's local space.
+    public func inverseTransformPoint(point: Vector3) -> Vector3 {
+        let local = rotation.conjugate().rotate(vector: point - position)
+        return Vector3(x: local.x / scale.x, y: local.y / scale.y, z: local.z / scale.z)
+    }
+
+    /// Spherical/linear blend between two transforms at `t`.
+    public func lerp(to: Transform, t: Float32) -> Transform {
+        return Transform(
+            position: position.lerp(to: to.position, t: t),
+            rotation: Quaternion.slerp(a: rotation, b: to.rotation, t: t),
+            scale: scale.lerp(to: to.scale, t: t))
+    }
+
+    /// Composes two transforms: `self * other` applies `other` first, then
+    /// `self`, when transforming a point.
+    public static operator *(lhs: Transform, rhs: Transform) -> Transform {
+        return Transform(
+            position: lhs.transformPoint(point: rhs.position),
+            rotation: lhs.rotation * rhs.rotation,
+            scale: Vector3(
+                x: lhs.scale.x * rhs.scale.x,
+                y: lhs.scale.y * rhs.scale.y,
+                z: lhs.scale.z * rhs.scale.z))
+    }
+}

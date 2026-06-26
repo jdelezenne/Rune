@@ -1,0 +1,41 @@
+import Standard.*
+
+struct SharedCounter {
+    var mutex: Mutex
+    var value: Int
+
+    init(initial: Int) {
+        self.mutex = Mutex()
+        self.value = initial
+    }
+
+    mutating func add(amount: Int) {
+        self.mutex.withLock(body: {
+            self.value = self.value + amount
+        })
+    }
+
+    mutating func get() -> Int {
+        return self.mutex.withLock(body: {
+            self.value
+        })
+    }
+}
+
+func main() -> Int {
+    var counter = SharedCounter(initial: 0)
+
+    counter.add(amount: 10)
+    counter.add(amount: 32)
+
+    let total = counter.get()
+
+    if counter.mutex.nativeHandle != nil {
+        #printLn("Mutex initialized")
+    }
+
+    if total != 42 {
+        return 1
+    }
+    return 0
+}

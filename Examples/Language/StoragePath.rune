@@ -1,0 +1,63 @@
+import Standard.*
+
+func main() -> Int {
+    let empty = Storage.Path(value: "")
+    if !empty.isEmpty {
+        return 1
+    }
+
+    var path = Storage.Path(value: "Examples")
+    if path.isEmpty {
+        return 2
+    }
+    if path.isAbsolute {
+        return 3
+    }
+    if !path.isRelative {
+        return 4
+    }
+
+    path.push(component: "Language")
+    path.push(component: "StoragePath.rune")
+
+    if path.toString() != "Examples/Language/StoragePath.rune" {
+        return 5
+    }
+    if path.asSlice().toString() != "Examples/Language/StoragePath.rune" {
+        return 6
+    }
+    if path.filename().toString() != "StoragePath.rune" {
+        return 7
+    }
+    if path.stem().toString() != "StoragePath" {
+        return 8
+    }
+    if path.fileExtension().toString() != "rune" {
+        return 9
+    }
+
+    var base = Storage.Path(value: "Examples")
+    let suffix = Storage.Path(value: "Language/StoragePath.rune")
+    base.pushPath(other: suffix)
+    if base != path {
+        return 10
+    }
+
+    let joinedPath = Storage.Path(value: "Examples") / Storage.Path(value: "Language") / Storage.Path(value: "StoragePath.rune")
+    if joinedPath != path {
+        return 11
+    }
+
+    let joinedString = Storage.Path(value: "Examples") / "Language" / "StoragePath.rune"
+    if joinedString != path {
+        return 12
+    }
+
+    let componentText = "Language/StoragePath.rune"
+    let joinedSlice = Storage.Path(value: "Examples") / componentText.sliceRange(start: 0, end: componentText.length)
+    if joinedSlice != path {
+        return 13
+    }
+
+    return 0
+}

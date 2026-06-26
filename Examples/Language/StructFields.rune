@@ -1,0 +1,27 @@
+struct Limits {
+    const scale: Int = 3
+    let max: Int = 100
+    var value: Int = 10
+
+    func scaled() -> Int {
+        return value * scale
+    }
+
+    func belowMax() -> Bool {
+        return value < max
+    }
+}
+
+func main() -> Int {
+    let defaults = Limits()
+
+    if defaults.scaled() != 30 {
+        return 1
+    }
+
+    if !defaults.belowMax() {
+        return 2
+    }
+
+    return 0
+}

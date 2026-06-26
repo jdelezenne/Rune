@@ -1,0 +1,283 @@
+// Actors: the moving pieces - the player's tank with its star upgrades and
+// shield, the four classes of enemy tank (steady basics, darting lights,
+// sharpshooting powers and four-hit armours), bullets, the six pick-ups,
+// spawn stars and explosions.
+//
+// Tanks steer in the four cardinal directions only; turning across the
+// axis snaps them onto the half-cell grid so they line up with corridors,
+// which is what gives the movement its classic tile-bound feel.
+
+import Standard.*
+
+// MARK: - Deterministic RNG (xorshift, same pattern as Galaxian/RoadFighter)
+
+struct Rng {
+    var state: UInt32
+}
+
+func makeRng(seed: UInt32) -> Rng {
+    var s = seed
+    if s == 0 {
+        s = 0x1234567
+    }
+    return Rng(state: s)
+}
+
+func randU32(rng: &Rng) -> UInt32 {
+    var x = rng.state
+    x = x ^ (x << 13)
+    x = x ^ (x >> 17)
+    x = x ^ (x << 5)
+    rng.state = x
+    return x
+}
+
+func randInt(rng: &Rng, n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    return Int(randU32(rng) % UInt32(n))
+}
+
+func randUnit(rng: &Rng) -> Float32 {
+    return Float32(randU32(rng) % 10000) / 10000.0
+}
+
+func randRange(rng: &Rng, low: Float32, high: Float32) -> Float32 {
+    return low + randUnit(rng) * (high - low)
+}
+
+// MARK: - Player tank
+
+const PLAYER_SPEED: Float32 = 156.0
+const PLAYER_RESPAWN_SHIELD: Float32 = 3.0
+const MAX_STAR_LEVEL: Int = 3
+
+struct PlayerTank {
+    var x: Float32
+    var y: Float32
+    var dir: Int32
+    var moving: Bool
+    var alive: Bool
+    var starLevel: Int      // 0 basic, 1 fast shot, 2 twin shot, 3 breaches steel
+    var shieldTimer: Float32
+    var trackPhase: Float32
+}
+
+func makePlayerTank() -> PlayerTank {
+    return PlayerTank(
+        x: cellCenterX(PLAYER_SPAWN_COL),
+        y: cellCenterY(PLAYER_SPAWN_ROW),
+        dir: DIR_UP,
+        moving: false,
+        alive: true,
+        starLevel: 0,
+        shieldTimer: PLAYER_RESPAWN_SHIELD,
+        trackPhase: 0.0)
+}
+
+func playerBulletSpeed(starLevel: Int) -> Float32 {
+    return starLevel >= 1 ? 460.0 : 320.0
+}
+
+func playerBulletLimit(starLevel: Int) -> Int {
+    return starLevel >= 2 ? 2 : 1
+}
+
+// MARK: - Enemy tanks
+
+const ENEMY_BASIC: Int32 = 0
+const ENEMY_LIGHT: Int32 = 1
+const ENEMY_POWER: Int32 = 2
+const ENEMY_ARMOR: Int32 = 3
+
+// At most four enemies prowl the arena at once, fed from a reserve of
+// twenty per stage.
+const MAX_ENEMIES: Int = 4
+const STAGE_RESERVE: Int = 20
+
+const ENEMY_STATE_OFF: Int32 = 0
+const ENEMY_STATE_SPAWNING: Int32 = 1
+const ENEMY_STATE_ACTIVE: Int32 = 2
+
+const SPAWN_STAR_DURATION: Float32 = 1.0
+
+struct EnemyTank {
+    var state: Int32
+    var kind: Int32
+    var x: Float32
+    var y: Float32
+    var dir: Int32
+    var hp: Int
+    var carriesPowerUp: Bool
+    var spawnTimer: Float32
+    var moveTimer: Float32
+    var fireTimer: Float32
+    var trackPhase: Float32
+}
+
+func makeEnemyTank() -> EnemyTank {
+    return EnemyTank(
+        state: ENEMY_STATE_OFF,
+        kind: ENEMY_BASIC,
+        x: 0.0,
+        y: 0.0,
+        dir: DIR_DOWN,
+        hp: 1,
+        carriesPowerUp: false,
+        spawnTimer: 0.0,
+        moveTimer: 0.0,
+        fireTimer: 0.0,
+        trackPhase: 0.0)
+}
+
+func enemySpeed(kind: Int32) -> Float32 {
+    if kind == ENEMY_LIGHT {
+        return 170.0
+    }
+    if kind == ENEMY_POWER {
+        return 120.0
+    }
+    return 95.0
+}
+
+func enemyBulletSpeed(kind: Int32) -> Float32 {
+    return kind == ENEMY_POWER ? 460.0 : 300.0
+}
+
+func enemyHitPoints(kind: Int32) -> Int {
+    return kind == ENEMY_ARMOR ? 4 : 1
+}
+
+func enemyScore(kind: Int32) -> Int32 {
+    if kind == ENEMY_BASIC {
+        return 100
+    }
+    if kind == ENEMY_LIGHT {
+        return 200
+    }
+    if kind == ENEMY_POWER {
+        return 300
+    }
+    return 400
+}
+
+// MARK: - Bullets
+
+const MAX_BULLETS: Int = 12
+
+struct Bullet {
+    var active: Bool
+    var fromPlayer: Bool
+    var owner: Int          // enemy slot for enemy shots, -1 for the player
+    var x: Float32
+    var y: Float32
+    var dir: Int32
+    var speed: Float32
+    var breachesSteel: Bool
+}
+
+func makeBullet() -> Bullet {
+    return Bullet(
+        active: false,
+        fromPlayer: false,
+        owner: -1,
+        x: 0.0,
+        y: 0.0,
+        dir: DIR_UP,
+        speed: 0.0,
+        breachesSteel: false)
+}
+
+func stepBullet(bullet: &Bullet, dt: Float32) {
+    if !bullet.active {
+        return
+    }
+    bullet.x = bullet.x + DIR_DX[Int(bullet.dir)] * bullet.speed * dt
+    bullet.y = bullet.y + DIR_DY[Int(bullet.dir)] * bullet.speed * dt
+}
+
+// MARK: - Power-ups
+
+const POWERUP_GRENADE: Int32 = 0
+const POWERUP_HELMET: Int32 = 1
+const POWERUP_SHOVEL: Int32 = 2
+const POWERUP_STAR: Int32 = 3
+const POWERUP_TANK: Int32 = 4
+const POWERUP_CLOCK: Int32 = 5
+const POWERUP_KINDS: Int = 6
+
+const SCORE_POWERUP: Int32 = 500
+
+struct PowerUp {
+    var active: Bool
+    var kind: Int32
+    var x: Float32
+    var y: Float32
+}
+
+func makePowerUp() -> PowerUp {
+    return PowerUp(active: false, kind: POWERUP_GRENADE, x: 0.0, y: 0.0)
+}
+
+// MARK: - Explosions and score popups
+
+const MAX_EFFECTS: Int = 10
+const SMALL_BOOM_DURATION: Float32 = 0.25
+const BIG_BOOM_DURATION: Float32 = 0.6
+
+struct Effect {
+    var active: Bool
+    var big: Bool
+    var x: Float32
+    var y: Float32
+    var timer: Float32
+    var duration: Float32
+    var score: Int32        // floating score label, 0 for plain explosions
+}
+
+func makeEffect() -> Effect {
+    return Effect(active: false, big: false, x: 0.0, y: 0.0, timer: 0.0, duration: 0.0, score: 0)
+}
+
+func stepEffect(effect: &Effect, dt: Float32) {
+    if !effect.active {
+        return
+    }
+    effect.timer = effect.timer - dt
+    if effect.timer <= 0.0 {
+        effect.active = false
+    }
+}
+
+// MARK: - Shared movement helpers
+
+// Nearest half-cell grid line for a field coordinate.
+func snapToGrid(value: Float32, origin: Float32) -> Float32 {
+    let units: Float32 = (value - origin) / SNAP
+    return origin + Float32(Int(units + 0.5)) * SNAP
+}
+
+// Snap the cross axis onto the half-cell grid when a tank turns between
+// the vertical and horizontal axes.
+func snapForTurn(tankX: &Float32, tankY: &Float32, oldDir: Int32, newDir: Int32) {
+    let wasVertical = oldDir == DIR_UP || oldDir == DIR_DOWN
+    let isVertical = newDir == DIR_UP || newDir == DIR_DOWN
+    if wasVertical == isVertical {
+        return
+    }
+    if isVertical {
+        tankX^ = snapToGrid(tankX^, FIELD_X)
+    } else {
+        tankY^ = snapToGrid(tankY^, FIELD_Y)
+    }
+}
+
+// Nose position for a bullet leaving a tank pointed in `dir`.
+func muzzleX(x: Float32, dir: Int32) -> Float32 {
+    return x + DIR_DX[Int(dir)] * TANK_HALF
+}
+
+func muzzleY(y: Float32, dir: Int32) -> Float32 {
+    return y + DIR_DY[Int(dir)] * TANK_HALF
+}

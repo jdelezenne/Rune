@@ -1,0 +1,150 @@
+// Per-chunk mesh generation: naive hidden-face culling (a face is emitted
+// only where the neighboring block is air), flat-shaded so every face
+// gets its own 3 vertices with a hardcoded axis-aligned normal (no shared-
+// vertex averaging needed for blocky voxel faces).
+//
+// The number of visible faces depends entirely on the terrain's shape and
+// isn't known ahead of time, so unlike every fixed-topology mesh in the
+// other OpenGL examples, this builds into a genuine Array<Vertex> and
+// uploads it via .bytes/.byteLength (see Render.rune) rather than a
+// compile-time-sized [Vertex, N].
+
+import Standard.*
+
+@layout(kind: c)
+struct Vertex {
+    var x: Float32
+    var y: Float32
+    var z: Float32
+    var nx: Float32
+    var ny: Float32
+    var nz: Float32
+    var r: Float32
+    var g: Float32
+    var b: Float32
+}
+
+func blockColor(block: UInt8) -> Vector3 {
+    if block == BLOCK_STONE {
+        return Vector3(x: 0.5, y: 0.5, z: 0.52)
+    } else if block == BLOCK_DIRT {
+        return Vector3(x: 0.45, y: 0.32, z: 0.2)
+    } else if block == BLOCK_GRASS {
+        return Vector3(x: 0.28, y: 0.62, z: 0.24)
+    } else if block == BLOCK_SAND {
+        return Vector3(x: 0.86, y: 0.78, z: 0.52)
+    } else if block == BLOCK_WATER {
+        return Vector3(x: 0.16, y: 0.35, z: 0.75)
+    } else if block == BLOCK_WOOD {
+        return Vector3(x: 0.42, y: 0.28, z: 0.16)
+    } else if block == BLOCK_LEAVES {
+        return Vector3(x: 0.16, y: 0.45, z: 0.14)
+    }
+    return Vector3(x: 1.0, y: 0.0, z: 1.0)
+}
+
+func appendVertex(vertices: &Array<Vertex>, position: Vector3, normal: Vector3, color: Vector3) {
+    vertices.append(Vertex(
+        x: position.x, y: position.y, z: position.z,
+        nx: normal.x, ny: normal.y, nz: normal.z,
+        r: color.x, g: color.y, b: color.z))
+}
+
+// Emits one face (as 2 triangles) of the unit cube whose min corner is at
+// `base`. `direction` selects which of the 6 axis-aligned faces: 0=+X
+// 1=-X 2=+Y 3=-Y 4=+Z 5=-Z.
+func appendFace(vertices: &Array<Vertex>, base: Vector3, direction: Int32, color: Vector3) {
+    var c0 = base
+    var c1 = base
+    var c2 = base
+    var c3 = base
+    var normal = Vector3(x: 0.0, y: 0.0, z: 0.0)
+
+    if direction == 0 {
+        c0 = base + Vector3(x: 1.0, y: 0.0, z: 0.0)
+        c1 = base + Vector3(x: 1.0, y: 0.0, z: 1.0)
+        c2 = base + Vector3(x: 1.0, y: 1.0, z: 1.0)
+        c3 = base + Vector3(x: 1.0, y: 1.0, z: 0.0)
+        normal = Vector3(x: 1.0, y: 0.0, z: 0.0)
+    } else if direction == 1 {
+        c0 = base + Vector3(x: 0.0, y: 0.0, z: 1.0)
+        c1 = base + Vector3(x: 0.0, y: 0.0, z: 0.0)
+        c2 = base + Vector3(x: 0.0, y: 1.0, z: 0.0)
+        c3 = base + Vector3(x: 0.0, y: 1.0, z: 1.0)
+        normal = Vector3(x: -1.0, y: 0.0, z: 0.0)
+    } else if direction == 2 {
+        c0 = base + Vector3(x: 0.0, y: 1.0, z: 0.0)
+        c1 = base + Vector3(x: 1.0, y: 1.0, z: 0.0)
+        c2 = base + Vector3(x: 1.0, y: 1.0, z: 1.0)
+        c3 = base + Vector3(x: 0.0, y: 1.0, z: 1.0)
+        normal = Vector3(x: 0.0, y: 1.0, z: 0.0)
+    } else if direction == 3 {
+        c0 = base + Vector3(x: 0.0, y: 0.0, z: 0.0)
+        c1 = base + Vector3(x: 0.0, y: 0.0, z: 1.0)
+        c2 = base + Vector3(x: 1.0, y: 0.0, z: 1.0)
+        c3 = base + Vector3(x: 1.0, y: 0.0, z: 0.0)
+        normal = Vector3(x: 0.0, y: -1.0, z: 0.0)
+    } else if direction == 4 {
+        c0 = base + Vector3(x: 1.0, y: 0.0, z: 1.0)
+        c1 = base + Vector3(x: 0.0, y: 0.0, z: 1.0)
+        c2 = base + Vector3(x: 0.0, y: 1.0, z: 1.0)
+        c3 = base + Vector3(x: 1.0, y: 1.0, z: 1.0)
+        normal = Vector3(x: 0.0, y: 0.0, z: 1.0)
+    } else {
+        c0 = base + Vector3(x: 0.0, y: 0.0, z: 0.0)
+        c1 = base + Vector3(x: 1.0, y: 0.0, z: 0.0)
+        c2 = base + Vector3(x: 1.0, y: 1.0, z: 0.0)
+        c3 = base + Vector3(x: 0.0, y: 1.0, z: 0.0)
+        normal = Vector3(x: 0.0, y: 0.0, z: -1.0)
+    }
+
+    appendVertex(vertices, c0, normal, color)
+    appendVertex(vertices, c1, normal, color)
+    appendVertex(vertices, c2, normal, color)
+    appendVertex(vertices, c0, normal, color)
+    appendVertex(vertices, c2, normal, color)
+    appendVertex(vertices, c3, normal, color)
+}
+
+func buildChunkMesh(world: &World, chunkX: Int32, chunkZ: Int32) -> Array<Vertex> {
+    var vertices: Array<Vertex> = []
+
+    for localX in 0..CHUNK_SIZE_X {
+        for localY in 0..CHUNK_SIZE_Y {
+            for localZ in 0..CHUNK_SIZE_Z {
+                let worldX = chunkX * Int32(CHUNK_SIZE_X) + Int32(localX)
+                let worldY = Int32(localY)
+                let worldZ = chunkZ * Int32(CHUNK_SIZE_Z) + Int32(localZ)
+
+                let block = worldBlockAt(world, worldX, worldY, worldZ)
+                if block == BLOCK_AIR {
+                    continue
+                }
+
+                let color = blockColor(block)
+                let base = Vector3(x: Float32(worldX), y: Float32(worldY), z: Float32(worldZ))
+
+                if worldBlockAt(world, worldX + 1, worldY, worldZ) == BLOCK_AIR {
+                    appendFace(&vertices, base, 0, color)
+                }
+                if worldBlockAt(world, worldX - 1, worldY, worldZ) == BLOCK_AIR {
+                    appendFace(&vertices, base, 1, color)
+                }
+                if worldBlockAt(world, worldX, worldY + 1, worldZ) == BLOCK_AIR {
+                    appendFace(&vertices, base, 2, color)
+                }
+                if worldBlockAt(world, worldX, worldY - 1, worldZ) == BLOCK_AIR {
+                    appendFace(&vertices, base, 3, color)
+                }
+                if worldBlockAt(world, worldX, worldY, worldZ + 1) == BLOCK_AIR {
+                    appendFace(&vertices, base, 4, color)
+                }
+                if worldBlockAt(world, worldX, worldY, worldZ - 1) == BLOCK_AIR {
+                    appendFace(&vertices, base, 5, color)
+                }
+            }
+        }
+    }
+
+    return vertices
+}

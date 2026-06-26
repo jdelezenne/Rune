@@ -1,0 +1,32 @@
+// Custom literal suffixes on primitive types via extensions.
+
+distinct Meters = Float
+
+extension Float {
+    literal m: Meters => Meters(self)
+    literal km: Meters => Meters(self * 1000.0)
+}
+
+extension Int {
+    literal m: Meters => Meters(Float(self))
+}
+
+func main() -> Int {
+    let fromFloat: Meters = 1.5_km
+    let fromInt: Meters = 250_m
+    let exact: Meters = 2.0_m
+
+    if fromFloat != Meters(1500.0) {
+        return 1
+    }
+
+    if fromInt != Meters(250.0) {
+        return 2
+    }
+
+    if exact != Meters(2.0) {
+        return 3
+    }
+
+    return 0
+}

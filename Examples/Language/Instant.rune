@@ -1,0 +1,29 @@
+// Instant is monotonic time. Use it for elapsed-time measurement and scheduler
+// deadlines; its epoch is intentionally platform-defined.
+
+import Standard.*
+
+func main() -> Int {
+    let start = Instant(nanoseconds: 100)
+    let end = Instant(nanoseconds: 250)
+
+    let elapsed = end - start
+    #printLn("instant smoke: elapsed=${elapsed.nanoseconds} ns")
+    if elapsed.nanoseconds != 150 {
+        return 1
+    }
+
+    let later = start + Duration.fromNanoseconds(value: 10)
+    #printLn("instant smoke: later=${later.nanoseconds} ns")
+    if later.nanoseconds != 110 {
+        return 2
+    }
+
+    let earlier = end - Duration.fromNanoseconds(value: 50)
+    #printLn("instant smoke: earlier=${earlier.nanoseconds} ns")
+    if earlier.nanoseconds != 200 {
+        return 3
+    }
+
+    return 0
+}

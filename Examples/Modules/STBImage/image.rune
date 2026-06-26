@@ -1,0 +1,31 @@
+public const defaultChannels: Int32 = 0 // STBI_default
+public const greyChannels: Int32 = 1 // STBI_grey
+public const greyAlphaChannels: Int32 = 2 // STBI_grey_alpha
+public const rgbChannels: Int32 = 3 // STBI_rgb
+public const rgbaChannels: Int32 = 4 // STBI_rgb_alpha
+
+@symbol("stbi_load")
+public func load(
+    filename: CStringSlice?,
+    x: *Int32?,
+    y: *Int32?,
+    channelsInFile: *Int32?,
+    desiredChannels: Int32) -> *UInt8?
+
+@symbol("stbi_load_from_memory")
+public func loadFromMemory(
+    buffer: *UInt8?,
+    length: Int32,
+    x: *Int32?,
+    y: *Int32?,
+    channelsInFile: *Int32?,
+    desiredChannels: Int32) -> *UInt8?
+
+@symbol("stbi_image_free")
+public func imageFree(resultFromLoad: *UInt8?) -> Void
+
+@symbol("stbi_failure_reason")
+public func failureReason() -> CStringSlice?
+
+@symbol("stbi_set_flip_vertically_on_load")
+public func setFlipVerticallyOnLoad(flagTrueIfShouldFlip: Int32) -> Void

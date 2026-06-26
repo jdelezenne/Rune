@@ -1,0 +1,252 @@
+import Standard.*
+import SDL3
+
+// MARK: - Level
+
+struct Level {
+    var map: [UInt8, LEVEL_CELLS]
+    var startX: Float32
+    var startY: Float32
+    var startAngle: Float32
+    var name: String
+}
+
+const LEVEL_COUNT: Int = 3
+
+func loadLevel(index: Int) -> Level {
+    if index == 0 {
+        return Level(
+            map: LEVEL_1_MAP,
+            startX: LEVEL_1_START_X,
+            startY: LEVEL_1_START_Y,
+            startAngle: LEVEL_1_START_ANGLE,
+            name: LEVEL_1_NAME)
+    } else if index == 1 {
+        return Level(
+            map: LEVEL_2_MAP,
+            startX: LEVEL_2_START_X,
+            startY: LEVEL_2_START_Y,
+            startAngle: LEVEL_2_START_ANGLE,
+            name: LEVEL_2_NAME)
+    }
+
+    return Level(
+        map: LEVEL_3_MAP,
+        startX: LEVEL_3_START_X,
+        startY: LEVEL_3_START_Y,
+        startAngle: LEVEL_3_START_ANGLE,
+        name: LEVEL_3_NAME)
+}
+
+// Tile 9 is the exit: it renders as a wall face but does not block movement.
+func tileAt(level: Level, x: Int, y: Int) -> Int {
+    if x < 0 || y < 0 || x >= LEVEL_W || y >= LEVEL_H {
+        return 1
+    }
+
+    return Int(level.map[y * LEVEL_W + x])
+}
+
+func isSolid(tile: Int) -> Bool {
+    return tile > 0 && tile != 9
+}
+
+func isWallFace(tile: Int) -> Bool {
+    return tile > 0
+}
+
+// MARK: - Player
+
+const MOVE_SPEED: Float32 = 3.2
+const RUN_MULTIPLIER: Float32 = 1.8
+const ROTATE_SPEED: Float32 = 2.6
+const PLAYER_RADIUS: Float32 = 0.22
+const FOV_PLANE_LEN: Float32 = 0.66
+
+struct Player {
+    var x: Float32
+    var y: Float32
+    var dirX: Float32
+    var dirY: Float32
+    var planeX: Float32
+    var planeY: Float32
+
+    mutating func rotate(amount: Float32) {
+        let cosA = Math.cos(amount)
+        let sinA = Math.sin(amount)
+        let oldDirX = self.dirX
+        self.dirX = self.dirX * cosA - self.dirY * sinA
+        self.dirY = oldDirX * sinA + self.dirY * cosA
+        let oldPlaneX = self.planeX
+        self.planeX = self.planeX * cosA - self.planeY * sinA
+        self.planeY = oldPlaneX * sinA + self.planeY * cosA
+    }
+
+    mutating func tryMove(level: Level, dx: Float32, dy: Float32) {
+        let marginX = signOf(dx) * PLAYER_RADIUS
+        let marginY = signOf(dy) * PLAYER_RADIUS
+        if !isSolid(tileAt(level, Int(Math.floor(self.x + dx + marginX)), Int(Math.floor(self.y)))) {
+            self.x = self.x + dx
+        }
+        if !isSolid(tileAt(level, Int(Math.floor(self.x)), Int(Math.floor(self.y + dy + marginY)))) {
+            self.y = self.y + dy
+        }
+    }
+}
+
+func makePlayerFor(level: Level) -> Player {
+    let angle = level.startAngle
+    return Player(
+        x: level.startX,
+        y: level.startY,
+        dirX: Math.cos(angle),
+        dirY: Math.sin(angle),
+        planeX: -Math.sin(angle) * FOV_PLANE_LEN,
+        planeY: Math.cos(angle) * FOV_PLANE_LEN)
+}
+
+// MARK: - Game
+
+struct InputState {
+    var forward: Bool
+    var backward: Bool
+    var strafeLeft: Bool
+    var strafeRight: Bool
+    var turnLeft: Bool
+    var turnRight: Bool
+    var run: Bool
+    var restart: Bool
+    var escape: Bool
+}
+
+struct Game {
+    var level: Level
+    var levelIndex: Int
+    var player: Player
+    var time: Float32
+    var finished: Bool
+
+    mutating func loadLevelAt(index: Int) {
+        self.levelIndex = index
+        self.level = loadLevel(index)
+        self.player = makePlayerFor(self.level)
+    }
+
+    mutating func update(input: InputState, dt: Float32) {
+        if self.finished {
+            if input.restart {
+                self.finished = false
+                self.time = 0.0
+                self.loadLevelAt(0)
+            }
+
+            return
+        }
+
+        self.time = self.time + dt
+
+        if input.turnLeft {
+            self.player.rotate(-ROTATE_SPEED * dt)
+        }
+        if input.turnRight {
+            self.player.rotate(ROTATE_SPEED * dt)
+        }
+
+        var speed = MOVE_SPEED
+        if input.run {
+            speed = speed * RUN_MULTIPLIER
+        }
+
+        var moveX: Float32 = 0.0
+        var moveY: Float32 = 0.0
+        if input.forward {
+            moveX = moveX + self.player.dirX
+            moveY = moveY + self.player.dirY
+        }
+        if input.backward {
+            moveX = moveX - self.player.dirX
+            moveY = moveY - self.player.dirY
+        }
+
+        // The camera plane is dir rotated +90 degrees, so it already points
+        // toward whatever is visible on the right edge of the screen.
+        let rightX = self.player.planeX
+        let rightY = self.player.planeY
+        if input.strafeRight {
+            moveX = moveX + rightX
+            moveY = moveY + rightY
+        }
+        if input.strafeLeft {
+            moveX = moveX - rightX
+            moveY = moveY - rightY
+        }
+
+        let moveLenSq = moveX * moveX + moveY * moveY
+        if moveLenSq > 0.0001 {
+            let moveLen = Math.sqrt(moveLenSq)
+            let step = speed * dt
+            self.player.tryMove(self.level, moveX / moveLen * step, moveY / moveLen * step)
+        }
+
+        let cellX = Int(Math.floor(self.player.x))
+        let cellY = Int(Math.floor(self.player.y))
+        if tileAt(self.level, cellX, cellY) == 9 {
+            if self.levelIndex + 1 < LEVEL_COUNT {
+                self.loadLevelAt(self.levelIndex + 1)
+            } else {
+                self.finished = true
+            }
+        }
+    }
+}
+
+func makeGame() -> Game {
+    let level = loadLevel(0)
+    return Game(
+        level: level,
+        levelIndex: 0,
+        player: makePlayerFor(level),
+        time: 0.0,
+        finished: false)
+}
+
+// MARK: - Input
+
+func setKey(input: &InputState, scancode: SDL3.Scancode, pressed: Bool) {
+    if scancode == SDL3.Scancode.w || scancode == SDL3.Scancode.up {
+        input.forward = pressed
+    } else if scancode == SDL3.Scancode.s || scancode == SDL3.Scancode.down {
+        input.backward = pressed
+    } else if scancode == SDL3.Scancode.a {
+        input.strafeLeft = pressed
+    } else if scancode == SDL3.Scancode.d {
+        input.strafeRight = pressed
+    } else if scancode == SDL3.Scancode.left {
+        input.turnLeft = pressed
+    } else if scancode == SDL3.Scancode.right {
+        input.turnRight = pressed
+    } else if scancode == SDL3.Scancode.lshift || scancode == SDL3.Scancode.rshift {
+        input.run = pressed
+    } else if scancode == SDL3.Scancode.r {
+        input.restart = pressed
+    } else if scancode == SDL3.Scancode.escape {
+        input.escape = pressed
+    }
+}
+
+func handleEvent(event: SDL3.Event, input: &InputState) -> Bool {
+    if event.type == SDL3.EventType.quit {
+        return false
+    }
+
+    if event.type == SDL3.EventType.keyDown && event.down {
+        setKey(input, event.scancode, true)
+        if event.scancode == SDL3.Scancode.escape {
+            return false
+        }
+    } else if event.type == SDL3.EventType.keyUp {
+        setKey(input, event.scancode, false)
+    }
+
+    return true
+}

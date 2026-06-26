@@ -1,0 +1,55 @@
+/// Monotonic timestamp for elapsed-time measurement and scheduler deadlines.
+///
+/// The epoch is platform-defined. Instants are only meaningful when compared
+/// with other instants from the same process.
+@layout(kind: c)
+public struct Instant {
+    public var nanoseconds: Int64 = 0
+
+    @runtime("rune_instant_now")
+    public static func now() -> Instant
+
+    @runtime("rune_instant_elapsed_since")
+    private static func elapsedInternal(start: Instant) -> Duration
+
+    public func durationSince(earlier: Instant) -> Duration {
+        return Duration.fromNanoseconds(value: nanoseconds - earlier.nanoseconds)
+    }
+
+    public func elapsed() -> Duration {
+        return Instant.elapsedInternal(start: self)
+    }
+
+    public func advanced(duration: Duration) -> Instant {
+        return Instant(nanoseconds: nanoseconds + duration.nanoseconds)
+    }
+
+    public static operator +(lhs: Instant, rhs: Duration) -> Instant {
+        return lhs.advanced(duration: rhs)
+    }
+
+    public static operator +(lhs: Duration, rhs: Instant) -> Instant {
+        return rhs.advanced(duration: lhs)
+    }
+
+    public static operator -(lhs: Instant, rhs: Duration) -> Instant {
+        return lhs.advanced(duration: Duration.fromNanoseconds(value: 0 - rhs.nanoseconds))
+    }
+
+    public static operator -(lhs: Instant, rhs: Instant) -> Duration {
+        return lhs.durationSince(earlier: rhs)
+    }
+
+}
+
+public extension Instant implements Equatable {
+    public static operator ==(lhs: Instant, rhs: Instant) -> Bool {
+        return lhs.nanoseconds == rhs.nanoseconds
+    }
+}
+
+public extension Instant implements Comparable {
+    public static operator <=>(lhs: Instant, rhs: Instant) -> Ordering {
+        return lhs.nanoseconds <=> rhs.nanoseconds
+    }
+}

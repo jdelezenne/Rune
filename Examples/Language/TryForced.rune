@@ -1,0 +1,15 @@
+func divide(a: Int, b: Int) throws -> Int {
+    if b == 0 {
+        throw
+    }
+
+    return a / b
+}
+
+func main() -> Int {
+    let result = try! divide(20, 4)
+    if result != 5 {
+        return 1
+    }
+    return 0
+}

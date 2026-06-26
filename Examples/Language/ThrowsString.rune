@@ -1,0 +1,37 @@
+import Standard.*
+
+func divide(a: Int, b: Int) throws(String) -> Int {
+    if b == 0 {
+        throw "division by zero"
+    }
+
+    return a / b
+}
+
+func validatePositive(value: Int) throws(String) -> Void {
+    if value <= 0 {
+        throw "value must be positive"
+    }
+}
+
+func main() -> Int {
+    do {
+        validatePositive(1)
+    }
+    catch let e {
+        Console.printLine(e)
+        return 3
+    }
+
+    do {
+        if divide(20, 4) != 5 {
+            return 1
+        }
+
+        return 0
+    }
+    catch let e {
+        Console.printLine(e)
+        return 2
+    }
+}

@@ -1,0 +1,196 @@
+// SDL3 input + graphics demo: move with WASD/arrows, aim with the mouse.
+//
+// Controls:
+//   WASD / arrow keys - move the square
+//   Mouse             - crosshair shows pointer position
+//   Left mouse button - highlight the player while held
+//   Escape / close    - quit
+
+import Standard.*
+import SDL3
+
+struct KeyState {
+    var up: Bool
+    var down: Bool
+    var left: Bool
+    var right: Bool
+    var escape: Bool
+}
+
+struct Player {
+    var x: Float32
+    var y: Float32
+}
+
+func clearKeyState(state: &KeyState) {
+    state.up = false
+    state.down = false
+    state.left = false
+    state.right = false
+    state.escape = false
+}
+
+func setKeyDown(state: &KeyState, scancode: SDL3.Scancode, pressed: Bool) {
+    if scancode == SDL3.Scancode.w || scancode == SDL3.Scancode.up {
+        state.up = pressed
+    } else if scancode == SDL3.Scancode.s || scancode == SDL3.Scancode.down {
+        state.down = pressed
+    } else if scancode == SDL3.Scancode.a || scancode == SDL3.Scancode.left {
+        state.left = pressed
+    } else if scancode == SDL3.Scancode.d || scancode == SDL3.Scancode.right {
+        state.right = pressed
+    } else if scancode == SDL3.Scancode.escape {
+        state.escape = pressed
+    }
+}
+
+func handleEvent(event: SDL3.Event, keys: &KeyState) -> Bool {
+    if event.type == SDL3.EventType.quit {
+        return false
+    }
+
+    if event.type == SDL3.EventType.keyDown && event.down {
+        setKeyDown(keys, event.scancode, true)
+        if event.scancode == SDL3.Scancode.escape {
+            return false
+        }
+
+        return true
+    }
+
+    if event.type == SDL3.EventType.keyUp {
+        setKeyDown(keys, event.scancode, false)
+    }
+
+    return true
+}
+
+func applyMovement(keys: KeyState, player: &Player, speed: Float32, width: Float32, height: Float32, size: Float32) {
+    if keys.up {
+        player.y = player.y - speed
+    }
+
+    if keys.down {
+        player.y = player.y + speed
+    }
+
+    if keys.left {
+        player.x = player.x - speed
+    }
+
+    if keys.right {
+        player.x = player.x + speed
+    }
+
+    player.x = Math.max(0.0, Math.min(player.x, width - size))
+    player.y = Math.max(0.0, Math.min(player.y, height - size))
+}
+
+func drawFilledSquare(renderer: &SDL3.Renderer?, x: Float32, y: Float32, size: Float32, red: UInt8, green: UInt8, blue: UInt8) {
+    SDL3.setRenderDrawColor(renderer, red, green, blue, 255)
+    var rect = SDL3.FRect(x: x, y: y, w: size, h: size)
+    SDL3.renderFillRect(renderer, &rect)
+}
+
+func drawCrosshair(renderer: &SDL3.Renderer?, x: Float32, y: Float32, arm: Float32) {
+    SDL3.setRenderDrawColor(renderer, 120, 200, 255, 220)
+    SDL3.renderLine(renderer, x - arm, y, x + arm, y)
+    SDL3.renderLine(renderer, x, y - arm, x, y + arm)
+}
+
+let windowW: Float32 = 640.0
+let windowH: Float32 = 480.0
+let playerSize: Float32 = 48.0
+let moveSpeed: Float32 = 5.0
+
+var window: &SDL3.Window? = nil
+var renderer: &SDL3.Renderer? = nil
+var keys = KeyState(up: false, down: false, left: false, right: false, escape: false)
+var player = Player(x: 296.0, y: 216.0)
+var event = SDL3.Event()
+var running = true
+
+func mainLoop() {
+    while SDL3.pollEvent(&event) {
+        if !handleEvent(event, &keys) {
+            running = false
+        }
+    }
+
+    if !running {
+        SDL3.destroyRenderer(renderer)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        Console.printLine("Input demo finished.")
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    applyMovement(keys, &player, moveSpeed, windowW, windowH, playerSize)
+
+    var mouseX: Float32 = 0.0
+    var mouseY: Float32 = 0.0
+    let buttons = SDL3.MouseButton(SDL3.getMouseState(&mouseX, &mouseY))
+    let leftHeld = (buttons & SDL3.MouseButton.leftMask) != SDL3.MouseButton(0)
+
+    SDL3.setRenderDrawColor(renderer, 16, 20, 28, 255)
+    SDL3.renderClear(renderer)
+
+    drawCrosshair(renderer, mouseX, mouseY, 12.0)
+
+    if leftHeld {
+        drawFilledSquare(renderer, player.x, player.y, playerSize, 255, 210, 80)
+        SDL3.setRenderDrawColor(renderer, 255, 255, 255, 255)
+        var outline = SDL3.FRect(
+            x: player.x,
+            y: player.y,
+            w: playerSize,
+            h: playerSize)
+        SDL3.renderRect(renderer, &outline)
+    } else {
+        drawFilledSquare(renderer, player.x, player.y, playerSize, 90, 170, 255)
+    }
+
+    SDL3.setRenderDrawColor(renderer, 255, 255, 255, 200)
+    SDL3.renderLine(renderer, player.x + playerSize / 2.0, player.y + playerSize / 2.0, mouseX, mouseY)
+
+    SDL3.renderPresent(renderer)
+    SDL3.delay(16)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_Init failed")
+        } else {
+            Console.printLine("SDL_Init failed: ${message!}")
+        }
+
+        return 1
+    }
+
+    if !SDL3.createWindowAndRenderer("Rune SDL3: Input Demo", 640, 480, 0, &window, &renderer) {
+        let message = SDL3.getError()
+        if message == nil {
+            Console.printLine("SDL_CreateWindowAndRenderer failed")
+        } else {
+            Console.printLine("SDL_CreateWindowAndRenderer failed: ${message!}")
+        }
+        SDL3.quit()
+        return 1
+    }
+
+    Console.printLine("Input demo: WASD/arrows move, mouse aims, hold left click to highlight.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

@@ -1,0 +1,277 @@
+import Standard.*
+
+struct Ship {
+    var position: Vec2
+    var velocity: Vec2
+    var angle: Float32
+    var alive: Bool
+    var respawnTimer: Float32
+    var fireTimer: Float32
+    var thrusting: Bool
+    var landed: Bool
+}
+
+struct Bullet {
+    var position: Vec2
+    var velocity: Vec2
+    var life: Float32
+    var active: Bool
+}
+
+struct EnemyShot {
+    var position: Vec2
+    var velocity: Vec2
+    var life: Float32
+    var active: Bool
+}
+
+struct Particle {
+    var position: Vec2
+    var velocity: Vec2
+    var life: Float32
+    var red: UInt8
+    var green: UInt8
+    var blue: UInt8
+    var active: Bool
+}
+
+struct Enemy {
+    var kind: Int32
+    var position: Vec2
+    var origin: Vec2
+    var minX: Float32
+    var maxX: Float32
+    var speed: Float32
+    var phase: Float32
+    var fireTimer: Float32
+    var alive: Bool
+}
+
+struct InputState {
+    var left: Bool
+    var right: Bool
+    var thrust: Bool
+    var fire: Bool
+    var restart: Bool
+    var escape: Bool
+}
+
+func makeShip(position: Vec2) -> Ship {
+    return Ship(
+        position: position,
+        velocity: vec2(x: 0.0, y: 0.0),
+        angle: -PI_F * 0.5,
+        alive: true,
+        respawnTimer: 0.0,
+        fireTimer: 0.0,
+        thrusting: false,
+        landed: true)
+}
+
+func emptyBullets() -> [Bullet, MAX_BULLETS] {
+    return []
+}
+
+func emptyEnemyShots() -> [EnemyShot, MAX_ENEMY_SHOTS] {
+    return []
+}
+
+func emptyParticles() -> [Particle, MAX_PARTICLES] {
+    return []
+}
+
+func emptyEnemies() -> [Enemy, MAX_ENEMIES] {
+    return [
+        Enemy(kind: ENEMY_STATIC, position: vec2(x: 0.0, y: 0.0), origin: vec2(x: 0.0, y: 0.0), minX: 0.0, maxX: 0.0, speed: 0.0, phase: 0.0, fireTimer: 0.0, alive: false),
+        Enemy(kind: ENEMY_STATIC, position: vec2(x: 0.0, y: 0.0), origin: vec2(x: 0.0, y: 0.0), minX: 0.0, maxX: 0.0, speed: 0.0, phase: 0.0, fireTimer: 0.0, alive: false),
+        Enemy(kind: ENEMY_STATIC, position: vec2(x: 0.0, y: 0.0), origin: vec2(x: 0.0, y: 0.0), minX: 0.0, maxX: 0.0, speed: 0.0, phase: 0.0, fireTimer: 0.0, alive: false),
+        Enemy(kind: ENEMY_STATIC, position: vec2(x: 0.0, y: 0.0), origin: vec2(x: 0.0, y: 0.0), minX: 0.0, maxX: 0.0, speed: 0.0, phase: 0.0, fireTimer: 0.0, alive: false),
+        Enemy(kind: ENEMY_STATIC, position: vec2(x: 0.0, y: 0.0), origin: vec2(x: 0.0, y: 0.0), minX: 0.0, maxX: 0.0, speed: 0.0, phase: 0.0, fireTimer: 0.0, alive: false),
+        Enemy(kind: ENEMY_STATIC, position: vec2(x: 0.0, y: 0.0), origin: vec2(x: 0.0, y: 0.0), minX: 0.0, maxX: 0.0, speed: 0.0, phase: 0.0, fireTimer: 0.0, alive: false),
+        Enemy(kind: ENEMY_STATIC, position: vec2(x: 0.0, y: 0.0), origin: vec2(x: 0.0, y: 0.0), minX: 0.0, maxX: 0.0, speed: 0.0, phase: 0.0, fireTimer: 0.0, alive: false),
+        Enemy(kind: ENEMY_STATIC, position: vec2(x: 0.0, y: 0.0), origin: vec2(x: 0.0, y: 0.0), minX: 0.0, maxX: 0.0, speed: 0.0, phase: 0.0, fireTimer: 0.0, alive: false),
+    ]
+}
+
+func makeEnemy(kind: Int32, x: Float32, y: Float32, minX: Float32, maxX: Float32, speed: Float32, phase: Float32) -> Enemy {
+    return Enemy(
+        kind: kind,
+        position: vec2(x: x, y: y),
+        origin: vec2(x: x, y: y),
+        minX: minX,
+        maxX: maxX,
+        speed: speed,
+        phase: phase,
+        fireTimer: 0.35 + phase,
+        alive: true)
+}
+
+func updateShip(ship: &Ship, input: InputState, dt: Float32) {
+    if !ship.alive {
+        ship.respawnTimer = ship.respawnTimer - dt
+        return
+    }
+
+    if !ship.landed && input.left {
+        ship.angle = ship.angle - SHIP_TURN_SPEED * dt
+    }
+    if !ship.landed && input.right {
+        ship.angle = ship.angle + SHIP_TURN_SPEED * dt
+    }
+
+    ship.thrusting = input.thrust
+    if input.thrust {
+        ship.landed = false
+        let dir = vec2(x: Math.cos(ship.angle), y: Math.sin(ship.angle))
+        ship.velocity = add(ship.velocity, scale(dir, SHIP_THRUST * dt))
+    }
+
+    ship.velocity.y = ship.velocity.y + SHIP_GRAVITY * dt
+    ship.velocity = scale(ship.velocity, SHIP_DRAG)
+    ship.velocity = clampSpeed(ship.velocity, SHIP_MAX_SPEED)
+    ship.position = add(ship.position, scale(ship.velocity, dt))
+    ship.fireTimer = Math.max(0.0, ship.fireTimer - dt)
+}
+
+func spawnBullet(bullets: &[Bullet, MAX_BULLETS], ship: &Ship) {
+    if !ship.alive || ship.fireTimer > 0.0 {
+        return
+    }
+
+    for i in 0..bullets.count {
+        if !bullets[i].active {
+            let dir = vec2(x: Math.cos(ship.angle), y: Math.sin(ship.angle))
+            bullets[i] = Bullet(
+                position: add(ship.position, scale(dir, 19.0)),
+                velocity: add(ship.velocity, scale(dir, BULLET_SPEED)),
+                life: BULLET_LIFE,
+                active: true)
+            ship.fireTimer = FIRE_COOLDOWN
+            return
+        }
+    }
+}
+
+func updateBullets(bullets: &[Bullet, MAX_BULLETS], dt: Float32) {
+    for i in 0..bullets.count {
+        if bullets[i].active {
+            bullets[i].position = add(bullets[i].position, scale(bullets[i].velocity, dt))
+            bullets[i].life = bullets[i].life - dt
+            if bullets[i].life <= 0.0 || bullets[i].position.x < 0.0 || bullets[i].position.x > WORLD_W || bullets[i].position.y < 0.0 || bullets[i].position.y > WORLD_H {
+                bullets[i].active = false
+            }
+        }
+    }
+}
+
+func spawnEnemyShot(shots: &[EnemyShot, MAX_ENEMY_SHOTS], position: Vec2, velocity: Vec2) {
+    for i in 0..shots.count {
+        if !shots[i].active {
+            shots[i] = EnemyShot(position: position, velocity: velocity, life: ENEMY_SHOT_LIFE, active: true)
+            return
+        }
+    }
+}
+
+func updateEnemyShots(shots: &[EnemyShot, MAX_ENEMY_SHOTS], dt: Float32) {
+    for i in 0..shots.count {
+        if shots[i].active {
+            shots[i].position = add(shots[i].position, scale(shots[i].velocity, dt))
+            shots[i].life = shots[i].life - dt
+            if shots[i].life <= 0.0 || shots[i].position.x < 0.0 || shots[i].position.x > WORLD_W || shots[i].position.y < 0.0 || shots[i].position.y > WORLD_H {
+                shots[i].active = false
+            }
+        }
+    }
+}
+
+func fireStaticEnemy(shots: &[EnemyShot, MAX_ENEMY_SHOTS], enemy: Enemy, target: Vec2) {
+    let dx = target.x - enemy.position.x
+    let dy = target.y - enemy.position.y
+    let len = Math.max(1.0, Math.sqrt(dx * dx + dy * dy))
+    spawnEnemyShot(shots, enemy.position, vec2(x: dx / len * 210.0, y: dy / len * 210.0))
+}
+
+func fireFlyerEnemy(shots: &[EnemyShot, MAX_ENEMY_SHOTS], enemy: Enemy) {
+    spawnEnemyShot(shots, enemy.position, vec2(x: -90.0, y: 185.0))
+    spawnEnemyShot(shots, enemy.position, vec2(x: 0.0, y: 210.0))
+    spawnEnemyShot(shots, enemy.position, vec2(x: 90.0, y: 185.0))
+}
+
+func fireGroundEnemy(shots: &[EnemyShot, MAX_ENEMY_SHOTS], enemy: Enemy) {
+    var dir: Float32 = 1.0
+    if enemy.speed < 0.0 {
+        dir = -1.0
+    }
+    spawnEnemyShot(shots, add(enemy.position, vec2(x: dir * 18.0, y: 1.0)), vec2(x: dir * 245.0, y: -18.0))
+}
+
+func updateEnemies(enemies: &[Enemy, MAX_ENEMIES], shots: &[EnemyShot, MAX_ENEMY_SHOTS], target: Vec2, dt: Float32) {
+    for i in 0..enemies.count {
+        if enemies[i].alive {
+            enemies[i].phase = enemies[i].phase + dt
+            enemies[i].fireTimer = enemies[i].fireTimer - dt
+
+            if enemies[i].kind == ENEMY_FLYER {
+                let width = enemies[i].maxX - enemies[i].minX
+                if width > 1.0 {
+                    let t = (Math.sin(enemies[i].phase * enemies[i].speed) + 1.0) * 0.5
+                    enemies[i].position.x = enemies[i].minX + width * t
+                    enemies[i].position.y = enemies[i].origin.y + Math.sin(enemies[i].phase * enemies[i].speed * 1.7) * 28.0
+                }
+            } else if enemies[i].kind == ENEMY_GROUND {
+                enemies[i].position.x = enemies[i].position.x + enemies[i].speed * dt
+                if enemies[i].position.x < enemies[i].minX {
+                    enemies[i].position.x = enemies[i].minX
+                    enemies[i].speed = Math.abs(enemies[i].speed)
+                } else if enemies[i].position.x > enemies[i].maxX {
+                    enemies[i].position.x = enemies[i].maxX
+                    enemies[i].speed = -Math.abs(enemies[i].speed)
+                }
+            }
+
+            if enemies[i].fireTimer <= 0.0 {
+                if enemies[i].kind == ENEMY_STATIC {
+                    fireStaticEnemy(shots, enemies[i], target)
+                    enemies[i].fireTimer = 1.55
+                } else if enemies[i].kind == ENEMY_FLYER {
+                    fireFlyerEnemy(shots, enemies[i])
+                    enemies[i].fireTimer = 2.15
+                } else {
+                    fireGroundEnemy(shots, enemies[i])
+                    enemies[i].fireTimer = 1.25
+                }
+            }
+        }
+    }
+}
+
+func spawnParticle(particles: &[Particle, MAX_PARTICLES], position: Vec2, velocity: Vec2, r: UInt8, g: UInt8, b: UInt8, life: Float32) {
+    for i in 0..particles.count {
+        if !particles[i].active {
+            particles[i] = Particle(position: position, velocity: velocity, life: life, red: r, green: g, blue: b, active: true)
+            return
+        }
+    }
+}
+
+func burst(particles: &[Particle, MAX_PARTICLES], position: Vec2, amount: Int, r: UInt8, g: UInt8, b: UInt8) {
+    for i in 0..amount {
+        let angle = Float32(i) / Float32(amount) * TAU_F
+        let speed = 70.0 + Float32((i * 37) % 9) * 18.0
+        spawnParticle(particles, position, vec2(x: Math.cos(angle) * speed, y: Math.sin(angle) * speed), r, g, b, 0.45 + Float32(i % 5) * 0.08)
+    }
+}
+
+func updateParticles(particles: &[Particle, MAX_PARTICLES], dt: Float32) {
+    for i in 0..particles.count {
+        if particles[i].active {
+            particles[i].position = add(particles[i].position, scale(particles[i].velocity, dt))
+            particles[i].velocity = scale(particles[i].velocity, 0.965)
+            particles[i].life = particles[i].life - dt
+            if particles[i].life <= 0.0 {
+                particles[i].active = false
+            }
+        }
+    }
+}

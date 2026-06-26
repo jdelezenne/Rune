@@ -1,0 +1,19 @@
+# CMake
+/Build/
+
+# Visual Studio
+/.vs/
+
+# Clang
+/.cache/
+
+# macOS
+.DS_Store
+
+# Output
+/Binaries/
+
+# Rune
+*.runemodule
+*.runebc
+*.o

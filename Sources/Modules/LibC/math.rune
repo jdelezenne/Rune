@@ -1,0 +1,92 @@
+@symbol
+public func fabs(value: Float64) -> Float64
+
+@symbol
+public func sqrt(value: Float64) -> Float64
+
+@symbol
+public func pow(base: Float64, exponent: Float64) -> Float64
+
+@symbol
+public func sin(value: Float64) -> Float64
+
+@symbol
+public func cos(value: Float64) -> Float64
+
+@symbol
+public func tan(value: Float64) -> Float64
+
+@symbol
+public func asin(value: Float64) -> Float64
+
+@symbol
+public func acos(value: Float64) -> Float64
+
+@symbol
+public func atan(value: Float64) -> Float64
+
+@symbol
+public func atan2(y: Float64, x: Float64) -> Float64
+
+@symbol
+public func floor(value: Float64) -> Float64
+
+@symbol
+public func ceil(value: Float64) -> Float64
+
+@symbol
+public func fmod(numerator: Float64, denominator: Float64) -> Float64
+
+@symbol
+public func log(value: Float64) -> Float64
+
+@symbol
+public func exp(value: Float64) -> Float64
+
+@symbol
+public func log10(value: Float64) -> Float64
+
+@symbol
+public func hypot(x: Float64, y: Float64) -> Float64
+
+@symbol
+public func round(value: Float64) -> Float64
+
+@symbol
+public func trunc(value: Float64) -> Float64
+
+@symbol
+public func fmin(left: Float64, right: Float64) -> Float64
+
+@symbol
+public func fmax(left: Float64, right: Float64) -> Float64
+
+@symbol
+public func sinh(value: Float64) -> Float64
+
+@symbol
+public func cosh(value: Float64) -> Float64
+
+@symbol
+public func tanh(value: Float64) -> Float64
+
+@symbol
+public func asinh(value: Float64) -> Float64
+
+@symbol
+public func acosh(value: Float64) -> Float64
+
+@symbol
+public func atanh(value: Float64) -> Float64
+
+@symbol
+public func lround(value: Float64) -> Int64
+
+@symbol
+public func llround(value: Float64) -> Int64
+
+@symbol
+public func nearbyint(value: Float64) -> Float64
+
+@symbol
+public func copysign(magnitude: Float64, sign: Float64) -> Float64

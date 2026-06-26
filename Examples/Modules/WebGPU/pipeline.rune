@@ -1,0 +1,21 @@
+public extension RenderPipeline {
+    public static func fromHandle(handle: &RenderPipelineHandle?) -> RenderPipeline {
+        return RenderPipeline(handle: handle)
+    }
+
+    public rawHandle: &RenderPipelineHandle? {
+        get { return handle }
+    }
+
+    public isValid: Bool {
+        get { return handle != nil }
+    }
+
+    public func getBindGroupLayout(groupIndex: UInt32) -> BindGroupLayout {
+        return BindGroupLayout(handle: renderPipelineGetBindGroupLayout(handle, groupIndex))
+    }
+
+    public func release() {
+        renderPipelineRelease(handle)
+    }
+}

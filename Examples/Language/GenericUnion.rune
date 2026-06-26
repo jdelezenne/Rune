@@ -1,0 +1,20 @@
+union Boxed<T> {
+    value(T)
+    empty
+}
+
+func score(value: Boxed<Int>) -> Int {
+    match value {
+        .value(number) => return number
+        .empty => return 0
+    }
+}
+
+func main() -> Int {
+    let filled: Boxed<Int> = .value(42)
+    let empty: Boxed<Int> = .empty
+    if score(filled) != 42 || score(empty) != 0 {
+        return 1
+    }
+    return 0
+}

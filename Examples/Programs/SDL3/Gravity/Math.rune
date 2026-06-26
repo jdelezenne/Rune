@@ -1,0 +1,123 @@
+import Standard.*
+
+const SCREEN_W: Int32 = 960
+const SCREEN_H: Int32 = 640
+const SCREEN_WF: Float32 = 960.0
+const SCREEN_HF: Float32 = 640.0
+
+const WORLD_W: Float32 = 1920.0
+const WORLD_H: Float32 = 1280.0
+const PI_F: Float32 = 3.1415927
+const TAU_F: Float32 = 6.2831855
+
+const SHIP_RADIUS: Float32 = 13.0
+const SHIP_TURN_SPEED: Float32 = 4.1
+const SHIP_THRUST: Float32 = 330.0
+const SHIP_GRAVITY: Float32 = 112.0
+const SHIP_DRAG: Float32 = 0.994
+const SHIP_MAX_SPEED: Float32 = 390.0
+const LANDING_SPEED: Float32 = 72.0
+const LANDING_ANGLE: Float32 = 0.42
+
+const BULLET_SPEED: Float32 = 620.0
+const BULLET_LIFE: Float32 = 0.85
+const FIRE_COOLDOWN: Float32 = 0.18
+const MAX_BULLETS: Int = 14
+const MAX_ENEMY_SHOTS: Int = 24
+const MAX_PARTICLES: Int = 96
+const MAX_WALLS: Int = 18
+const MAX_PACKAGES: Int = 4
+const MAX_ENEMIES: Int = 8
+const LEVEL_COUNT: Int = 3
+
+const ENEMY_STATIC: Int32 = 0
+const ENEMY_FLYER: Int32 = 1
+const ENEMY_GROUND: Int32 = 2
+const ENEMY_RADIUS: Float32 = 15.0
+const ENEMY_SHOT_RADIUS: Float32 = 5.0
+const ENEMY_SHOT_LIFE: Float32 = 2.2
+
+struct Vec2 {
+    var x: Float32
+    var y: Float32
+}
+
+struct Rect {
+    var x: Float32
+    var y: Float32
+    var w: Float32
+    var h: Float32
+}
+
+struct Camera {
+    var x: Float32
+    var y: Float32
+}
+
+func vec2(x: Float32, y: Float32) -> Vec2 {
+    return Vec2(x: x, y: y)
+}
+
+func rect(x: Float32, y: Float32, w: Float32, h: Float32) -> Rect {
+    return Rect(x: x, y: y, w: w, h: h)
+}
+
+func add(a: Vec2, b: Vec2) -> Vec2 {
+    return Vec2(x: a.x + b.x, y: a.y + b.y)
+}
+
+func scale(v: Vec2, s: Float32) -> Vec2 {
+    return Vec2(x: v.x * s, y: v.y * s)
+}
+
+func length(v: Vec2) -> Float32 {
+    return Math.sqrt(v.x * v.x + v.y * v.y)
+}
+
+func clampFloat(value: Float32, low: Float32, high: Float32) -> Float32 {
+    return Math.max(low, Math.min(value, high))
+}
+
+func clampSpeed(velocity: Vec2, limit: Float32) -> Vec2 {
+    let len = length(velocity)
+    if len <= limit {
+        return velocity
+    }
+
+    return scale(velocity, limit / len)
+}
+
+func distanceSquared(a: Vec2, b: Vec2) -> Float32 {
+    let dx = a.x - b.x
+    let dy = a.y - b.y
+    return dx * dx + dy * dy
+}
+
+func angleDistance(a: Float32, b: Float32) -> Float32 {
+    var d = a - b
+    while d > PI_F {
+        d = d - TAU_F
+    }
+    while d < -PI_F {
+        d = d + TAU_F
+    }
+
+    return Math.abs(d)
+}
+
+func circleHitsRect(center: Vec2, radius: Float32, r: Rect) -> Bool {
+    let nearX = clampFloat(center.x, r.x, r.x + r.w)
+    let nearY = clampFloat(center.y, r.y, r.y + r.h)
+    let dx = center.x - nearX
+    let dy = center.y - nearY
+    return dx * dx + dy * dy < radius * radius
+}
+
+func rectContains(r: Rect, p: Vec2) -> Bool {
+    return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h
+}
+
+func updateCamera(camera: &Camera, target: Vec2) {
+    camera.x = clampFloat(target.x - SCREEN_WF * 0.5, 0.0, WORLD_W - SCREEN_WF)
+    camera.y = clampFloat(target.y - SCREEN_HF * 0.5, 0.0, WORLD_H - SCREEN_HF)
+}

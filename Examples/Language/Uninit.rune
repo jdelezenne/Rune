@@ -1,0 +1,40 @@
+struct Pair {
+    var left: Int
+    var right: Int
+}
+
+struct Vec2 {
+    var x: Int
+    var y: Int
+
+    init(x: Int, y: Int) {
+        self.x = x
+        self.y = y
+    }
+
+    func lengthSquared() -> Int {
+        return self.x * self.x + self.y * self.y
+    }
+}
+
+func main() -> Int {
+    var value: Int = uninit
+    value = 42
+    if value != 42 {
+        return 1
+    }
+
+    var pair: Pair = uninit
+    pair.left = 7
+    pair.right = 11
+    if pair.left + pair.right != 18 {
+        return 1
+    }
+
+    let velocity = Vec2(x: 3, y: 4)
+    if velocity.lengthSquared() != 25 {
+        return 1
+    }
+
+    return 0
+}

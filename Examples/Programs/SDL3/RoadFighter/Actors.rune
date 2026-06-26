@@ -1,0 +1,297 @@
+// Actors: the moving pieces - the player's car with its two-gear throttle and
+// skid/crash states, the five kinds of traffic (steady yellows, lane-cutting
+// reds, weaving blues, deadly trucks and the flashing bonus car that refuels
+// on touch), plus oil slicks and floating score/fuel popups.
+//
+// Traffic lives in road coordinates: a distance along the course and a lane
+// expressed as a fraction of the road half width, so cars naturally follow
+// the bends and squeeze together on narrow bridges.
+
+import Standard.*
+
+const TAU_F: Float32 = 6.2831855
+
+// MARK: - Deterministic RNG (xorshift, same pattern as Galaxian/Sudoku)
+
+struct Rng {
+    var state: UInt32
+}
+
+func makeRng(seed: UInt32) -> Rng {
+    var s = seed
+    if s == 0 {
+        s = 0x1234567
+    }
+    return Rng(state: s)
+}
+
+func randU32(rng: &Rng) -> UInt32 {
+    var x = rng.state
+    x = x ^ (x << 13)
+    x = x ^ (x >> 17)
+    x = x ^ (x << 5)
+    rng.state = x
+    return x
+}
+
+func randInt(rng: &Rng, n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    return Int(randU32(rng) % UInt32(n))
+}
+
+func randUnit(rng: &Rng) -> Float32 {
+    return Float32(randU32(rng) % 10000) / 10000.0
+}
+
+func randRange(rng: &Rng, low: Float32, high: Float32) -> Float32 {
+    return low + randUnit(rng) * (high - low)
+}
+
+// MARK: - Player car
+
+const PLAYER_STATE_NORMAL: Int32 = 0
+const PLAYER_STATE_SKID: Int32 = 1
+const PLAYER_STATE_CRASH: Int32 = 2
+
+// Two-gear throttle in the original's style: the low gear pulls away hard
+// but tops out early; the high gear winds all the way up to 400 km/h.
+const LO_GEAR_MAX: Float32 = 192.0
+const HI_GEAR_MAX: Float32 = 400.0
+const LO_GEAR_ACCEL: Float32 = 95.0
+const HI_GEAR_ACCEL_LOW: Float32 = 60.0
+const HI_GEAR_ACCEL_HIGH: Float32 = 38.0
+const COAST_DECEL: Float32 = 52.0
+const BRAKE_DECEL: Float32 = 170.0
+
+const SKID_DURATION: Float32 = 1.15
+const SKID_STEER_PUSH: Float32 = 300.0
+const SKID_DAMPING: Float32 = 1.1
+const SKID_SPEED_SCRUB: Float32 = 0.5
+const CRASH_DURATION: Float32 = 2.3
+
+struct PlayerCar {
+    var x: Float32          // absolute screen x inside the road viewport
+    var speed: Float32      // km/h
+    var state: Int32
+    var skidVx: Float32
+    var skidTimer: Float32
+    var crashTimer: Float32
+}
+
+func makePlayerCar(x: Float32) -> PlayerCar {
+    return PlayerCar(
+        x: x,
+        speed: 0.0,
+        state: PLAYER_STATE_NORMAL,
+        skidVx: 0.0,
+        skidTimer: 0.0,
+        crashTimer: 0.0)
+}
+
+func playerSpeedMs(player: &PlayerCar) -> Float32 {
+    return player.speed / 3.6
+}
+
+// Throttle, brake and coast. `hasFuel` gates the throttle: an empty tank
+// only coasts.
+func stepPlayerSpeed(player: &PlayerCar, accelHi: Bool, accelLo: Bool, brake: Bool, hasFuel: Bool, dt: Float32) {
+    if brake {
+        player.speed = Math.max(player.speed - BRAKE_DECEL * dt, 0.0)
+        return
+    }
+
+    if hasFuel && accelHi {
+        let accel = player.speed < LO_GEAR_MAX ? HI_GEAR_ACCEL_LOW : HI_GEAR_ACCEL_HIGH
+        player.speed = Math.min(player.speed + accel * dt, HI_GEAR_MAX)
+        return
+    }
+
+    if hasFuel && accelLo {
+        if player.speed < LO_GEAR_MAX {
+            player.speed = Math.min(player.speed + LO_GEAR_ACCEL * dt, LO_GEAR_MAX)
+        } else {
+            player.speed = Math.max(player.speed - COAST_DECEL * dt, LO_GEAR_MAX)
+        }
+        return
+    }
+
+    player.speed = Math.max(player.speed - COAST_DECEL * dt, 0.0)
+}
+
+// Steering authority grows with speed; a parked car cannot crab sideways.
+func steerPlayer(player: &PlayerCar, dir: Float32, dt: Float32) {
+    if player.speed < 3.0 {
+        return
+    }
+    let authority: Float32 = 140.0 + player.speed * 0.4
+    player.x = player.x + dir * authority * dt
+}
+
+// Throw the car into a slide. `push` is the initial lateral velocity in
+// screen px/s (signed away from whatever was struck).
+func startSkid(player: &PlayerCar, push: Float32) {
+    player.state = PLAYER_STATE_SKID
+    player.skidVx = push
+    player.skidTimer = SKID_DURATION
+    player.speed = player.speed * 0.72
+}
+
+// Slide, scrub speed and let counter-steering fight the drift. Returns to
+// NORMAL when the slide is damped out or the timer runs down.
+func stepSkid(player: &PlayerCar, steer: Float32, dt: Float32) {
+    player.skidVx = player.skidVx + steer * SKID_STEER_PUSH * dt
+    player.skidVx = player.skidVx - player.skidVx * SKID_DAMPING * dt
+    player.x = player.x + player.skidVx * dt
+    player.speed = Math.max(player.speed - player.speed * SKID_SPEED_SCRUB * dt, 0.0)
+
+    player.skidTimer = player.skidTimer - dt
+    if player.skidTimer <= 0.0 || Math.abs(player.skidVx) < 22.0 {
+        player.state = PLAYER_STATE_NORMAL
+        player.skidVx = 0.0
+    }
+}
+
+func startCrash(player: &PlayerCar) {
+    player.state = PLAYER_STATE_CRASH
+    player.crashTimer = CRASH_DURATION
+    player.speed = 0.0
+    player.skidVx = 0.0
+}
+
+// MARK: - Traffic
+
+const ENEMY_YELLOW: Int32 = 0
+const ENEMY_RED: Int32 = 1
+const ENEMY_BLUE: Int32 = 2
+const ENEMY_TRUCK: Int32 = 3
+const ENEMY_BONUS: Int32 = 4
+
+const MAX_ENEMIES: Int = 24
+
+const RED_SHIFT_RANGE_M: Float32 = 85.0
+const RED_SHIFT_RATE: Float32 = 1.5
+const BLUE_WEAVE_RATE: Float32 = 2.4
+const BLUE_WEAVE_SPAN: Float32 = 0.5
+
+struct Enemy {
+    var active: Bool
+    var kind: Int32
+    var d: Float32          // distance along the course, metres
+    var laneF: Float32      // current lane as a fraction of the half width
+    var homeLaneF: Float32  // lane it was spawned in (weave centre / shift start)
+    var targetLaneF: Float32
+    var weavePhase: Float32
+    var speed: Float32      // km/h
+    var passed: Bool
+    var shifted: Bool
+}
+
+func makeEnemy() -> Enemy {
+    return Enemy(
+        active: false,
+        kind: ENEMY_YELLOW,
+        d: 0.0,
+        laneF: 0.0,
+        homeLaneF: 0.0,
+        targetLaneF: 0.0,
+        weavePhase: 0.0,
+        speed: 0.0,
+        passed: false,
+        shifted: false)
+}
+
+func enemyHalfW(kind: Int32) -> Float32 {
+    return kind == ENEMY_TRUCK ? TRUCK_HALF_W : CAR_HALF_W
+}
+
+func enemyHalfH(kind: Int32) -> Float32 {
+    return kind == ENEMY_TRUCK ? TRUCK_HALF_H : CAR_HALF_H
+}
+
+// Cruise speed per kind, in km/h, before the loop bonus.
+func enemyBaseSpeed(kind: Int32) -> Float32 {
+    if kind == ENEMY_TRUCK {
+        return 105.0
+    }
+    if kind == ENEMY_YELLOW {
+        return 130.0
+    }
+    if kind == ENEMY_RED {
+        return 150.0
+    }
+    if kind == ENEMY_BLUE {
+        return 160.0
+    }
+    return 135.0
+}
+
+// Advance one traffic car and run its lane behaviour. Red cars cut once
+// toward the player's lane as the player closes in from behind; blue cars
+// weave continuously around their home lane.
+func stepEnemy(enemy: &Enemy, dt: Float32, playerDist: Float32, playerLaneF: Float32, playerSpeed: Float32) {
+    enemy.d = enemy.d + enemy.speed / 3.6 * dt
+
+    if enemy.kind == ENEMY_RED {
+        if !enemy.shifted {
+            let gap = enemy.d - playerDist
+            if gap > 0.0 && gap < RED_SHIFT_RANGE_M && playerSpeed > 40.0 {
+                enemy.targetLaneF = Math.clamp(playerLaneF, -0.72, 0.72)
+                enemy.shifted = true
+            }
+        }
+        let delta = enemy.targetLaneF - enemy.laneF
+        let step = RED_SHIFT_RATE * dt
+        if Math.abs(delta) <= step {
+            enemy.laneF = enemy.targetLaneF
+        } else {
+            enemy.laneF = enemy.laneF + (delta > 0.0 ? step : -step)
+        }
+    } else if enemy.kind == ENEMY_BLUE {
+        enemy.weavePhase = enemy.weavePhase + BLUE_WEAVE_RATE * dt
+        enemy.laneF = Math.clamp(enemy.homeLaneF + Math.sin(enemy.weavePhase) * BLUE_WEAVE_SPAN, -0.75, 0.75)
+    }
+}
+
+// MARK: - Oil slicks
+
+const MAX_OILS: Int = 8
+
+struct Oil {
+    var active: Bool
+    var d: Float32
+    var laneF: Float32
+}
+
+func makeOil() -> Oil {
+    return Oil(active: false, d: 0.0, laneF: 0.0)
+}
+
+// MARK: - Popups (floating FUEL pickups markers)
+
+const MAX_POPUPS: Int = 6
+const POPUP_DURATION: Float32 = 1.2
+
+struct Popup {
+    var active: Bool
+    var x: Float32
+    var y: Float32
+    var timer: Float32
+    var fuel: Int32
+}
+
+func makePopup() -> Popup {
+    return Popup(active: false, x: 0.0, y: 0.0, timer: 0.0, fuel: 0)
+}
+
+func stepPopup(popup: &Popup, dt: Float32) {
+    if !popup.active {
+        return
+    }
+    popup.y = popup.y - dt * 30.0
+    popup.timer = popup.timer - dt
+    if popup.timer <= 0.0 {
+        popup.active = false
+    }
+}

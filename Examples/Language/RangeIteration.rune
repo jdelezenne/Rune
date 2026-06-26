@@ -1,0 +1,11 @@
+func main() -> Int {
+    for i in 3.. {
+        if i == 3 {
+            return 0
+        }
+
+        return 1
+    }
+
+    return 2
+}

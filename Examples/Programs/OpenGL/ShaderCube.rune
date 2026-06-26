@@ -1,0 +1,282 @@
+// Rotating cube rendered with GLSL shaders and a vertex buffer object.
+//
+// The OpenGL module owns its API declarations and dispatch storage. This
+// program supplies SDL's address resolver after creating its GL context.
+
+import Standard.*
+import SDL3
+import OpenGL
+
+const WIDTH: Int32 = 800
+const HEIGHT: Int32 = 600
+const ROTATION_SPEED_X: Float32 = 0.6
+const ROTATION_SPEED_Y: Float32 = 0.9
+
+func resolveOpenGLFunction(name: CStringSlice) -> &Byte? {
+    return SDL3.glGetProcAddress(name)
+}
+
+let vertexShaderSource: String = """
+#ifdef GL_ES
+precision highp float;
+#endif
+attribute vec3 position;
+attribute vec3 color;
+uniform mat4 mvp;
+varying vec3 fragColor;
+void main() {
+    gl_Position = mvp * vec4(position, 1.0);
+    fragColor = color;
+}
+"""
+
+let fragmentShaderSource: String = """
+#ifdef GL_ES
+precision highp float;
+#endif
+varying vec3 fragColor;
+void main() {
+    gl_FragColor = vec4(fragColor, 1.0);
+}
+"""
+
+func compileShader(kind: OpenGL.GLenum, source: String) -> OpenGL.GLuint {
+    let shader = OpenGL.createShader(kind)
+    var sourceBuffer: [Byte, 4096] = []
+    let sourceLength = source.copyBytes(destination: (sourceBuffer.bytes as &Byte), maxLength: 4096)
+    var sourcePointer: *Int8 = (sourceBuffer.bytes as *Int8)
+    var sourceLengthValue: OpenGL.GLint = (sourceLength as! OpenGL.GLint)
+    OpenGL.shaderSource(shader, 1, &sourcePointer, &sourceLengthValue)
+    OpenGL.compileShader(shader)
+
+    var status: Int32 = 0
+    OpenGL.getShaderiv(shader, OpenGL.COMPILE_STATUS, &status)
+    if status == 0 {
+        var log: [Int8, 512] = []
+        var logLength: OpenGL.GLsizei = 0
+        OpenGL.getShaderInfoLog(shader, 512, &logLength, (log.bytes as *Int8))
+        Console.printLine("shader compile failed")
+    }
+    return shader
+}
+
+func linkShaderProgram(vertexShader: OpenGL.GLuint, fragmentShader: OpenGL.GLuint) -> OpenGL.GLuint {
+    let program = OpenGL.createProgram()
+    OpenGL.attachShader(program, vertexShader)
+    OpenGL.attachShader(program, fragmentShader)
+    OpenGL.linkProgram(program)
+
+    var status: Int32 = 0
+    OpenGL.getProgramiv(program, OpenGL.LINK_STATUS, &status)
+    if status == 0 {
+        var log: [Int8, 512] = []
+        var logLength: OpenGL.GLsizei = 0
+        OpenGL.getProgramInfoLog(program, 512, &logLength, (log.bytes as *Int8))
+        Console.printLine("program link failed")
+    }
+    return program
+}
+
+@layout(kind: c)
+struct Vertex {
+    var x: Float32
+    var y: Float32
+    var z: Float32
+    var r: Float32
+    var g: Float32
+    var b: Float32
+}
+
+struct Corner {
+    var x: Float32
+    var y: Float32
+    var z: Float32
+}
+
+struct Face {
+    var vertex0: Int
+    var vertex1: Int
+    var vertex2: Int
+    var vertex3: Int
+    var red: Float32
+    var green: Float32
+    var blue: Float32
+}
+
+let corners: [Corner, 8] = [
+    Corner(x: -1.0, y: -1.0, z: -1.0),
+    Corner(x:  1.0, y: -1.0, z: -1.0),
+    Corner(x:  1.0, y:  1.0, z: -1.0),
+    Corner(x: -1.0, y:  1.0, z: -1.0),
+    Corner(x: -1.0, y: -1.0, z:  1.0),
+    Corner(x:  1.0, y: -1.0, z:  1.0),
+    Corner(x:  1.0, y:  1.0, z:  1.0),
+    Corner(x: -1.0, y:  1.0, z:  1.0),
+]
+
+let faces: [Face] = [
+    Face(vertex0: 0, vertex1: 3, vertex2: 2, vertex3: 1, red: 0.95, green: 0.25, blue: 0.20),
+    Face(vertex0: 4, vertex1: 5, vertex2: 6, vertex3: 7, red: 0.25, green: 0.85, blue: 0.30),
+    Face(vertex0: 0, vertex1: 4, vertex2: 7, vertex3: 3, red: 0.25, green: 0.45, blue: 0.95),
+    Face(vertex0: 1, vertex1: 2, vertex2: 6, vertex3: 5, red: 0.95, green: 0.85, blue: 0.15),
+    Face(vertex0: 0, vertex1: 1, vertex2: 5, vertex3: 4, red: 0.15, green: 0.85, blue: 0.85),
+    Face(vertex0: 3, vertex1: 7, vertex2: 6, vertex3: 2, red: 0.85, green: 0.25, blue: 0.85),
+]
+
+func makeVertex(corner: Corner, face: Face) -> Vertex {
+    return Vertex(x: corner.x, y: corner.y, z: corner.z, r: face.red, g: face.green, b: face.blue)
+}
+
+func buildCubeVertices() -> [Vertex, 36] {
+    var vertices: [Vertex, 36] = []
+    for faceIndex in 0..6 {
+        let face = faces[faceIndex]
+        let a = corners[face.vertex0]
+        let b = corners[face.vertex1]
+        let c = corners[face.vertex2]
+        let d = corners[face.vertex3]
+        let base = faceIndex * 6
+        vertices[base] = makeVertex(a, face)
+        vertices[base + 1] = makeVertex(b, face)
+        vertices[base + 2] = makeVertex(c, face)
+        vertices[base + 3] = makeVertex(a, face)
+        vertices[base + 4] = makeVertex(c, face)
+        vertices[base + 5] = makeVertex(d, face)
+    }
+    return vertices
+}
+
+var window: &SDL3.Window? = nil
+var glContext: &SDL3.GLContext? = nil
+var event = SDL3.Event()
+var running = true
+var mvpLocation: Int32 = 0
+var performanceFrequency: UInt64 = 1
+var lastCounter: UInt64 = 0
+var angleX: Float32 = 0.0
+var angleY: Float32 = 0.0
+
+func mainLoop() {
+    while SDL3.pollEvent(&event) {
+        if event.type == SDL3.EventType.quit {
+            running = false
+        } else if event.type == SDL3.EventType.keyDown and event.down {
+            if event.scancode == SDL3.Scancode.escape {
+                running = false
+            }
+        }
+    }
+
+    if !running {
+        SDL3.glDestroyContext(glContext)
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        Console.printLine("Shader cube finished.")
+        if #platform(wasm) {
+            Platform.Emscripten.cancelMainLoop()
+        }
+        return
+    }
+
+    let counter = SDL3.getPerformanceCounter()
+    var deltaTime = Float32(counter - lastCounter) / Float32(performanceFrequency)
+    lastCounter = counter
+    if deltaTime > 0.05 {
+        deltaTime = 0.05
+    }
+
+    angleX = angleX + ROTATION_SPEED_X * deltaTime
+    angleY = angleY + ROTATION_SPEED_Y * deltaTime
+
+    OpenGL.clearColor(0.08, 0.08, 0.11, 1.0)
+    OpenGL.clear(OpenGL.COLOR_BUFFER_BIT | OpenGL.DEPTH_BUFFER_BIT)
+
+    let projection = Matrix4.perspective(45.0, Float32(WIDTH) / Float32(HEIGHT), 0.1, 100.0)
+    let view = Matrix4.translation(x: 0.0, y: 0.0, z: -5.0)
+    let rotation = Matrix4.rotation(axis: Vector3.up(), angle: angleY) *
+        Matrix4.rotation(axis: Vector3(x: 1.0, y: 0.0, z: 0.0), angle: angleX)
+    let mvp = projection * (view * rotation)
+
+    OpenGL.uniformMatrix4fv(mvpLocation, 1, 0, (mvp.m.bytes as *OpenGL.GLfloat))
+    OpenGL.drawArrays(OpenGL.TRIANGLES, 0, 36)
+
+    SDL3.glSwapWindow(window)
+    SDL3.delay(16)
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video) {
+        Console.printLine("SDL_Init failed: ${SDL3.getError()!}")
+        return 1
+    }
+
+    SDL3.glSetAttribute(SDL3.GLAttribute.doubleBuffer, 1)
+    SDL3.glSetAttribute(SDL3.GLAttribute.depthSize, 24)
+    SDL3.glSetAttribute(SDL3.GLAttribute.contextMajorVersion, 2)
+    SDL3.glSetAttribute(SDL3.GLAttribute.contextMinorVersion, 1)
+
+    window = SDL3.createWindow(
+        "Rune OpenGL: Shader Cube",
+        WIDTH,
+        HEIGHT,
+        SDL3.WindowFlags.opengl)
+    if window == nil {
+        Console.printLine("SDL_CreateWindow failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+
+    glContext = SDL3.glCreateContext(window)
+    if glContext == nil {
+        Console.printLine("SDL_GL_CreateContext failed: ${SDL3.getError()!}")
+        SDL3.destroyWindow(window)
+        SDL3.quit()
+        return 1
+    }
+
+    SDL3.glMakeCurrent(window, glContext)
+    SDL3.glSetSwapInterval(1)
+    OpenGL.loadFunctions(resolveOpenGLFunction)
+
+    OpenGL.viewport(0, 0, WIDTH, HEIGHT)
+    OpenGL.enable(OpenGL.DEPTH_TEST)
+    OpenGL.depthFunc(OpenGL.LEQUAL)
+
+    let vertexShader = compileShader(OpenGL.VERTEX_SHADER, vertexShaderSource)
+    let fragmentShader = compileShader(OpenGL.FRAGMENT_SHADER, fragmentShaderSource)
+    let program = linkShaderProgram(vertexShader, fragmentShader)
+    OpenGL.useProgram(program)
+
+    var vertices = buildCubeVertices()
+    var vertexBuffer: OpenGL.GLuint = 0
+    OpenGL.genBuffers(1, &vertexBuffer)
+    OpenGL.bindBuffer(OpenGL.ARRAY_BUFFER, vertexBuffer)
+    OpenGL.bufferData(
+        OpenGL.ARRAY_BUFFER,
+        36 * 24,
+        (vertices.bytes as *Byte),
+        OpenGL.STATIC_DRAW)
+
+    let positionLocation = OpenGL.getAttribLocation(program, "position")
+    let colorLocation = OpenGL.getAttribLocation(program, "color")
+    OpenGL.enableVertexAttribArray((positionLocation as! UInt32))
+    OpenGL.vertexAttribPointer((positionLocation as! UInt32), 3, OpenGL.FLOAT, 0, 24, (0 as *Byte))
+    OpenGL.enableVertexAttribArray((colorLocation as! UInt32))
+    OpenGL.vertexAttribPointer((colorLocation as! UInt32), 3, OpenGL.FLOAT, 0, 24, (12 as *Byte))
+
+    mvpLocation = OpenGL.getUniformLocation(program, "mvp")
+
+    performanceFrequency = SDL3.getPerformanceFrequency()
+    lastCounter = SDL3.getPerformanceCounter()
+
+    Console.printLine("Shader cube: press Escape to quit.")
+
+    if #platform(wasm) {
+        Platform.Emscripten.setMainLoop(mainLoop, 0, 1)
+    } else {
+        while running {
+            mainLoop()
+        }
+    }
+    return 0
+}

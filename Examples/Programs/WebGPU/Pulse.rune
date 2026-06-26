@@ -1,0 +1,477 @@
+// WebGPU showcase: an interactive procedural scene with synthesized audio.
+//
+// Controls:
+//   WASD / arrows - steer the neon field
+//   Mouse         - move the glowing focus
+//   Left click     - trigger a high visual/audio pulse
+//   Right click    - trigger a low visual/audio pulse
+//   Space          - pause/resume the animation
+//   R             - reset the field
+//   Escape        - quit
+
+import Standard.*
+import SDL3
+import WebGPU
+
+const WIDTH: UInt32 = 800
+const HEIGHT: UInt32 = 600
+const SAMPLE_RATE: Int32 = 11025
+const TAU: Float32 = 6.2831855
+
+let shaderSource: String = """
+struct Params {
+    time: f32,
+    mouseX: f32,
+    mouseY: f32,
+    pulse: f32,
+    offsetX: f32,
+    offsetY: f32,
+    energy: f32,
+    aspect: f32,
+}
+
+@group(0) @binding(0) var<uniform> params: Params;
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOut {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>( 3.0, -1.0),
+        vec2<f32>(-1.0,  3.0));
+    var uvs = array<vec2<f32>, 3>(
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(2.0, 1.0),
+        vec2<f32>(0.0, -1.0));
+    var output: VertexOut;
+    output.position = vec4<f32>(positions[vertexIndex], 0.0, 1.0);
+    output.uv = uvs[vertexIndex];
+    return output;
+}
+
+fn palette(t: f32) -> vec3<f32> {
+    return 0.55 + 0.45 * cos(6.28318 * (vec3<f32>(0.0, 0.22, 0.48) + t));
+}
+
+@fragment
+fn fragmentMain(input: VertexOut) -> @location(0) vec4<f32> {
+    var p = input.uv * 2.0 - 1.0;
+    p.x *= params.aspect;
+    p += vec2<f32>(params.offsetX, params.offsetY) * 0.18;
+
+    let focus = vec2<f32>(
+        (params.mouseX * 2.0 - 1.0) * params.aspect,
+        1.0 - params.mouseY * 2.0);
+    let focusDistance = length(p - focus);
+    let focusGlow = 0.025 / max(focusDistance, 0.025);
+
+    let angle = params.time * 0.22 + params.offsetX * 0.3;
+    let cs = cos(angle);
+    let sn = sin(angle);
+    let q = mat2x2<f32>(cs, -sn, sn, cs) * p;
+
+    let gridUv = q * 4.0 + vec2<f32>(params.time * 0.35, params.offsetY);
+    let gridCell = abs(fract(gridUv) - 0.5);
+    let gridLine = 1.0 - smoothstep(0.455, 0.495, max(gridCell.x, gridCell.y));
+
+    let radius = length(q);
+    let wave = abs(sin(radius * 15.0 - params.time * 4.0));
+    let rings = pow(1.0 - smoothstep(0.80, 1.0, wave), 5.0) / (1.0 + radius * 2.0);
+    let pulseRing = exp(-70.0 * abs(radius - (0.18 + params.pulse * 1.15))) * params.pulse;
+
+    let beamA = 0.012 / max(abs(q.x + sin(q.y * 2.5 + params.time) * 0.22), 0.012);
+    let beamB = 0.010 / max(abs(q.y + cos(q.x * 3.0 - params.time) * 0.18), 0.010);
+    let hue = params.time * 0.045 + radius * 0.16 + params.energy * 0.12;
+    let neon = palette(hue);
+
+    var color = vec3<f32>(0.008, 0.012, 0.035);
+    color += neon * rings * (0.18 + params.energy * 0.12);
+    color += palette(hue + 0.28) * gridLine * 0.09;
+    color += neon * (beamA + beamB) * (0.15 + params.energy * 0.05);
+    color += palette(hue + 0.55) * pulseRing * 1.8;
+    color += vec3<f32>(0.3, 0.8, 1.0) * focusGlow * (0.22 + params.energy * 0.08);
+    color *= 1.0 - 0.18 * smoothstep(0.7, 1.5, length(p));
+    return vec4<f32>(color, 1.0);
+}
+"""
+
+struct KeyState {
+    var up: Bool
+    var down: Bool
+    var left: Bool
+    var right: Bool
+}
+
+var instance = WebGPU.Instance.fromHandle(handle: nil)
+var surface = WebGPU.Surface.fromHandle(handle: nil)
+var adapter = WebGPU.Adapter.fromHandle(handle: nil)
+var device = WebGPU.Device.fromHandle(handle: nil)
+var queue = WebGPU.Queue.fromHandle(handle: nil)
+var pipeline = WebGPU.RenderPipeline.fromHandle(handle: nil)
+var paramsBuffer = WebGPU.GPUBuffer.fromHandle(handle: nil)
+var bindGroup = WebGPU.BindGroup.fromHandle(handle: nil)
+var surfaceFormat: WebGPU.TextureFormat = WebGPU.TextureFormat.undefined
+
+var window: &SDL3.Window? = nil
+var audioDevice: UInt32 = 0
+var audioStream: &SDL3.AudioStream? = nil
+var keys = KeyState(up: false, down: false, left: false, right: false)
+var event = SDL3.Event()
+var running = true
+var ready = false
+var paused = false
+var time: Float32 = 0.0
+var offsetX: Float32 = 0.0
+var offsetY: Float32 = 0.0
+var pulse: Float32 = 0.0
+var energy: Float32 = 0.0
+
+func emptyStringView() -> WebGPU.StringView {
+    return WebGPU.StringView(data: nil, length: WebGPU.STRLEN)
+}
+
+func makeStringView(text: CStringSlice, length: UInt) -> WebGPU.StringView {
+    return WebGPU.StringView(data: (text.rawPointer() as *Int8), length: length)
+}
+
+func setMovementKey(scancode: SDL3.Scancode, pressed: Bool) {
+    if scancode == SDL3.Scancode.w or scancode == SDL3.Scancode.up {
+        keys.up = pressed
+    } else if scancode == SDL3.Scancode.s or scancode == SDL3.Scancode.down {
+        keys.down = pressed
+    } else if scancode == SDL3.Scancode.a or scancode == SDL3.Scancode.left {
+        keys.left = pressed
+    } else if scancode == SDL3.Scancode.d or scancode == SDL3.Scancode.right {
+        keys.right = pressed
+    }
+}
+
+func playNote(frequency: Float32) {
+    pulse = 1.0
+    energy = Math.min(energy + 1.0, 4.0)
+    if audioStream == nil {
+        return
+    }
+
+    const sampleCount: Int32 = 1323
+    const fadeSamples: Int32 = 120
+    var samples: [Int16, 1323] = []
+    let phaseStep = TAU * frequency / Float32(SAMPLE_RATE)
+    for index in 0..sampleCount {
+        var gain: Float32 = 1.0
+        if index < fadeSamples {
+            gain = Float32(index) / Float32(fadeSamples)
+        } else if index >= sampleCount - fadeSamples {
+            gain = Float32(sampleCount - index) / Float32(fadeSamples)
+        }
+        let phase = Float32(index) * phaseStep
+        let tone = Math.sin(phase) * 0.72 + Math.sin(phase * 2.0) * 0.20
+        samples[Int(index)] = Int16(tone * gain * 9000.0)
+    }
+    if SDL3.putAudioStreamData(audioStream, samples.bytes, sampleCount * 2) {
+        _ = SDL3.resumeAudioDevice(audioDevice)
+    }
+}
+
+func processInput() {
+    while SDL3.pollEvent(&event) {
+        if event.type == SDL3.EventType.quit or event.type == SDL3.EventType.windowCloseRequested {
+            running = false
+        } else if event.type == SDL3.EventType.keyDown {
+            setMovementKey(event.scancode, true)
+            if event.scancode == SDL3.Scancode.escape {
+                running = false
+            } else if event.scancode == SDL3.Scancode.r && !event.repeat {
+                offsetX = 0.0
+                offsetY = 0.0
+            } else if event.scancode == SDL3.Scancode.space && !event.repeat {
+                paused = !paused
+                if paused {
+                    Console.printLine("WebGPU Pulse paused.")
+                } else {
+                    Console.printLine("WebGPU Pulse resumed.")
+                }
+            }
+        } else if event.type == SDL3.EventType.keyUp {
+            setMovementKey(event.scancode, false)
+        } else if event.type == SDL3.EventType.mouseButtonDown {
+            let button = SDL3.mouseButtonEvent(&event)
+            if button.button == SDL3.MouseButtonId.left {
+                playNote(659.25)
+            } else if button.button == SDL3.MouseButtonId.right {
+                playNote(329.63)
+            }
+        }
+    }
+
+    let speed: Float32 = 0.025
+    if !paused {
+        if keys.left { offsetX = offsetX - speed }
+        if keys.right { offsetX = offsetX + speed }
+        if keys.up { offsetY = offsetY + speed }
+        if keys.down { offsetY = offsetY - speed }
+    }
+}
+
+func shutdown() {
+    if audioStream != nil { SDL3.destroyAudioStream(audioStream) }
+    if audioDevice != 0 { SDL3.closeAudioDevice(audioDevice) }
+    if window != nil { SDL3.destroyWindow(window) }
+    SDL3.quit()
+    Platform.Emscripten.cancelMainLoop()
+    Console.printLine("WebGPU Pulse finished.")
+}
+
+func renderFrame() {
+    processInput()
+    if !running {
+        shutdown()
+        return
+    }
+    if !ready {
+        return
+    }
+
+    if !paused {
+        time = time + 0.016
+        pulse = Math.max(0.0, pulse - 0.018)
+        energy = Math.max(0.0, energy - 0.012)
+    }
+    var mouseX: Float32 = Float32(WIDTH) * 0.5
+    var mouseY: Float32 = Float32(HEIGHT) * 0.5
+    _ = SDL3.getMouseState(&mouseX, &mouseY)
+    var params: [Float32, 8] = [
+        time, mouseX / Float32(WIDTH), mouseY / Float32(HEIGHT), pulse,
+        offsetX, offsetY, energy, Float32(WIDTH) / Float32(HEIGHT)]
+    queue.writeBuffer(
+        buffer: paramsBuffer, bufferOffset: 0,
+        data: (params.bytes as *Byte), size: 32)
+
+    var surfaceTexture = WebGPU.SurfaceTexture(
+        nextInChain: nil, texture: nil,
+        status: WebGPU.SurfaceGetCurrentTextureStatus.error)
+    surface.getCurrentTexture(surfaceTexture: &surfaceTexture)
+    if surfaceTexture.status != WebGPU.SurfaceGetCurrentTextureStatus.successOptimal and
+        surfaceTexture.status != WebGPU.SurfaceGetCurrentTextureStatus.successSuboptimal {
+        return
+    }
+
+    let surfaceTextureObject = WebGPU.Texture.fromHandle(handle: surfaceTexture.texture)
+    let targetView = surfaceTextureObject.createView()
+    let encoder = device.createCommandEncoder()
+    if !targetView.isValid or !encoder.isValid {
+        targetView.release()
+        surfaceTextureObject.release()
+        return
+    }
+
+    var colorAttachment = WebGPU.RenderPassColorAttachment(
+        nextInChain: nil, view: targetView.rawHandle,
+        depthSlice: WebGPU.DEPTH_SLICE_UNDEFINED, resolveTarget: nil,
+        loadOp: WebGPU.LoadOp.clear, storeOp: WebGPU.StoreOp.store,
+        clearValue: WebGPU.Color(r: 0.005, g: 0.008, b: 0.02, a: 1.0))
+    var passDescriptor = WebGPU.RenderPassDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        colorAttachmentCount: 1, colorAttachments: *colorAttachment,
+        depthStencilAttachment: nil, occlusionQuerySet: nil, timestampWrites: nil)
+    let pass = encoder.beginRenderPass(descriptor: &passDescriptor)
+    pass.setPipeline(pipeline: pipeline)
+    pass.setBindGroup(groupIndex: 0, group: bindGroup)
+    pass.draw(vertexCount: 3)
+    pass.end()
+
+    let commandBuffer = encoder.finish()
+    queue.submit(command: commandBuffer)
+    commandBuffer.release()
+    pass.release()
+    encoder.release()
+    targetView.release()
+    surfaceTextureObject.release()
+}
+
+func createResources() -> Bool {
+    queue = device.getQueue()
+    if !queue.isValid {
+        Console.printLine("WebGPU Pulse: queue creation failed.")
+        return false
+    }
+
+    var capabilities = WebGPU.SurfaceCapabilities(
+        nextInChain: nil, usages: 0, formatCount: 0, formats: nil,
+        presentModeCount: 0, presentModes: nil,
+        alphaModeCount: 0, alphaModes: nil)
+    if surface.getCapabilities(adapter: adapter, capabilities: &capabilities) != WebGPU.Status.success or
+        capabilities.formatCount == 0 or capabilities.presentModeCount == 0 or
+        capabilities.alphaModeCount == 0 {
+        Console.printLine("WebGPU Pulse: surface capabilities unavailable.")
+        return false
+    }
+    surfaceFormat = capabilities.formats!^
+    var configuration = WebGPU.SurfaceConfiguration(
+        nextInChain: nil, device: device.rawHandle, format: surfaceFormat,
+        usage: WebGPU.TEXTURE_USAGE_RENDER_ATTACHMENT,
+        width: WIDTH, height: HEIGHT,
+        viewFormatCount: 0, viewFormats: nil,
+        alphaMode: capabilities.alphaModes!^, presentMode: capabilities.presentModes!^)
+    surface.configure(configuration: &configuration)
+    capabilities.freeMembers()
+
+    let shaderCString = CString(value: shaderSource)
+    var shaderWGSL = WebGPU.ShaderSourceWGSL(
+        chain: WebGPU.ChainedStruct(
+            next: nil, sType: WebGPU.SType.shaderSourceWGSL),
+        code: WebGPU.StringView(
+            data: (shaderCString.asCStringSlice().rawPointer() as *Int8),
+            length: (shaderCString.asSlice().length as! UInt)))
+    var shaderDescriptor = WebGPU.ShaderModuleDescriptor(
+        nextInChain: *shaderWGSL.chain, label: emptyStringView())
+    let shader = device.createShaderModule(descriptor: &shaderDescriptor)
+    if !shader.isValid {
+        Console.printLine("WebGPU Pulse: shader creation failed.")
+        return false
+    }
+
+    var bufferDescriptor = WebGPU.BufferDescriptor(
+        nextInChain: nil, label: emptyStringView(),
+        usage: WebGPU.BUFFER_USAGE_UNIFORM | WebGPU.BUFFER_USAGE_COPY_DST,
+        size: 32, mappedAtCreation: 0)
+    paramsBuffer = device.createBuffer(descriptor: &bufferDescriptor)
+    if !paramsBuffer.isValid {
+        Console.printLine("WebGPU Pulse: uniform buffer creation failed.")
+        shader.release()
+        return false
+    }
+
+    let vertexEntry: CStringSlice = "vertexMain"
+    let fragmentEntry: CStringSlice = "fragmentMain"
+    var vertexState = WebGPU.VertexState(
+        nextInChain: nil, module: shader.rawHandle,
+        entryPoint: makeStringView(text: vertexEntry, length: 10),
+        constantCount: 0, constants: nil, bufferCount: 0, buffers: nil)
+    var colorTarget = WebGPU.ColorTargetState(
+        nextInChain: nil, format: surfaceFormat,
+        blend: nil, writeMask: WebGPU.COLOR_WRITE_MASK_ALL)
+    var fragmentState = WebGPU.FragmentState(
+        nextInChain: nil, module: shader.rawHandle,
+        entryPoint: makeStringView(text: fragmentEntry, length: 12),
+        constantCount: 0, constants: nil, targetCount: 1, targets: *colorTarget)
+    var pipelineDescriptor = WebGPU.RenderPipelineDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: nil,
+        vertex: vertexState,
+        primitive: WebGPU.PrimitiveState(
+            nextInChain: nil, topology: WebGPU.PrimitiveTopology.triangleList,
+            stripIndexFormat: WebGPU.IndexFormat.undefined,
+            frontFace: WebGPU.FrontFace.ccw, cullMode: WebGPU.CullMode.none, unclippedDepth: 0),
+        depthStencil: nil,
+        multisample: WebGPU.MultisampleState(
+            nextInChain: nil, count: 1, mask: 0xFFFFFFFF, alphaToCoverageEnabled: 0),
+        fragment: *fragmentState)
+    pipeline = device.createRenderPipeline(descriptor: &pipelineDescriptor)
+    shader.release()
+    if !pipeline.isValid {
+        Console.printLine("WebGPU Pulse: render pipeline creation failed.")
+        return false
+    }
+
+    let layout = pipeline.getBindGroupLayout(groupIndex: 0)
+    var entry = WebGPU.BindGroupEntry(
+        nextInChain: nil, binding: 0, buffer: paramsBuffer.rawHandle,
+        offset: 0, size: 32, sampler: nil, textureView: nil)
+    var descriptor = WebGPU.BindGroupDescriptor(
+        nextInChain: nil, label: emptyStringView(), layout: layout.rawHandle,
+        entryCount: 1, entries: *entry)
+    bindGroup = device.createBindGroup(descriptor: &descriptor)
+    layout.release()
+    if !bindGroup.isValid {
+        Console.printLine("WebGPU Pulse: bind group creation failed.")
+        return false
+    }
+    return true
+}
+
+func deviceReady(
+    status: WebGPU.RequestDeviceStatus,
+    receivedDevice: &WebGPU.DeviceHandle?,
+    message: WebGPU.StringView,
+    userdata1: &Byte?,
+    userdata2: &Byte?) {
+    if status != WebGPU.RequestDeviceStatus.success or receivedDevice == nil {
+        Console.printLine("WebGPU Pulse: device request failed.")
+        return
+    }
+    device = WebGPU.Device.fromHandle(handle: receivedDevice)
+    if createResources() {
+        ready = true
+        Console.printLine("WebGPU Pulse ready: WASD steers, mouse buttons play tones, Space pauses.")
+    }
+}
+
+func adapterReady(
+    status: WebGPU.RequestAdapterStatus,
+    receivedAdapter: &WebGPU.AdapterHandle?,
+    message: WebGPU.StringView,
+    userdata1: &Byte?,
+    userdata2: &Byte?) {
+    if status != WebGPU.RequestAdapterStatus.success or receivedAdapter == nil {
+        Console.printLine("WebGPU Pulse: adapter request failed.")
+        return
+    }
+    adapter = WebGPU.Adapter.fromHandle(handle: receivedAdapter)
+    adapter.requestDevice(callback: deviceReady)
+}
+
+func initializeAudio() {
+    var spec = SDL3.AudioSpec(format: SDL3.AudioFormat.s16, channels: 1, freq: SAMPLE_RATE)
+    audioDevice = SDL3.openAudioDevice(SDL3.defaultPlaybackDevice, &spec)
+    if audioDevice == 0 {
+        Console.printLine("WebGPU Pulse: audio unavailable; continuing silently.")
+        return
+    }
+    audioStream = SDL3.createAudioStream(&spec, &spec)
+    if audioStream == nil or !SDL3.bindAudioStream(audioDevice, audioStream) {
+        if audioStream != nil { SDL3.destroyAudioStream(audioStream) }
+        SDL3.closeAudioDevice(audioDevice)
+        audioStream = nil
+        audioDevice = 0
+        Console.printLine("WebGPU Pulse: audio stream unavailable; continuing silently.")
+    }
+}
+
+func main() -> Int {
+    if !SDL3.initialize(SDL3.InitFlags.video | SDL3.InitFlags.audio) {
+        Console.printLine("WebGPU Pulse: SDL initialization failed: ${SDL3.getError()!}")
+        return 1
+    }
+    window = SDL3.createWindow(
+        "Rune: WebGPU Pulse", Int32(WIDTH), Int32(HEIGHT), SDL3.WindowFlags(0))
+    if window == nil {
+        Console.printLine("WebGPU Pulse: SDL window creation failed: ${SDL3.getError()!}")
+        SDL3.quit()
+        return 1
+    }
+    initializeAudio()
+
+    instance = WebGPU.Instance.create()
+    let canvasSelector: CStringSlice = "#canvas"
+    var source = WebGPU.EmscriptenSurfaceSourceCanvasHTMLSelector(
+        chain: WebGPU.ChainedStruct(
+            next: nil, sType: WebGPU.SType.emscriptenSurfaceSourceCanvasHTMLSelector),
+        selector: makeStringView(text: canvasSelector, length: 7))
+    var descriptor = WebGPU.SurfaceDescriptor(
+        nextInChain: *source.chain, label: emptyStringView())
+    surface = instance.createSurface(descriptor: &descriptor)
+    if !instance.isValid or !surface.isValid {
+        Console.printLine("WebGPU Pulse: WebGPU initialization failed.")
+        shutdown()
+        return 1
+    }
+
+    Console.printLine("WebGPU Pulse: requesting an adapter...")
+    instance.requestAdapter(callback: adapterReady)
+    Platform.Emscripten.setMainLoop(renderFrame, 0, 1)
+    return 0
+}
